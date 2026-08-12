@@ -87,6 +87,9 @@ export class GameDirector {
       case 'uiToggle':
         this.handleUiToggle(intent.control, phase);
         break;
+      case 'choiceSelect':
+        if (phase === 'choice') this.handleChoiceSelect(intent.option);
+        break;
     }
   }
 
@@ -121,12 +124,20 @@ export class GameDirector {
       return;
     }
     if (phase === 'choice') {
-      // Picture-based three-way choice (docs/MASTER_SPEC.md "絵による三択"): normalized x
-      // thirds of the tap select replay-same / different-scenery / freePlay.
+      // Fallback only: UiSystem's picture buttons are DOM elements that normally
+      // intercept the pointer and emit 'choiceSelect' directly (see
+      // handleChoiceSelect). This normalized-x-thirds interpretation only fires
+      // if a tap reaches the canvas underneath the choice overlay.
       if (x < 1 / 3) this.chooseReplaySame();
       else if (x < 2 / 3) this.chooseDifferentScenery();
       else this.chooseFreePlay();
     }
+  }
+
+  private handleChoiceSelect(option: 'replay' | 'other' | 'free'): void {
+    if (option === 'replay') this.chooseReplaySame();
+    else if (option === 'other') this.chooseDifferentScenery();
+    else this.chooseFreePlay();
   }
 
   private chooseReplaySame(): void {

@@ -82,12 +82,14 @@ interface ChoiceButtonSpec {
   readonly className: string;
   readonly ariaLabel: string;
   readonly icon: string;
+  /** Wave 3: emitted directly as ActionIntent{kind:'choiceSelect'} instead of a synthetic tap. */
+  readonly option: 'replay' | 'other' | 'free';
 }
 
 const CHOICE_BUTTONS: readonly ChoiceButtonSpec[] = [
-  { className: 'sus-choice-replay', ariaLabel: 'play the same transformation again', icon: replayIconSvg() },
-  { className: 'sus-choice-otherScene', ariaLabel: 'go to a different scenery', icon: otherSceneIconSvg() },
-  { className: 'sus-choice-freeRope', ariaLabel: 'pull the rope freely', icon: freeRopeIconSvg() }
+  { className: 'sus-choice-replay', ariaLabel: 'play the same transformation again', icon: replayIconSvg(), option: 'replay' },
+  { className: 'sus-choice-otherScene', ariaLabel: 'go to a different scenery', icon: otherSceneIconSvg(), option: 'other' },
+  { className: 'sus-choice-freeRope', ariaLabel: 'pull the rope freely', icon: freeRopeIconSvg(), option: 'free' }
 ];
 
 /**
@@ -95,11 +97,11 @@ const CHOICE_BUTTONS: readonly ChoiceButtonSpec[] = [
  * mute/quality corner cluster, an exit-free-play button (freePlay phase
  * only), and the after-finale choice screen (3 large picture buttons).
  *
- * Note (see report): docs/CONTRACTS_ADDENDUM.md's `UiSystem.mount(root,
- * onIntent)` signature has no EventBus parameter, so this class takes the
- * bus via its constructor instead — App.ts (Integrator-owned, out of scope
- * here) must construct it as `new UiSystem(this.bus)` in place of
- * `NullUiSystem` for the live app to pick it up.
+ * Takes the shared EventBus via its constructor (`new UiSystem(bus)`), not
+ * via mount() — see src/core/interfaces.ts's UiSystem doc comment for the
+ * documented construction convention. Wave 3: App.ts wires this in as the
+ * real implementation, and the choice buttons emit ActionIntent{kind:
+ * 'choiceSelect'} directly instead of a synthetic positional 'tap'.
  */
 export class UiSystem implements UiSystemContract {
   private root: HTMLElement | null = null;
@@ -256,14 +258,7 @@ export class UiSystem implements UiSystemContract {
       `.trim();
       button.innerHTML = spec.icon;
       button.addEventListener('click', () => {
-        const rootEl = this.root;
-        const rect = rootEl ? rootEl.getBoundingClientRect() : button.getBoundingClientRect();
-        const buttonRect = button.getBoundingClientRect();
-        const cx = buttonRect.left + buttonRect.width / 2;
-        const cy = buttonRect.top + buttonRect.height / 2;
-        const x = rect.width > 0 ? (cx - rect.left) / rect.width : 0.5;
-        const y = rect.height > 0 ? (cy - rect.top) / rect.height : 0.5;
-        onIntent({ kind: 'tap', x, y });
+        onIntent({ kind: 'choiceSelect', option: spec.option });
       });
       overlay.appendChild(button);
     }

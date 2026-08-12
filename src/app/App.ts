@@ -1,28 +1,69 @@
-import { AmbientLight, Color, DirectionalLight, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import { AmbientLight, Color, DirectionalLight, Group, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
 import { EventBus, GameState } from '../core';
-import type { SceneModule } from '../core';
-import { NullAudioEngine } from '../audio/AudioEngine';
+import type { GameEvent, GamePhase, SceneModule } from '../core';
+import { WebAudioEngine } from '../audio/AudioEngine';
 import { detectReducedMotion, watchReducedMotion } from '../accessibility';
 import { CameraDirector } from '../camera/CameraDirector';
 import { GameDirector } from '../game/GameDirector';
-import { NullInputSystem } from '../input/InputSystem';
-import { NullMaterialLibrary } from '../render/MaterialLibrary';
+import { InputSystem } from '../input/InputSystem';
+import { ProceduralMaterialLibrary } from '../render/MaterialLibrary';
 import { configureRenderer } from '../render/RenderSystem';
 import { PlaceholderScene } from '../scenes';
-import { NullUiSystem } from '../ui/UiSystem';
-import { NullVfxSystem } from '../vfx/VfxSystem';
+import { UiSystem } from '../ui/UiSystem';
+import { ParticleVfxSystem } from '../vfx/VfxSystem';
 import { DisposeBag } from './DisposeBag';
-import { installDebugHook } from './debugHook';
+import { installDebugHook, type StageDebugAudioState } from './debugHook';
 import { RafLoop } from './RafLoop';
 import { computeViewportProfile } from './viewport';
 
 const BOOT_CAMERA_FOV = 45;
+const DEBUG_EVENT_RING_CAPACITY = 50;
+
+type InputMode = 'tap' | 'lock' | 'rope' | 'choice' | 'none';
+
+/**
+ * Maps each GamePhase to the InputSystem mode that phase should accept, per
+ * docs/MASTER_SPEC.md's phase table and src/game/GameDirector.ts's actual
+ * ActionIntent handling (see its handleTap/handleRopeDrag/lockRelease
+ * branches for which phases consume which intents). Phases not listed here
+ * are watch-only beats (establish/descend/reveal1/reveal2/finale) that
+ * auto-advance without needing pointer input, so they get 'none'.
+ */
+const PHASE_INPUT_MODE: Record<GamePhase, InputMode> = {
+  boot: 'none',
+  title: 'tap',
+  establish: 'none',
+  cue: 'tap',
+  descend: 'none',
+  unlock: 'lock',
+  pull1: 'rope',
+  reveal1: 'none',
+  cue2: 'rope',
+  pull2: 'rope',
+  reveal2: 'none',
+  finale: 'none',
+  choice: 'choice',
+  freePlay: 'rope'
+};
+
+/**
+ * VfxSystem's internal offsets (src/vfx/VfxSystem.ts) are owner B's guess at
+ * the world-space layout in src/scenes/rig/layout.ts. FOOTLIGHT_Z (1.55) sits
+ * past PROSCENIUM_Z (1.0) — in the audience beyond the arch rather than along
+ * the stage's front lip. Rather than editing owner B's internal constant,
+ * this nudges the whole VFX rig upstage via the parent Object3D that
+ * VfxSystem's own doc comment says callers should use for layout correction
+ * (attach() adds VfxSystem's root under whatever parent is passed, so an
+ * offset parent shifts every effect it renders together).
+ */
+const VFX_ANCHOR_Z_OFFSET = -0.6;
 
 /**
  * Wave 1 application shell: boots the renderer/scene/camera, wires the
- * per-domain stub subsystems, drives the rAF loop, and keeps ViewportProfile
- * in sync with resize/orientation. Owners plug real logic into the stub
- * subsystems without needing to touch this file.
+ * per-domain subsystems, drives the rAF loop, and keeps ViewportProfile in
+ * sync with resize/orientation. Owners plug real logic into the subsystems
+ * without needing to touch this file (Wave 3: swapped the null-object stubs
+ * for owners A/B/C's real implementations).
  */
 export class App {
   private readonly bus = new EventBus();
@@ -35,15 +76,17 @@ export class App {
   private readonly activeScene: SceneModule;
   private readonly cameraDirector = new CameraDirector();
   private readonly gameDirector: GameDirector;
-  private readonly input = new NullInputSystem();
-  private readonly ui = new NullUiSystem();
-  private readonly vfx = new NullVfxSystem();
-  private readonly audio = new NullAudioEngine();
-  private readonly materials = new NullMaterialLibrary();
+  private readonly input = new InputSystem();
+  private readonly ui: UiSystem;
+  private readonly vfx = new ParticleVfxSystem();
+  private readonly audio = new WebAudioEngine();
+  private readonly materials = new ProceduralMaterialLibrary();
+  private readonly recentEvents: GameEvent[] = [];
 
   constructor(private readonly container: HTMLElement) {
     this.state = new GameState(this.bus);
     this.state.setReducedMotion(detectReducedMotion());
+    this.ui = new UiSystem(this.bus);
 
     const initialViewport = computeViewportProfile(this.state.getSnapshot().quality);
     this.state.setViewport(initialViewport);
@@ -86,8 +129,14 @@ export class App {
     });
     this.disposeBag.add(() => this.activeScene.dispose());
 
-    this.vfx.attach(this.scene);
-    this.disposeBag.add(() => this.vfx.dispose());
+    const vfxAnchor = new Group();
+    vfxAnchor.position.z = VFX_ANCHOR_Z_OFFSET;
+    this.scene.add(vfxAnchor);
+    this.vfx.attach(vfxAnchor);
+    this.disposeBag.add(() => {
+      this.vfx.dispose();
+      this.scene.remove(vfxAnchor);
+    });
     this.disposeBag.add(() => this.materials.dispose());
     this.disposeBag.add(() => this.audio.dispose());
 
@@ -108,6 +157,14 @@ export class App {
     this.input.onIntent((intent) => this.gameDirector.handleIntent(intent));
     this.disposeBag.add(() => this.input.dispose());
 
+    // Input interpretation follows GamePhase (docs/CONTRACTS_ADDENDUM.md:
+    // "GamePhaseに応じた入力解釈の切替（app/gameが設定）").
+    this.input.setMode(PHASE_INPUT_MODE[this.state.getSnapshot().phase]);
+    const detachInputModeSync = this.bus.on('phaseChanged', (event) => {
+      this.input.setMode(PHASE_INPUT_MODE[event.to]);
+    });
+    this.disposeBag.add(detachInputModeSync);
+
     this.ui.mount(this.container, (intent) => this.gameDirector.handleIntent(intent));
     this.disposeBag.add(() => this.ui.dispose());
 
@@ -122,7 +179,21 @@ export class App {
       window.removeEventListener('orientationchange', handleResize);
     });
 
-    installDebugHook(() => this.state.getSnapshot());
+    const detachEventRing = this.bus.onAny((event) => {
+      this.recentEvents.push(event);
+      if (this.recentEvents.length > DEBUG_EVENT_RING_CAPACITY) this.recentEvents.shift();
+    });
+    this.disposeBag.add(detachEventRing);
+
+    installDebugHook({
+      getState: () => this.state.getSnapshot(),
+      skipToPhase: (phase) => this.state.setPhase(phase),
+      getRecentEvents: () => [...this.recentEvents],
+      getAudioState: (): StageDebugAudioState => ({
+        ...this.audio.getDebugState(),
+        muted: this.state.getSnapshot().muted
+      })
+    });
 
     this.loop = new RafLoop((dt) => this.tick(dt));
   }

@@ -117,11 +117,11 @@ interface Entry {
  * reference see the upgrade automatically). dispose() frees all GPU
  * resources this library created.
  *
- * Class kept named `NullMaterialLibrary` (see src/app/App.ts, out of this
- * owner's edit scope) — it is no longer a null object, only its name is
- * pinned by the existing wiring.
+ * (Wave 3 integration renamed this class from its placeholder-era name
+ * `NullMaterialLibrary` to `ProceduralMaterialLibrary`, now that App.ts wires
+ * it in as the real implementation; no behavior changed.)
  */
-export class NullMaterialLibrary implements MaterialLibrary {
+export class ProceduralMaterialLibrary implements MaterialLibrary {
   private tier: QualityTier = 'high';
   private size = TIER_SIZE.high;
   private aniso = TIER_ANISO.high;

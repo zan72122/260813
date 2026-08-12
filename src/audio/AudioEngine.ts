@@ -9,9 +9,9 @@ import type { AudioCue, AudioEngine } from '../core';
  * the whole mix stays gentle/child-friendly (soft envelopes, no harsh
  * transients, modest peak levels).
  *
- * Class kept named `NullAudioEngine` (see src/app/App.ts, out of this
- * owner's edit scope) — it is no longer a null object, only its name is
- * pinned by the existing wiring.
+ * (Wave 3 integration renamed this class from its placeholder-era name
+ * `NullAudioEngine` to `WebAudioEngine`, now that App.ts wires it in as the
+ * real implementation; no behavior changed.)
  */
 
 const MASTER_GAIN = 0.8;
@@ -50,7 +50,7 @@ function rampTo(param: AudioParam, target: number, now: number, timeConstant = C
   param.setTargetAtTime(target, now, timeConstant);
 }
 
-export class NullAudioEngine implements AudioEngine {
+export class WebAudioEngine implements AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private muted = false;
@@ -74,6 +74,10 @@ export class NullAudioEngine implements AudioEngine {
 
   isUnlocked(): boolean {
     return this.unlocked;
+  }
+
+  getDebugState(): { contextState: 'uninitialized' | AudioContextState; unlocked: boolean } {
+    return { contextState: this.ctx ? this.ctx.state : 'uninitialized', unlocked: this.unlocked };
   }
 
   play(cue: AudioCue): void {

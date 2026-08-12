@@ -6,10 +6,9 @@ import { dragCanvasVertical, getState, releaseDrag, walkToward } from './helpers
  * stop-halts-everything, and reverse drag.
  *
  * Requires the pull1 phase, which needs owner A's GamePhase state machine
- * (src/game/GameDirector.ts) plus App.ts wiring the real InputSystem in
- * place of NullInputSystem (both out of scope for this area — see report).
- * Written fully against the ACCEPTANCE contract; expected to fail until
- * those land.
+ * (src/game/GameDirector.ts) plus App.ts wiring the real InputSystem. Wave 3
+ * wired the real InputSystem in place of NullInputSystem, so these now run
+ * for real via walkToward instead of self-skipping.
  */
 test.describe('F1-F3: rope drag drives StageTransformProgress', () => {
   test.setTimeout(45_000);

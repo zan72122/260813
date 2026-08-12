@@ -32,11 +32,27 @@ const DEFAULT_SNAPSHOT: GameStateSnapshot = {
 /**
  * Applies the CONTRACTS.md snap rule: p > 0.97 -> 1.0, p < 0.03 -> 0.0,
  * otherwise the clamped value passes through unchanged.
+ *
+ * Direction-aware: the high snap only fires while p is climbing (rawP >= the
+ * reference value), and the low snap only fires while p is falling. Without
+ * this, GameState.setProgress(rawP) would be a trap at the boundaries: a
+ * single ropeDrag delta near the start of a pull (a normal per-frame
+ * increment, typically well under 0.03 — see
+ * docs/STAGE_MECHANISM_ABSTRACTION.md's stroke formula) computes a raw value
+ * under SNAP_LOW every time, and every subsequent frame's `current +
+ * deltaProgress` starts from that already-snapped-to-0 current again — p can
+ * never climb past 0 via realistic small increments, only via one single
+ * drag event large enough to clear 0.03 outright. The `previousP` parameter
+ * defaults to the clamped rawP itself, so a bare `applySnap(x)` call (as used
+ * for a final/resting value with no drag context) keeps its original
+ * direction-agnostic behavior — this only changes GameState.setProgress,
+ * which passes the prior snapshot value as `previousP`.
  */
-export function applySnap(rawP: number): number {
+export function applySnap(rawP: number, previousP?: number): number {
   const clamped = clamp01(rawP);
-  if (clamped > TRANSFORM_TIMELINE.SNAP_HIGH) return 1;
-  if (clamped < TRANSFORM_TIMELINE.SNAP_LOW) return 0;
+  const prev = previousP === undefined ? clamped : clamp01(previousP);
+  if (clamped > TRANSFORM_TIMELINE.SNAP_HIGH && clamped >= prev) return 1;
+  if (clamped < TRANSFORM_TIMELINE.SNAP_LOW && clamped <= prev) return 0;
   return clamped;
 }
 
@@ -79,7 +95,7 @@ export class GameState {
    */
   setProgress(rawP: StageTransformProgress, velocity = 0): void {
     const previous = this.snapshot.progress;
-    const next = applySnap(rawP);
+    const next = applySnap(rawP, previous);
     this.patch({ progress: next });
 
     this.bus.emit({ type: 'transformProgress', pair: this.snapshot.pair, p: next, velocity });

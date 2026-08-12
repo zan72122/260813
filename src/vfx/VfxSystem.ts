@@ -27,9 +27,11 @@ import { getCtx2d, makeCanvas, withAlpha } from '../render/textureGen';
  * a little above stage height. Callers who need a different layout can scale
  * / offset the parent Object3D they pass to attach().
  *
- * Class kept named `NullVfxSystem` (see src/app/App.ts, out of this owner's
- * edit scope) — it is no longer a null object, only its name is pinned by
- * the existing wiring.
+ * (Wave 3 integration renamed this class from its placeholder-era name
+ * `NullVfxSystem` to `ParticleVfxSystem`, now that App.ts wires it in as the
+ * real implementation; no behavior changed. App.ts also now attaches this
+ * through a small corrective offset Group rather than the bare scene root —
+ * see the attach() call site.)
  */
 
 interface TierCounts {
@@ -121,7 +123,7 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-export class NullVfxSystem implements VfxSystem {
+export class ParticleVfxSystem implements VfxSystem {
   private readonly root = new Group();
   private tier: QualityTier = 'high';
   private time = 0;

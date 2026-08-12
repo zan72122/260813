@@ -10,7 +10,11 @@ import { dragCanvasVertical, releaseDrag, walkToward } from './helpers';
  * machine lands.
  */
 test.describe('F10: console error / unhandled rejection budget', () => {
-  test.setTimeout(45_000);
+  // walkToward(..., 'choice') now reaches its target for real (Wave 3's real
+  // Input/UiSystem), which means riding every auto-advance beat (~32s) plus
+  // this test's own post-walk drag/resize steps — see F11's test.setTimeout
+  // comment for the beat-by-beat budget.
+  test.setTimeout(110_000);
 
   test('a full best-effort playthrough produces no console errors or page errors', async ({ page }) => {
     const consoleErrors: string[] = [];

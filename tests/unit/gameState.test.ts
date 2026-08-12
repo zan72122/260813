@@ -26,6 +26,34 @@ describe('applySnap (CONTRACTS.md 0.97 / 0.03 snap rule)', () => {
     expect(applySnap(-5)).toBe(0);
     expect(applySnap(5)).toBe(1);
   });
+
+  describe('direction-aware (previousP) — required for realistic per-frame ropeDrag deltas', () => {
+    it('does NOT snap a small value back to 0 while climbing away from 0', () => {
+      // A single per-frame ropeDrag increment is typically well under 0.03
+      // (docs/STAGE_MECHANISM_ABSTRACTION.md's stroke formula). Climbing
+      // *from* 0 must preserve that small positive value, not erase it.
+      expect(applySnap(0.029, 0)).toBeCloseTo(0.029);
+      expect(applySnap(0.01, 0)).toBeCloseTo(0.01);
+    });
+
+    it('DOES snap to 0 when falling toward 0 from above', () => {
+      expect(applySnap(0.02, 0.05)).toBe(0);
+      expect(applySnap(0.001, 0.03)).toBe(0);
+    });
+
+    it('does NOT snap to 1 while falling away from 1 (still above 0.97)', () => {
+      expect(applySnap(0.98, 0.999)).toBeCloseTo(0.98);
+    });
+
+    it('DOES snap to 1 while climbing toward 1 from below', () => {
+      expect(applySnap(0.98, 0.9)).toBe(1);
+    });
+
+    it('omitting previousP keeps the original direction-agnostic behavior', () => {
+      expect(applySnap(0.029)).toBe(0);
+      expect(applySnap(0.98)).toBe(1);
+    });
+  });
 });
 
 describe('GameState.setProgress', () => {
@@ -74,6 +102,29 @@ describe('GameState.setProgress', () => {
 
     state.setProgress(0.4, 0.8);
     expect(events).toEqual([{ p: 0.4, velocity: 0.8 }]);
+  });
+
+  it('regression: many small forward ropeDrag-sized increments from 0 accumulate past SNAP_LOW (F1)', () => {
+    // Reproduces a real Wave 3 integration bug: a direction-agnostic snap
+    // rule reset every sub-0.03 raw value to exactly 0, so `current +
+    // deltaProgress` starting from 0 with realistic per-frame deltas
+    // (~0.029 each, per the MASTER_SPEC stroke formula) could never climb
+    // past 0 at all — the rope was permanently stuck.
+    const state = new GameState(new EventBus());
+    const perFrameDelta = 0.029; // just under SNAP_LOW (0.03)
+    for (let i = 0; i < 6; i++) {
+      state.setProgress(state.getSnapshot().progress + perFrameDelta);
+    }
+    expect(state.getSnapshot().progress).toBeGreaterThan(0.03);
+    expect(state.getSnapshot().progress).toBeCloseTo(6 * perFrameDelta);
+  });
+
+  it('regression: dragging back down to near 0 still snaps cleanly to exactly 0 (F3)', () => {
+    const state = new GameState(new EventBus());
+    state.setProgress(0.5);
+    state.setProgress(0.2);
+    state.setProgress(0.02); // falling toward 0, below SNAP_LOW -> snaps
+    expect(state.getSnapshot().progress).toBe(0);
   });
 
   it('does not change p unless setProgress is called (no autoplay, CONTRACTS invariant #2)', () => {

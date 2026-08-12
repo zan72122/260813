@@ -42,7 +42,11 @@ export type ActionIntent =
   | { kind: 'ropeDrag'; deltaProgress: number } // pre-corrected. down = positive
   | { kind: 'ropeRelease' }
   | { kind: 'lockRelease' }
-  | { kind: 'uiToggle'; control: 'mute' | 'quality' | 'exitFree' };
+  | { kind: 'uiToggle'; control: 'mute' | 'quality' | 'exitFree' }
+  // Explicit choice-screen selection (Wave 3): UiSystem's picture buttons emit this
+  // directly instead of a synthetic 'tap' at the button's on-screen position, so
+  // GameDirector no longer needs to infer the choice from normalized-x thirds.
+  | { kind: 'choiceSelect'; option: 'replay' | 'other' | 'free' };
 
 // ---- quality / viewport ----
 export type QualityTier = 'low' | 'medium' | 'high';

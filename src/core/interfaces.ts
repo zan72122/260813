@@ -30,6 +30,12 @@ export interface AudioEngine {
   setMuted(muted: boolean): void;
   isMuted(): boolean;
   dispose(): void;
+  /**
+   * Debug-only introspection (Wave 3, window.__stageDebug). Purely additive
+   * beyond docs/CONTRACTS_ADDENDUM.md's original shape — does not change the
+   * meaning of any other member.
+   */
+  getDebugState(): { contextState: 'uninitialized' | AudioContextState; unlocked: boolean };
 }
 
 /** Implementation: B -> src/vfx/VfxSystem.ts */
@@ -53,7 +59,16 @@ export interface InputSystem {
   dispose(): void;
 }
 
-/** Implementation: C -> src/ui/UiSystem.ts (updates via EventBus subscription; uiToggle flows through onIntent) */
+/**
+ * Implementation: C -> src/ui/UiSystem.ts (updates via EventBus subscription;
+ * uiToggle/choiceSelect flow back out through onIntent).
+ *
+ * Construction convention (not expressible in a structural interface):
+ * implementations take the shared EventBus as a constructor parameter
+ * (`new UiSystem(bus)`), not as a mount() argument — mount() only takes the
+ * DOM root to render into and the intent callback to forward user actions
+ * through. App wiring must construct with the bus before calling mount().
+ */
 export interface UiSystem {
   mount(root: HTMLElement, onIntent: (intent: ActionIntent) => void): void;
   dispose(): void;

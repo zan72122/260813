@@ -12,6 +12,18 @@ type Unsubscribe = () => void;
  */
 export class EventBus {
   private readonly listeners = new Map<EventType, Set<Listener<EventType>>>();
+  private readonly anyListeners = new Set<(event: GameEvent) => void>();
+
+  /**
+   * Subscribes to every GameEvent regardless of type. Intended for
+   * cross-cutting observers (e.g. the debug event ring buffer in
+   * src/app/debugHook.ts) rather than gameplay logic, which should use the
+   * typed on(type, listener) instead.
+   */
+  onAny(listener: (event: GameEvent) => void): Unsubscribe {
+    this.anyListeners.add(listener);
+    return () => this.anyListeners.delete(listener);
+  }
 
   on<K extends EventType>(type: K, listener: Listener<K>): Unsubscribe {
     let set = this.listeners.get(type);
@@ -28,16 +40,19 @@ export class EventBus {
   }
 
   emit<E extends GameEvent>(event: E): void {
-    const set = this.listeners.get(event.type);
-    if (!set || set.size === 0) return;
     // Snapshot before iterating so a listener can safely unsubscribe itself/others mid-dispatch.
-    for (const listener of [...set]) {
-      (listener as unknown as Listener<E['type']>)(event as unknown as EventOf<E['type']>);
+    const set = this.listeners.get(event.type);
+    if (set && set.size > 0) {
+      for (const listener of [...set]) {
+        (listener as unknown as Listener<E['type']>)(event as unknown as EventOf<E['type']>);
+      }
     }
+    for (const listener of [...this.anyListeners]) listener(event);
   }
 
   /** Removes every listener for every event type. Used on scene/app teardown. */
   clear(): void {
     this.listeners.clear();
+    this.anyListeners.clear();
   }
 }

@@ -6,12 +6,16 @@ import { getState, walkToward } from './helpers';
  *
  * Requires: owner A's phase machine reaching 'finale'/'choice', AND App.ts
  * wiring the real UiSystem (src/ui/UiSystem.ts) in place of NullUiSystem so
- * the `.sus-choice-replay` picture button actually exists in the DOM (see
- * report). Written fully against the ACCEPTANCE contract; expected to fail
- * until both land.
+ * the `.sus-choice-replay` picture button actually exists in the DOM. Wave 3
+ * wired the real UiSystem, whose choice buttons now emit
+ * ActionIntent{kind:'choiceSelect'} directly.
  */
 test.describe('F11: replay reachable within two taps from choice', () => {
-  test.setTimeout(45_000);
+  // Reaching 'choice' walks through every auto-advance beat (establish->cue
+  // 6s, descend->unlock 6s, reveal1->cue2 8s, reveal2->finale 8s,
+  // finale->choice 4s = 32s of watch-beats alone), so this needs more
+  // headroom than F1-F3/F9's shorter walks.
+  test.setTimeout(110_000);
 
   test('tapping the replay picture button from the choice screen restarts the same transform', async ({ page }) => {
     await page.goto('/');

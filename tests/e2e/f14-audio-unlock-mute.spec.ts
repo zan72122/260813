@@ -4,13 +4,14 @@ import { getState, tapCanvas } from './helpers';
 /**
  * F14 (docs/ACCEPTANCE.md): audio unlock on first gesture + mute.
  *
- * No app hook exposes the AudioEngine's AudioContext directly (see report:
- * a debug hook for this would help), so this test wraps the global
- * `AudioContext` constructor from the test side (standard technique, no app
- * changes) to observe whether/when the app creates one. Today's
- * NullAudioEngine deliberately creates none yet (owner B ships the real
- * WebAudio engine); this is written against the finished contract and is
- * expected to fail until that lands.
+ * This test wraps the global `AudioContext` constructor from the test side
+ * (standard technique, no app changes) to observe whether/when the app
+ * creates one. Wave 3 wired the real WebAudioEngine (src/audio/AudioEngine.ts)
+ * in place of NullAudioEngine, which creates an AudioContext lazily on first
+ * unlock(). window.__stageDebug.getAudioState() also exposes
+ * { contextState, muted } directly, as an alternative to the constructor-wrap
+ * trick, for tests that don't need to distinguish "no context yet" from "one
+ * exists but is suspended".
  */
 test.describe('F14: audio unlock on first gesture, and mute', () => {
   test('the title tap (first gesture) creates/resumes an AudioContext', async ({ page }) => {
