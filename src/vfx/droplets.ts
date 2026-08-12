@@ -12,11 +12,17 @@ const VERTEX_SHADER = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
   varying float vAlpha;
+  varying float vViewDist;
   uniform float uPixelRatio;
   void main() {
-    vAlpha = aAlpha;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = aSize * uPixelRatio * (300.0 / max(0.001, -mvPosition.z));
+    vViewDist = length(mvPosition.xyz);
+    // Cap point size so a particle that ends up very close to the camera
+    // (e.g. mid-blend cinematic camera transitions) doesn't balloon into a
+    // huge near-opaque disc — a defensive clamp alongside the fragment-side
+    // near-camera fade below.
+    gl_PointSize = min(aSize * uPixelRatio * (300.0 / max(0.001, -mvPosition.z)), aSize * uPixelRatio * 6.0);
+    vAlpha = aAlpha;
     gl_Position = projectionMatrix * mvPosition;
   }
 `;
@@ -26,9 +32,11 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uMap;
   uniform vec3 uColor;
   varying float vAlpha;
+  varying float vViewDist;
   void main() {
     vec4 tex = texture2D(uMap, gl_PointCoord);
-    float a = tex.a * vAlpha;
+    float nearFade = smoothstep(0.04, 0.35, vViewDist);
+    float a = tex.a * vAlpha * nearFade;
     if (a < 0.01) discard;
     gl_FragColor = vec4(uColor, a);
   }

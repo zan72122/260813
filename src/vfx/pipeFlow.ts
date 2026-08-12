@@ -32,18 +32,21 @@ const SLUG_FRAGMENT = /* glsl */ `
   uniform vec3 uColorGlow;
   varying vec2 vUv;
   void main() {
-    // Distance behind (positive) / ahead (negative) of the traveling slug.
-    float d = vUv.y - uProgress;
-    float trail = smoothstep(uWindow * 1.6, 0.0, max(d, 0.0));      // fades out behind
-    float head = smoothstep(uWindow * 0.5, 0.0, max(-d, 0.0));      // sharper ahead edge
-    float band = max(trail * 0.7, head);
-    float shimmer = 0.9 + 0.1 * sin(vUv.x * 18.0 + uTime * 4.0);
-    vec3 color = mix(uColorBase, uColorGlow, smoothstep(uWindow * 0.4, 0.0, abs(d)));
-    float alpha = band * shimmer * 0.85;
-    // Very faint ambient wetness along the already-passed pipe interior.
-    alpha += 0.02 * step(0.0, uProgress) * step(vUv.y, uProgress);
-    if (alpha < 0.02) discard;
-    gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
+    // headDist > 0: this point has already been passed by the leading edge
+    // (a calming wet trail, exponentially dimmer further back — never a
+    // flat constant, which is what previously read as a uniform saturated
+    // fill). headDist < 0: water hasn't arrived yet (dry, ~empty pipe).
+    float headDist = uProgress - vUv.y;
+    float wetTrail = exp(-max(headDist, 0.0) / (uWindow * 1.6)) * step(0.0, headDist);
+    float leadBright = smoothstep(uWindow * 0.7, 0.0, abs(headDist));
+    float aheadHint = smoothstep(0.0, uWindow * 0.35, -headDist) * (1.0 - smoothstep(uWindow * 0.8, uWindow * 1.4, -headDist));
+
+    float shimmer = 0.85 + 0.15 * sin(vUv.x * 18.0 + uTime * 4.0);
+    vec3 color = mix(uColorBase, uColorGlow, leadBright);
+    float alpha = (wetTrail * 0.55 + leadBright * 0.8 + aheadHint * 0.15) * shimmer;
+    alpha = clamp(alpha, 0.0, 0.78);
+    if (alpha < 0.015) discard;
+    gl_FragColor = vec4(color, alpha);
   }
 `;
 
@@ -53,7 +56,7 @@ export function createPipeFlow(curve: THREE.CatmullRomCurve3, radialSegments = 1
 
   const tubularSegments = Math.max(24, Math.min(96, Math.round(curve.getLength() * 12)));
   const shellRadius = 0.16;
-  const waterRadius = shellRadius * 0.7;
+  const waterRadius = shellRadius * 0.78;
 
   // Cutaway casing: leaves a ~100° gap at the top of the arc open.
   const gapDeg = 100;
@@ -76,20 +79,42 @@ export function createPipeFlow(curve: THREE.CatmullRomCurve3, radialSegments = 1
   shell.receiveShadow = true;
   group.add(shell);
 
-  const waterGeo = buildArcTubeGeometry(curve, tubularSegments, waterRadius, radialSegments, 0, Math.PI * 2);
+  // Water sits as a partial arc nested near the BOTTOM of the interior
+  // (opposite the shell's open-top gap, angle ~180°) rather than a full
+  // 360° tube — a full tube depended on the viewer's exact angle to peek
+  // through the narrow top opening and see the far interior wall, which in
+  // practice read as "no water visible" from most external tracking angles.
+  // A water surface resting at the bottom of the open channel is directly
+  // visible from any angle that can see into the trough at all.
+  const waterArcDeg = 110;
+  const waterGeo = buildArcTubeGeometry(
+    curve,
+    tubularSegments,
+    waterRadius,
+    radialSegments,
+    THREE.MathUtils.degToRad(180 - waterArcDeg / 2),
+    THREE.MathUtils.degToRad(waterArcDeg),
+  );
+  // A fixed uv-fraction window (not world-length-derived): the external
+  // tracking camera's on-screen framing can show anywhere from a short to a
+  // fairly long stretch of curve depending on its offset/FOV, so a window
+  // this small keeps the glow a clearly visible ~8% minority of the tube
+  // (a legible "slug" with a wet trail behind it, per the exponential decay
+  // below) without being so thin it can vanish between visible samples.
+  const uWindowValue = 0.15;
   const slugMaterial = new THREE.ShaderMaterial({
     vertexShader: SLUG_VERTEX,
     fragmentShader: SLUG_FRAGMENT,
     uniforms: {
       uProgress: { value: 0 },
-      uWindow: { value: 0.09 },
+      uWindow: { value: uWindowValue },
       uTime: { value: 0 },
-      uColorBase: { value: new THREE.Color('#3f8fa3') },
+      uColorBase: { value: new THREE.Color('#3a7284') },
       uColorGlow: { value: new THREE.Color('#eafcff') },
     },
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     side: THREE.DoubleSide,
   });
   slugMaterial.toneMapped = false;
