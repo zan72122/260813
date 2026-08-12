@@ -11,7 +11,7 @@ import { advance, createInitialState } from '../contracts/machine';
 import { createRenderer } from '../core';
 import { createStore } from '../contracts/store';
 import { createUi } from '../ui';
-import type { GamePhase } from '../contracts/types';
+import type { Anchor, GamePhase } from '../contracts/types';
 
 interface GameTestApi {
   getState: () => ReturnType<typeof createInitialState>;
@@ -21,6 +21,15 @@ interface GameTestApi {
   settled: () => boolean;
   stats: () => { drawCalls: number; triangles: number; fps: number };
   seed: number;
+  // ---- Integrator (Wave 4) additions below: append-only, non-breaking. ----
+  // See docs/ARCHITECTURE_CONTRACT.md "テスト可能性契約" and tests/e2e/*.
+  /** Every anchor currently published by the renderer (screen-space px), so
+   *  E2E can drive real pointer gestures at the actual on-screen target. */
+  anchors: () => Anchor[];
+  /** Total EventBus listener count (contracts/bus.ts), for leak.spec.ts. */
+  listenerCount: () => number;
+  /** Net outstanding window.setTimeout timers app-wide, for leak.spec.ts. */
+  timerCount: () => number;
 }
 
 declare global {
@@ -51,8 +60,52 @@ function parseParams(): ParsedParams {
 const FIXED_STEP_MS = 1000 / 60;
 const RESIZE_DEBOUNCE_MS = 200;
 
+/**
+ * Integrator (Wave 4) instrumentation: wraps window.setTimeout/clearTimeout to
+ * track the net count of outstanding timers app-wide, exposed via
+ * window.__game.timerCount() for tests/e2e/leak.spec.ts. Every owner's timer
+ * usage already goes through window.setTimeout (src/ui/index.ts and this
+ * file's own resize debounce) — this is a passive counter, not a behavior
+ * change, and every call still delegates to the native implementation.
+ */
+function installTimerCounter(): () => number {
+  let count = 0;
+  const nativeSetTimeout = window.setTimeout.bind(window);
+  const nativeClearTimeout = window.clearTimeout.bind(window);
+
+  window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
+    count += 1;
+    const id = nativeSetTimeout(
+      (...cbArgs: unknown[]) => {
+        count = Math.max(0, count - 1);
+        if (typeof handler === 'function') handler(...cbArgs);
+      },
+      timeout,
+      ...args,
+    );
+    return id as unknown as number;
+  }) as typeof window.setTimeout;
+
+  window.clearTimeout = ((id?: Parameters<typeof window.clearTimeout>[0]): void => {
+    if (id !== undefined && id !== null) count = Math.max(0, count - 1);
+    nativeClearTimeout(id);
+  }) as typeof window.clearTimeout;
+
+  return () => count;
+}
+
+/** UX's pause overlay (docs/handoffs/ux.md "Pause contract") sets this side-
+ * channel flag since createUi()'s frozen signature has no way to reach the
+ * shared rAF loop directly. The app is the one place that *does* own that
+ * loop, so this is where pause is actually honored (see frame() below). */
+function isUiPaused(): boolean {
+  return (window as unknown as { __uiPaused?: boolean }).__uiPaused === true;
+}
+
 export function createApp(): void {
   const { seed, test, reducedMotion } = parseParams();
+
+  const getTimerCount = installTimerCounter();
 
   const bus = createEventBus();
   const store = createStore(createInitialState(seed, { reducedMotion }));
@@ -84,6 +137,9 @@ export function createApp(): void {
     settled: () => renderer.isSettled(),
     stats: () => renderer.getStats(),
     seed,
+    anchors: () => anchors.all(),
+    listenerCount: () => bus.listenerCount(),
+    timerCount: () => getTimerCount(),
   };
 
   let running = false;
@@ -95,7 +151,12 @@ export function createApp(): void {
     if (!running) return;
     const dt = test ? FIXED_STEP_MS : Math.min(now - lastTime || FIXED_STEP_MS, 100);
     lastTime = now;
-    game.update(dt);
+    // Honor UX's pause contract (docs/handoffs/ux.md): the pause overlay
+    // already blocks input, but gameplay's own autonomous progress (e.g.
+    // climb's "let go and it keeps climbing") is only actually halted by not
+    // ticking game.update() at all. The renderer keeps its own loop running
+    // so the dimmed scene behind the overlay stays visibly alive.
+    if (!isUiPaused()) game.update(dt);
     rafId = requestAnimationFrame(frame);
   }
 

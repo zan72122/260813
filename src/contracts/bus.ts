@@ -10,6 +10,8 @@ export interface EventBus {
   on<K extends GameEventName>(event: K, listener: Listener<K>): () => void;
   off<K extends GameEventName>(event: K, listener: Listener<K>): void;
   emit<K extends GameEventName>(event: K, payload: GameEventMap[K]): void;
+  /** Integrator (Wave 4) addition: total listener count across all events, for E2E leak checks only. */
+  listenerCount(): number;
 }
 
 export function createEventBus(): EventBus {
@@ -42,5 +44,11 @@ export function createEventBus(): EventBus {
     }
   }
 
-  return { on, off, emit };
+  function listenerCount(): number {
+    let total = 0;
+    for (const set of listeners.values()) total += set.size;
+    return total;
+  }
+
+  return { on, off, emit, listenerCount };
 }

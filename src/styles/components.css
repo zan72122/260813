@@ -184,6 +184,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Integrator (Wave 4) fix: sound-toggle/pause-toggle previously had no
+   * z-index, so .complete-menu's opaque z-index:40 layer fully covered and
+   * pointer-blocked them on the replay screen (sound-toggle is meant to be
+   * reachable in every phase, per its render() logic never hiding it).
+   * Sits below --z-pause (60) so the pause overlay still wins over these
+   * while paused, matching the documented pause contract. */
+  z-index: var(--z-pause);
 }
 
 .corner-button svg {
@@ -224,6 +231,8 @@ button {
   background: var(--iron-800);
   color: var(--paper-200);
   box-shadow: 0 3px 8px var(--shadow-soft);
+  /* Integrator (Wave 4) fix: see .corner-button's z-index comment. */
+  z-index: var(--z-pause);
 }
 
 .back-button svg {

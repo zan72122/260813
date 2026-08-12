@@ -75,6 +75,16 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+// Integrator (Wave 4) fix — see the call site's comment. Rough px->world
+// scale for the align shot's typical close-up distance, hard-clamped so no
+// input magnitude can fling the beam far from its hang position.
+const ALIGN_PX_TO_WORLD = 1 / 120;
+const ALIGN_WORLD_NUDGE_MAX = 3;
+function clampAlignNudge(px: number): number {
+  const world = px * ALIGN_PX_TO_WORLD;
+  return Math.min(Math.max(world, -ALIGN_WORLD_NUDGE_MAX), ALIGN_WORLD_NUDGE_MAX);
+}
+
 /** Rotate a beam/slot-local (x along beam length, z depth) offset by `angle` around Y and add to `origin`. */
 function rotateLocal(
   localX: number,
@@ -283,8 +293,21 @@ export function createSceneRig(seed: number): SceneRig {
       const hangLength = Math.max(sheave.y - hangBaseY, 0.2);
       const swayOffset = hangLength * Math.sin(state.hoist.sway);
       const alignPhase = state.phase === 'align';
-      const dx = alignPhase ? state.align.dx : 0;
-      const dy = alignPhase ? state.align.dy : 0;
+      // Integrator (Wave 4) fix: state.align.dx/dy are accumulated
+      // screen-CSS-pixel deltas (src/game/phases/align.ts computes and
+      // compares them entirely in screen-space, against Anchor.x/y, which
+      // are contractually CSS pixels) — not world-space units. Adding them
+      // to world-space coordinates unconverted let a real, gradual drag
+      // fling the beam dozens of world units off-frame mid-gesture (only
+      // invisible in ad-hoc testing because one large drag tends to
+      // overshoot straight into the snap radius before the divergence is
+      // visible). The actual "did we reach the ghost" decision is
+      // unaffected — it's computed entirely in align.ts's own
+      // screen-pixel bookkeeping; this only fixes what the live drag
+      // preview looks like before that snap fires. Scaled to a small,
+      // clamped world-space nudge instead of a 1:1 unconverted addition.
+      const dx = alignPhase ? clampAlignNudge(state.align.dx) : 0;
+      const dy = alignPhase ? clampAlignNudge(state.align.dy) : 0;
       crane.hookBlock.position.set(sheave.x + swayOffset + dx, hangBaseY + dy, sheave.z);
       hookReleaseT = 0;
     } else if (!state.sling.released) {
