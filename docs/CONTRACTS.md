@@ -100,6 +100,36 @@ openness>=1 → valve-opened → pipe-run beat → water-progress(t: 0→1, 速�
 
 指が止まる → valve-rotate が来ない → openness 停止 → water/音も現状維持で停止。
 
+## 配線規約（Wave 3 統合点）
+
+各 worker は自領域のトップ index.ts から単一のエントリを export し、Integrator が main.ts で配線する:
+
+- Worker A: `registerGame(ctx: SceneContext): void`（src/game）、`registerScenes(ctx)`（src/scenes）、`registerCamera(ctx)`（src/camera）
+- Worker B: `createAudioDirector(): AudioDirector`（src/audio）、`applyHeroMaterials(scene, quality)`（src/render）、VFXファクトリ群（src/vfx: `createWaterJet(kind)`, `createPipeFlow(curve)` 等、`update(dt)` と `setIntensity(v)` を持つ）
+- Worker C: `registerInput(ctx)`（src/input）、`registerUI(ctx)`（src/ui）、`registerAccessibility(ctx)`（src/accessibility）
+
+A のシーンは主要オブジェクトに名前を付け（`valve-head`, `wrench`, `fountain-fan-nozzle` 等）、
+`src/scenes/anchors.ts` の SceneAnchors レジストリ（噴水位置・バルブ位置・配管カーブ CatmullRomCurve3）で公開する。
+B の VFX/材質はこのアンカーへ Integrator が接続する。
+
+## Debug API（e2e 自動化用・Worker A が src/game/debug.ts で実装）
+
+`window.__versailles` に read-only 状態を常時公開する:
+
+```ts
+interface VersaillesDebug {
+  phase: GamePhase; fountain: FountainId | null;
+  openness: number;            // 0..1
+  waterProgress: number;       // 0..1
+  flowIntensity: number;       // 0..1
+  hotspots: { whistle?: {x:number;y:number;r:number};   // 正規化スクリーン座標
+              valve?:   {x:number;y:number;r:number} };
+  rendererInfo: { drawCalls: number; triangles: number };
+}
+```
+
+Worker C の e2e はこの API で状態を検証し、操作は実ポインタ合成（タップ・円軌道）で行う。
+
 ## 変更手続き
 
 契約変更が必要な worker は、コードを変更せず handoff の「未解決事項」欄に
