@@ -1,0 +1,136 @@
+/* src/styles/base.css — reset, safe-area, canvas + overlay layout.
+   Owned by UX (Wave 3c); Foundation provides only this minimal skeleton. */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0d10;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+}
+
+canvas[data-testid='game-canvas'] {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#ui > * {
+  pointer-events: auto;
+}
+
+[data-testid='error-fallback'] {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  background: #1a1410;
+  color: #f2e6d8;
+  text-align: center;
+  z-index: 1000;
+}
+
+[data-testid='error-fallback'].visible {
+  display: flex;
+}
+
+/* --- Wave 2 minimal skeleton styling for loading/title/sound-toggle. ---
+   UX (Wave 3c) owns and will replace this with the real visual language. */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen[hidden] {
+  display: none;
+}
+
+.screen-loading {
+  background: #101014;
+}
+
+.steam-gauge {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: 0.35rem solid rgba(242, 230, 216, 0.25);
+  border-top-color: #f2e6d8;
+  animation: steam-gauge-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steam-gauge {
+    animation: none;
+  }
+}
+
+@keyframes steam-gauge-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.title-start {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  border: none;
+  background: #b5432b;
+  color: #f2e6d8;
+  font-size: 2.25rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sound-toggle {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 16, 14, 0.6);
+  color: #f2e6d8;
+}
+
+.sound-toggle.muted {
+  opacity: 0.5;
+}
