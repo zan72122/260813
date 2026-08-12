@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+npm-debug.log*
+
+# Playwright / test artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Screenshots are e2e-generated evidence, but keep the directory tracked
+# (see .gitkeep) while ignoring generated PNGs from local runs.
+screenshots/*.png
+!screenshots/.gitkeep
