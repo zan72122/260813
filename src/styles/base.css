@@ -1,0 +1,431 @@
+/*
+ * EiffelUiLayer base styles. Museum-cutaway control language: brass + iron
+ * bodies, a warm wooden lever knob — no glassmorphism, no neon, no
+ * dashboard chrome (VISUAL_ACCEPTANCE forbidden list applies to UI too).
+ * No text is ever rendered here — every control is pictogram-only.
+ */
+
+:root {
+  --eiffel-iron: #2b2b30;
+  --eiffel-iron-light: #45454c;
+  --eiffel-brass: #b08d3f;
+  --eiffel-brass-light: #d4b06a;
+  --eiffel-ochre: #e0a83c;
+  --eiffel-wood: #5b4130;
+  --eiffel-wood-light: #7a5a3d;
+  --eiffel-cream: #f6ecd9;
+  --eiffel-target-min: 72px;
+}
+
+.eiffel-ui-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  touch-action: none;
+  font-family: sans-serif; /* never used for text content — no text is rendered */
+}
+
+.eiffel-control {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px) scale(0.98);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.eiffel-control.eiffel-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.eiffel-icon {
+  width: 60%;
+  height: 60%;
+  display: block;
+}
+
+/* ---------------------------------------------------------------------
+ * Top bar: pause + sound, top corners, safe-area aware, >=72px targets.
+ * --------------------------------------------------------------------- */
+
+.eiffel-top-bar {
+  position: absolute;
+  top: env(safe-area-inset-top, 0px);
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.eiffel-chrome-button {
+  width: var(--eiffel-target-min);
+  height: var(--eiffel-target-min);
+  border-radius: 999px;
+  border: 3px solid var(--eiffel-brass);
+  background: radial-gradient(circle at 35% 30%, var(--eiffel-iron-light), var(--eiffel-iron));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eiffel-chrome-button:active {
+  transform: scale(0.94);
+}
+
+/* ---------------------------------------------------------------------
+ * Bottom safe-area band: master lever / throttle / level wheel live here.
+ * Height stays within ~22% of the viewport per PRODUCT_SPEC — the scene's
+ * camera framing reserves the same band (CAMERA_CONTRACT transitionClose).
+ * --------------------------------------------------------------------- */
+
+/* Only one of {lever, throttleUp, throttleDown, wheel} is ever visible at a
+ * time (one verb per state — see `src/ui/visibility.ts`), so all four share
+ * one absolutely-positioned bottom-center slot rather than a flex row. That
+ * keeps every control's own fixed CSS size intact (a flex row would
+ * flex-shrink all four — including the currently-invisible ones, which
+ * still take up box space at opacity:0 for a smooth cross-fade — squeezing
+ * the visible one below its >=72px target size on narrow viewports). */
+.eiffel-bottom-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 22vh;
+  min-height: 128px;
+  pointer-events: none;
+}
+
+.eiffel-bottom-band > .eiffel-control {
+  position: absolute;
+  left: 50%;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  transform: translate(-50%, 6px) scale(0.98);
+  pointer-events: none;
+}
+
+.eiffel-bottom-band > .eiffel-control.eiffel-visible {
+  transform: translate(-50%, 0) scale(1);
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------------
+ * Master lever: tall brass/iron slot, wooden knob. >=120px of travel.
+ * --------------------------------------------------------------------- */
+
+.eiffel-lever {
+  /* PRODUCT_SPEC verb 1: >=120 CSS px of travel, kept close to (but,
+   * deliberately, never under) the bottom-band's ~22%-of-viewport-height
+   * guideline. A vh-relative clamp rather than a %-of-parent one — the
+   * absolutely-positioned parent has no percentage-resolvable height of
+   * its own to inherit. */
+  width: 92px;
+  height: min(200px, 23vh);
+  min-height: 150px;
+}
+
+.eiffel-lever-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--eiffel-iron-light), var(--eiffel-iron));
+  border: 3px solid var(--eiffel-brass);
+  box-shadow:
+    inset 0 0 0 3px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.eiffel-lever-slot {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  bottom: 14px;
+  width: 10px;
+  transform: translateX(-50%);
+  border-radius: 6px;
+  background: #16161a;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.8);
+}
+
+.eiffel-lever-knob {
+  --eiffel-lever-value: 0;
+  --eiffel-lever-inset: 14px;
+  position: absolute;
+  left: 50%;
+  /* Knob CENTER travels between (inset + half knob) from the track's top
+   * edge (value=1) and the same inset from its bottom edge (value=0), so
+   * the knob always stays fully inside the track — never clipped by the
+   * viewport below it. */
+  top: calc(
+    var(--eiffel-lever-inset) + var(--eiffel-target-min) / 2 + (1 - var(--eiffel-lever-value)) *
+      (100% - 2 * var(--eiffel-lever-inset) - var(--eiffel-target-min))
+  );
+  transform: translate(-50%, -50%);
+  width: var(--eiffel-target-min);
+  height: var(--eiffel-target-min);
+}
+
+.eiffel-lever-knob.eiffel-animated {
+  transition: bottom 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.eiffel-lever-knob-grip {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  background: radial-gradient(circle at 32% 28%, var(--eiffel-wood-light), var(--eiffel-wood));
+  border: 3px solid var(--eiffel-brass-light);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------------------------------------------------------------------
+ * Throttle: one big directional lever button.
+ * --------------------------------------------------------------------- */
+
+.eiffel-throttle {
+  width: 108px;
+  height: 108px;
+  margin-bottom: 10px;
+  border-radius: 24px;
+  border: 3px solid var(--eiffel-brass);
+  background: linear-gradient(180deg, var(--eiffel-iron-light), var(--eiffel-iron));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.12s ease,
+    opacity 0.28s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eiffel-throttle.eiffel-pressed {
+  transform: scale(0.92);
+  background: linear-gradient(180deg, var(--eiffel-brass), var(--eiffel-ochre));
+  box-shadow:
+    0 0 0 4px rgba(224, 168, 60, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------------------------------------------------------------------
+ * Level wheel: big brass wheel, bottom-center, bubble-level hub.
+ * --------------------------------------------------------------------- */
+
+.eiffel-wheel {
+  /* PRODUCT_SPEC verb 3: "large wheel", kept close to the bottom-band's
+   * ~22%-of-viewport-height guideline via a vh clamp — never smaller than
+   * the >=72px target floor. */
+  width: min(190px, 22vh);
+  height: min(190px, 22vh);
+  min-width: var(--eiffel-target-min);
+  min-height: var(--eiffel-target-min);
+  position: relative;
+}
+
+.eiffel-wheel-face {
+  --eiffel-wheel-angle: 0rad;
+  width: 100%;
+  height: 100%;
+  transform: rotate(var(--eiffel-wheel-angle));
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4));
+}
+
+.eiffel-wheel-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.eiffel-wheel-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 58%;
+  pointer-events: none;
+}
+
+.eiffel-bubble-glyph {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.eiffel-bubble-dot {
+  --eiffel-bubble-tilt: 0deg;
+  transform-origin: 24px 8px;
+  transform: rotate(var(--eiffel-bubble-tilt)) translateX(10px) rotate(calc(-1 * var(--eiffel-bubble-tilt)));
+}
+
+/* ---------------------------------------------------------------------
+ * Tap-to-start: whole screen, invisible hit target.
+ * --------------------------------------------------------------------- */
+
+.eiffel-tap-start {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------------------------------------------------------------------
+ * Replay menu: four big pictogram tiles.
+ * --------------------------------------------------------------------- */
+
+.eiffel-replay-menu {
+  position: absolute;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(96px, 128px));
+  grid-template-rows: repeat(2, minmax(96px, 128px));
+  gap: 14px;
+}
+
+.eiffel-control.eiffel-replay-menu.eiffel-visible {
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.eiffel-replay-tile {
+  width: 100%;
+  height: 100%;
+  min-width: var(--eiffel-target-min);
+  min-height: var(--eiffel-target-min);
+  border-radius: 20px;
+  border: 3px solid var(--eiffel-brass);
+  background: linear-gradient(180deg, var(--eiffel-iron-light), var(--eiffel-iron));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eiffel-replay-tile:active {
+  transform: scale(0.94);
+}
+
+.eiffel-replay-tile .eiffel-icon {
+  width: 78%;
+  height: 78%;
+}
+
+/* ---------------------------------------------------------------------
+ * Idle ghost-hand demo.
+ * --------------------------------------------------------------------- */
+
+.eiffel-ghost-hand {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  width: 64px;
+  height: 64px;
+  transform: translate(-50%, 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.eiffel-ghost-hand.eiffel-visible {
+  opacity: 0.92;
+}
+
+.eiffel-ghost-hand[data-demo='lever'].eiffel-visible {
+  animation: eiffel-demo-lever 1.6s ease-in-out infinite;
+}
+
+.eiffel-ghost-hand[data-demo='throttle'].eiffel-visible {
+  animation: eiffel-demo-press 1.1s ease-in-out infinite;
+}
+
+.eiffel-ghost-hand[data-demo='wheel'].eiffel-visible {
+  animation: eiffel-demo-turn 1.8s ease-in-out infinite;
+}
+
+@keyframes eiffel-demo-lever {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, -46px);
+  }
+}
+
+@keyframes eiffel-demo-press {
+  0%,
+  100% {
+    transform: translate(-50%, 0) scale(1);
+  }
+  40% {
+    transform: translate(-50%, 6px) scale(0.9);
+  }
+  55% {
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes eiffel-demo-turn {
+  0% {
+    transform: translate(-50%, 0) rotate(-24deg);
+  }
+  50% {
+    transform: translate(-50%, 0) rotate(24deg);
+  }
+  100% {
+    transform: translate(-50%, 0) rotate(-24deg);
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Landscape: cluster the band into corners so the tower stays clear.
+ * --------------------------------------------------------------------- */
+
+@media (orientation: landscape) {
+  /* Short landscape viewports (e.g. 844x390) can't satisfy both the >=72px
+   * target floor AND the ~22%-of-height guideline at once — the floor wins
+   * (a control a 4-year-old can't land her thumb on is a harder failure
+   * than a few extra px of band height). */
+  .eiffel-lever {
+    height: 150px;
+    min-height: 132px;
+  }
+
+  .eiffel-wheel {
+    width: min(150px, 30vh);
+    height: min(150px, 30vh);
+  }
+
+  .eiffel-replay-menu {
+    grid-template-columns: repeat(4, minmax(84px, 108px));
+    grid-template-rows: minmax(84px, 108px);
+    bottom: max(14px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Reduced motion: kill the idle demo + long transitions entirely.
+ * --------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .eiffel-ghost-hand {
+    display: none;
+  }
+
+  .eiffel-control,
+  .eiffel-lever-knob.eiffel-animated,
+  .eiffel-throttle {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.eiffel-ui-layer.eiffel-reduced-motion .eiffel-ghost-hand {
+  display: none;
+}
