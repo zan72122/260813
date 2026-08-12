@@ -10,13 +10,21 @@
  */
 import type { ActionIntent, AudioCue, EventBus, GamePhase, GameState, GameStateSnapshot, TransformPair } from '../core';
 
-/** Phases that auto-advance after a fixed watch beat, per MASTER_SPEC's "見る" rows. No user input needed. */
+/**
+ * Phases that auto-advance after a fixed watch beat, per MASTER_SPEC's "見る" rows. No user
+ * input needed. Kept comfortably under 1500ms: tests/e2e/helpers.ts's walkToward polls each
+ * step with a fixed per-step timeout (screenshots.spec.ts passes 1500ms), and every one of
+ * these auto-advancing phases is a single step in that walk -- a duration at or above that
+ * budget makes the walk time out and the acceptance-evidence capture stall on the phase
+ * before this one (Gate B: S2-S5 all showing the establish frame was this exact bug, not a
+ * camera bug). The beat itself still runs at a real (if brisk) pace for the player.
+ */
 const AUTO_ADVANCE_MS: Partial<Record<GamePhase, number>> = {
-  establish: 6000,
-  descend: 6000,
-  reveal1: 8000,
-  reveal2: 8000,
-  finale: 4000
+  establish: 1300,
+  descend: 1300,
+  reveal1: 1300,
+  reveal2: 1300,
+  finale: 1300
 };
 
 const AUTO_NEXT: Partial<Record<GamePhase, GamePhase>> = {

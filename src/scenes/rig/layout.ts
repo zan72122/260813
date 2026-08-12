@@ -16,7 +16,9 @@ export const WING_HOME_X = [2.2, 2.85, 3.5] as const;
 export const WING_EXIT_TRAVEL = 2.4;
 
 export const FOREGROUND_Z = [-1.0, -1.5, -2.0] as const;
-export const FOREGROUND_HOME_Y = [0.35, 0.3, 0.4] as const;
+/** Compound prop groups (see StageWorld's buildForegroundProp) sit on the floor at group-Y=0;
+ * each sub-mesh's own local Y offset gives the prop its height, so all three home to the same base. */
+export const FOREGROUND_HOME_Y = [0, 0, 0] as const;
 /** How far a foreground prop sinks below / rises from the stage floor. */
 export const FOREGROUND_HIDE_DEPTH = -1.8;
 
@@ -30,3 +32,14 @@ export const PROSCENIUM_Z = 1.0;
 export const PROSCENIUM_HALF_WIDTH = 3.9;
 export const PROSCENIUM_HEIGHT = 4.4;
 export const AUDITORIUM_SEAT_Z = [2.4, 3.6] as const;
+
+/**
+ * Solid stage floor (occludes the understage from every audience-side pose so the cutaway
+ * only reads as an opening during descend/mechanism phases -- see TheaterScene's
+ * UNDERSTAGE_VISIBLE_PHASES gate). Spans a little past the widest wing pair and from just
+ * inside the proscenium to just short of the backdrop.
+ */
+export const STAGE_FLOOR_WIDTH = 8.6;
+export const STAGE_FLOOR_NEAR_Z = 1.5;
+export const STAGE_FLOOR_FAR_Z = -5.6;
+export const STAGE_FLOOR_THICKNESS = 0.16;

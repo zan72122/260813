@@ -14,7 +14,7 @@
  */
 import {
   BoxGeometry,
-  ConeGeometry,
+  CylinderGeometry,
   DoubleSide,
   Group,
   IcosahedronGeometry,
@@ -51,14 +51,94 @@ function at3(values: readonly [number, number, number], i: number): number {
   return values[i as 0 | 1 | 2];
 }
 
-function foregroundGeometry(sceneId: SceneId, index: number): BufferGeometry {
+/** A part of a compound foreground prop: its own geometry, positioned/scaled within the prop's local space. */
+interface PropPart {
+  readonly geometry: BufferGeometry;
+  readonly position?: readonly [number, number, number];
+  readonly scale?: readonly [number, number, number];
+  readonly rotationZ?: number;
+}
+
+/**
+ * Readable low-poly silhouettes per docs/MASTER_SPEC.md's per-scene prop list
+ * (salon: chair + small table; forest: rock + bush; rustic: table/bench +
+ * hearth), each built from 1-3 cheap primitives rather than a single bare
+ * cone/box. Index 2 is a smaller matching accent piece in every scene.
+ */
+function foregroundParts(sceneId: SceneId, index: number): readonly PropPart[] {
   if (sceneId === 'salon') {
-    return index === 0 ? new BoxGeometry(0.5, 0.75, 0.5) : new ConeGeometry(0.28, 0.55, 6);
+    if (index === 0) {
+      // chair: seat + backrest
+      return [
+        { geometry: new BoxGeometry(0.46, 0.09, 0.46), position: [0, 0.26, 0] },
+        { geometry: new BoxGeometry(0.42, 0.5, 0.08), position: [0, 0.55, -0.19] }
+      ];
+    }
+    if (index === 1) {
+      // small table: top + single turned leg
+      return [
+        { geometry: new BoxGeometry(0.62, 0.07, 0.42), position: [0, 0.5, 0] },
+        { geometry: new CylinderGeometry(0.05, 0.08, 0.46, 8), position: [0, 0.23, 0] }
+      ];
+    }
+    return [{ geometry: new CylinderGeometry(0.16, 0.19, 0.32, 8), position: [0, 0.16, 0] }]; // stool accent
   }
   if (sceneId === 'forest') {
-    return index === 0 ? new IcosahedronGeometry(0.4, 0) : new ConeGeometry(0.22, 0.5, 5);
+    if (index === 0) {
+      // rock: squashed, irregular icosahedron
+      return [{ geometry: new IcosahedronGeometry(0.42, 0), position: [0, 0.28, 0], scale: [1, 0.68, 0.88] }];
+    }
+    if (index === 1) {
+      // bush: a small cluster of overlapping foliage blobs
+      return [
+        { geometry: new IcosahedronGeometry(0.3, 0), position: [-0.12, 0.3, 0], scale: [1, 0.85, 1] },
+        { geometry: new IcosahedronGeometry(0.26, 0), position: [0.14, 0.34, 0.06], scale: [1, 0.8, 1] },
+        { geometry: new IcosahedronGeometry(0.22, 0), position: [0, 0.5, -0.08], scale: [1, 0.75, 1] }
+      ];
+    }
+    return [{ geometry: new IcosahedronGeometry(0.2, 0), position: [0, 0.14, 0], scale: [1, 0.6, 0.9] }]; // small rock accent
   }
-  return index === 0 ? new BoxGeometry(0.9, 0.5, 0.5) : new BoxGeometry(0.35, 0.6, 0.35);
+  // rustic
+  if (index === 0) {
+    // table/bench: top + two legs
+    return [
+      { geometry: new BoxGeometry(0.92, 0.08, 0.5), position: [0, 0.5, 0] },
+      { geometry: new BoxGeometry(0.08, 0.46, 0.44), position: [-0.36, 0.23, 0] },
+      { geometry: new BoxGeometry(0.08, 0.46, 0.44), position: [0.36, 0.23, 0] }
+    ];
+  }
+  if (index === 1) {
+    // hearth: stone surround + warm fire accent
+    return [
+      { geometry: new BoxGeometry(0.55, 0.6, 0.4), position: [0, 0.3, 0] },
+      { geometry: new IcosahedronGeometry(0.16, 0), position: [0, 0.38, 0.16], scale: [1, 1.3, 0.7] }
+    ];
+  }
+  return [{ geometry: new CylinderGeometry(0.14, 0.16, 0.5, 8), position: [0, 0.14, 0], rotationZ: Math.PI / 2 }]; // log accent
+}
+
+function buildForegroundProp(
+  sceneId: SceneId,
+  index: number,
+  materials: MaterialLibrary,
+  ownedGeometries: BufferGeometry[],
+  ownedMaterials: Material[]
+): Group {
+  const group = new Group();
+  const isFireAccent = sceneId === 'rustic' && index === 1;
+  for (const [partIndex, part] of foregroundParts(sceneId, index).entries()) {
+    ownedGeometries.push(part.geometry);
+    // The hearth's second part (partIndex 1) is the warm fire accent; everything else
+    // uses the scene's own foreground-role painted material.
+    const material = isFireAccent && partIndex === 1 ? materials.goldTrim() : materials.paintedFlat(sceneId, `foreground${index}`);
+    ownedMaterials.push(material);
+    const mesh = new Mesh(part.geometry, material);
+    if (part.position) mesh.position.set(part.position[0], part.position[1], part.position[2]);
+    if (part.scale) mesh.scale.set(part.scale[0], part.scale[1], part.scale[2]);
+    if (part.rotationZ) mesh.rotation.z = part.rotationZ;
+    group.add(mesh);
+  }
+  return group;
 }
 
 interface WingSlot {
@@ -71,7 +151,7 @@ export class StageWorld {
   private readonly wings: WingSlot[] = [];
   private readonly backdrop: Mesh;
   private readonly border: Mesh;
-  private readonly foreground: Mesh[] = [];
+  private readonly foreground: Group[] = [];
   private readonly ownedMaterials: Material[] = [];
   private readonly ownedGeometries: BufferGeometry[] = [];
 
@@ -118,14 +198,10 @@ export class StageWorld {
     this.group.add(this.border);
 
     for (let i = 0; i < 3; i += 1) {
-      const geometry = foregroundGeometry(sceneId, i);
-      this.ownedGeometries.push(geometry);
-      const material = materials.paintedFlat(sceneId, `foreground${i}`);
-      this.ownedMaterials.push(material);
-      const mesh = new Mesh(geometry, material);
-      mesh.position.set((i - 1) * 0.9, at3(FOREGROUND_HOME_Y, i), at3(FOREGROUND_Z, i));
-      this.group.add(mesh);
-      this.foreground.push(mesh);
+      const prop = buildForegroundProp(sceneId, i, materials, this.ownedGeometries, this.ownedMaterials);
+      prop.position.set((i - 1) * 0.9, at3(FOREGROUND_HOME_Y, i), at3(FOREGROUND_Z, i));
+      this.group.add(prop);
+      this.foreground.push(prop);
     }
   }
 

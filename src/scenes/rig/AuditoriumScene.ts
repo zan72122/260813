@@ -20,12 +20,16 @@ export class AuditoriumScene {
   }
 
   private buildArch(materials: MaterialLibrary): void {
+    // TorusGeometry's default arc (u: 0..PI) sweeps the UPPER semicircle (y from 0 up to
+    // +radius and back to 0 at both ends) -- exactly a Roman-arch curve sitting on top of
+    // the two pillars below, touching down at worldY===pillar-top-height at x=+/-radius.
+    // (A previous rotation.z=PI here flipped it into a downward bowl hanging through the
+    // stage/understage boundary -- the "huge white arc" defect; do not reintroduce it.)
     const archGeometry = new TorusGeometry(PROSCENIUM_HALF_WIDTH, 0.22, 8, 24, Math.PI);
     this.ownedGeometries.push(archGeometry);
     const archMaterial = materials.auditorium('wall');
     this.ownedMaterials.push(archMaterial);
     const arch = new Mesh(archGeometry, archMaterial);
-    arch.rotation.z = Math.PI;
     arch.position.set(0, PROSCENIUM_HEIGHT * 0.55, PROSCENIUM_Z);
     this.group.add(arch);
 
@@ -34,7 +38,6 @@ export class AuditoriumScene {
     const trimMaterial = materials.goldTrim();
     this.ownedMaterials.push(trimMaterial);
     const trim = new Mesh(trimGeometry, trimMaterial);
-    trim.rotation.z = Math.PI;
     trim.position.set(0, PROSCENIUM_HEIGHT * 0.55, PROSCENIUM_Z);
     this.group.add(trim);
 

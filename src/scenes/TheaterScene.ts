@@ -14,7 +14,7 @@
  * active TransformPair (see StageWorld's doc comment for why re-labelling a
  * world's role never causes a visual jump).
  */
-import { Color, PointLight } from 'three';
+import { BoxGeometry, Color, Mesh, PointLight, type BufferGeometry, type Material } from 'three';
 import {
   deriveTransformState,
   type GamePhase,
@@ -25,9 +25,10 @@ import {
   type SceneModule
 } from '../core';
 import { CameraDirector } from '../camera/CameraDirector';
-import { TITLE_POSE } from '../camera/beats';
+import { titlePose } from '../camera/beats';
 import { AuditoriumScene } from './rig/AuditoriumScene';
 import { HintHand } from './rig/HintHand';
+import { PROSCENIUM_Z, STAGE_FLOOR_FAR_Z, STAGE_FLOOR_NEAR_Z, STAGE_FLOOR_THICKNESS, STAGE_FLOOR_WIDTH } from './rig/layout';
 import { StageWorld } from './rig/StageWorld';
 import { UnderstageScene } from './rig/UnderstageScene';
 
@@ -52,6 +53,10 @@ export class TheaterScene implements SceneModule {
   private hintHand: HintHand | null = null;
   private readonly worlds = new Map<SceneId, StageWorld>();
   private blendLight: PointLight | null = null;
+  private frontFillLight: PointLight | null = null;
+  private stageFloor: Mesh | null = null;
+  private readonly ownedGeometries: BufferGeometry[] = [];
+  private readonly ownedMaterials: Material[] = [];
   private lastMuted = false;
   private footlightsLevel = 0;
   private readonly unsubscribers: Array<() => void> = [];
@@ -77,15 +82,34 @@ export class TheaterScene implements SceneModule {
       this.worlds.set(sceneId, world);
     }
 
-    this.blendLight = new PointLight(ROOM_LIGHT_COLOR, 0.7, 12);
-    this.blendLight.position.set(0, 2.4, 1.5);
+    // Solid stage floor: occludes the understage rig from every audience-side pose (establish/
+    // reveal/finale/choice). Hidden only during descend/mechanism phases, when the cutaway is
+    // meant to be open (see UNDERSTAGE_VISIBLE_PHASES in update()) -- never both open and shut
+    // by accident, since both this and the understage group's visibility come from the same set.
+    const floorGeometry = new BoxGeometry(STAGE_FLOOR_WIDTH, STAGE_FLOOR_THICKNESS, STAGE_FLOOR_NEAR_Z - STAGE_FLOOR_FAR_Z);
+    this.ownedGeometries.push(floorGeometry);
+    const floorMaterial = ctx.services.materials.wood('floor');
+    this.ownedMaterials.push(floorMaterial);
+    this.stageFloor = new Mesh(floorGeometry, floorMaterial);
+    this.stageFloor.position.set(0, -STAGE_FLOOR_THICKNESS / 2, (STAGE_FLOOR_NEAR_Z + STAGE_FLOOR_FAR_Z) / 2);
+    scene.add(this.stageFloor);
+
+    // Warm overhead room light (blends toward daylight as the forest transform completes) plus a
+    // low always-on footlight-height fill, per docs/VISUAL_DIRECTION.md "客席側: 暖かい環境光＋
+    // footlights...昼の舞台は明るく静か" -- the before-state (salon, establish) must read bright.
+    this.blendLight = new PointLight(ROOM_LIGHT_COLOR, 1.1, 14);
+    this.blendLight.position.set(0, 2.6, 0.5);
     scene.add(this.blendLight);
+
+    this.frontFillLight = new PointLight(0xffe6bf, 0.8, 10);
+    this.frontFillLight.position.set(0, 0.6, PROSCENIUM_Z - 0.2);
+    scene.add(this.frontFillLight);
 
     // Own CameraDirector instance, seeded with the same camera App created. The real
     // per-frame beat driving happens through this.update() below, which -- unlike App's
     // own boot-only instance -- always has the live GameStateSnapshot to work from.
     const cameraDirector = new CameraDirector(ctx.bus);
-    cameraDirector.applyPose(ctx.three.camera, TITLE_POSE);
+    cameraDirector.applyPose(ctx.three.camera, titlePose(ctx.viewport));
     this.cameraDirector = cameraDirector;
 
     this.unsubscribers.push(
@@ -113,6 +137,14 @@ export class TheaterScene implements SceneModule {
     this.understage?.update(derived);
     this.understage?.setUnlocked(UNLOCKED_PHASES.has(state.phase));
 
+    // Cutaway occlusion: the understage rig is only ever visible (and the solid floor only ever
+    // hidden) during descend/mechanism phases, per docs/CAMERA_STORYBOARD.md's cutaway framing.
+    // Every other phase (establish/cue/reveal/finale/choice) shows a solid stage floor and no
+    // understage geometry, so nothing leaks into the audience-side view (Gate B defect #1).
+    const understageVisible = UNDERSTAGE_VISIBLE_PHASES.has(state.phase);
+    if (this.understage) this.understage.group.visible = understageVisible;
+    if (this.stageFloor) this.stageFloor.visible = !understageVisible;
+
     this.cameraDirector?.update(dt, state);
     this.hintHand?.update(dt, state.reducedMotion);
 
@@ -129,7 +161,7 @@ export class TheaterScene implements SceneModule {
     if (!ctx || !this.blendLight) return;
 
     this.blendLight.color.copy(ROOM_LIGHT_COLOR).lerp(DAYLIGHT_COLOR, lightingBlend);
-    this.blendLight.intensity = 0.55 + lightingBlend * 0.35;
+    this.blendLight.intensity = 1.0 + lightingBlend * 0.35;
 
     ctx.services.vfx.setDust(UNDERSTAGE_VISIBLE_PHASES.has(state.phase));
 
@@ -169,6 +201,14 @@ export class TheaterScene implements SceneModule {
     this.worlds.clear();
     if (scene && this.blendLight) scene.remove(this.blendLight);
     this.blendLight = null;
+    if (scene && this.frontFillLight) scene.remove(this.frontFillLight);
+    this.frontFillLight = null;
+    if (scene && this.stageFloor) scene.remove(this.stageFloor);
+    this.stageFloor = null;
+    for (const geometry of this.ownedGeometries) geometry.dispose();
+    this.ownedGeometries.length = 0;
+    for (const material of this.ownedMaterials) material.dispose();
+    this.ownedMaterials.length = 0;
 
     this.auditorium = null;
     this.understage = null;
