@@ -26,7 +26,10 @@ tests/e2e/**          — integrator (foundation scaffolds smoke)
 
 ## Dependency rule
 `ui/audio/input/game/render/scene/visual/core` may import from `src/contracts`
-and their own subtree ONLY. Cross-subsystem communication goes through:
+and their own subtree ONLY. Single sanctioned exception: `src/game/track.ts`
+(pure analytic track curve, frozen API, authored in Wave 1.5) may additionally
+be imported by `src/render|scene|visual|core` so renderer and simulation share
+one geometry source. Cross-subsystem communication goes through:
 1. **GameStore** (in contracts: shape; in game: impl) — single source of truth,
    plain-data snapshot, observable via `subscribe`.
 2. **EventBus** (typed, in contracts) — fire-and-forget cues (`sound:*`, `camera:*`,
