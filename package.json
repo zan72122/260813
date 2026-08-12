@@ -1,0 +1,34 @@
+{
+  "name": "eiffel-four-legs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "四本の脚をぴたり――エッフェル塔の1ミリ",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test tests/e2e/smoke.spec.ts",
+    "test:e2e:full": "playwright test tests/e2e/full-loop.spec.ts --pass-with-no-tests",
+    "verify": "node scripts/verify.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.19.21",
+    "@types/three": "0.185.4",
+    "eslint": "10.8.1",
+    "globals": "17.11.0",
+    "three": "0.185.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  }
+}
