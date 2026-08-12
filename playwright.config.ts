@@ -1,13 +1,20 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * Wave 1 stub config. Owner C (mobile-qa) will expand this with the
- * full viewport matrix from docs/ACCEPTANCE.md. Kept trivial here so
- * `npm run test:e2e` passes against a `vite preview` server.
+ * Owner C (mobile-qa) — full docs/ACCEPTANCE.md viewport matrix, chromium
+ * only (PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers preinstalled — no
+ * `playwright install`, no webkit, no `devices` presets: viewport/touch
+ * options are set manually per project instead).
  */
+const MOBILE_TOUCH_USE = {
+  browserName: 'chromium' as const,
+  hasTouch: true,
+  isMobile: true
+};
+
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  timeout: 45_000,
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: 0,
@@ -16,17 +23,24 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     trace: 'off',
     screenshot: 'off',
-    // Mobile-shaped viewport (iPhone-class) on the preinstalled chromium
-    // browser only. Owner C expands this into the full docs/ACCEPTANCE.md
-    // viewport x device matrix (which may add webkit) in a later wave.
-    browserName: 'chromium',
-    viewport: { width: 390, height: 844 },
-    hasTouch: true,
-    isMobile: true
+    ...MOBILE_TOUCH_USE
   },
   projects: [
     {
-      name: 'chromium'
+      name: 'mobile-portrait-390x844',
+      use: { ...MOBILE_TOUCH_USE, viewport: { width: 390, height: 844 } }
+    },
+    {
+      name: 'mobile-landscape-844x390',
+      use: { ...MOBILE_TOUCH_USE, viewport: { width: 844, height: 390 } }
+    },
+    {
+      name: 'tablet-portrait-820x1180',
+      use: { ...MOBILE_TOUCH_USE, viewport: { width: 820, height: 1180 } }
+    },
+    {
+      name: 'tablet-landscape-1180x820',
+      use: { ...MOBILE_TOUCH_USE, viewport: { width: 1180, height: 820 } }
     }
   ],
   webServer: {
