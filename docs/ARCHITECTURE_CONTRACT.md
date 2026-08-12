@@ -29,7 +29,25 @@ tests/e2e/**          — integrator (foundation scaffolds smoke)
 and their own subtree ONLY. Single sanctioned exception: `src/game/track.ts`
 (pure analytic track curve, frozen API, authored in Wave 1.5) may additionally
 be imported by `src/render|scene|visual|core` so renderer and simulation share
-one geometry source. Cross-subsystem communication goes through:
+one geometry source. Second sanctioned exception: `src/ui` may import pure
+gesture-math utilities from `src/input/gestures.ts` (no DOM node creation
+there; UX owner owns the DOM, gameplay owner owns the gesture math + tests).
+
+## Wiring conventions (Wave 4 integrator relies on these)
+- `EiffelGameLogic` (src/game) constructor: `(store: MutableGameStore, bus, seed)`;
+  pushes a fresh snapshot into the store every `step()`; emits `state:changed`,
+  `camera:cue` and `sound:cue` per the state→cue mapping in CAMERA_CONTRACT/
+  PRODUCT_SPEC; exposes extra (non-frozen) `scrubToT(t: number)` that derives a
+  fully consistent settled state at parameter t for QA scrubbing.
+- `EiffelUiLayer` (src/ui) constructor: `({ onIntent(i: InputIntent), onAction(a) , bus })`
+  where actions are `'start'|'pause'|'resume'|'toggleSound'|'replayAgain'|
+  'replayDescend'|'replayMachine'|'replayTransition'`; integrator maps them.
+- `EiffelSceneWorld` (src/scene) implements `SceneWorld` plus duck-typed
+  `getDrawCalls(): number` and `isCameraSettled(): boolean`.
+- `src/input/gestures.ts` frozen mini-API:
+  `mapVerticalDrag(startY, currentY, pixelRange, startValue): number` (clamped 0..1),
+  `rotationDeltaRadians(cx, cy, prevX, prevY, x, y): number`,
+  `class TapGuard { constructor(minIntervalMs?: number); canFire(nowMs: number): boolean }`. Cross-subsystem communication goes through:
 1. **GameStore** (in contracts: shape; in game: impl) — single source of truth,
    plain-data snapshot, observable via `subscribe`.
 2. **EventBus** (typed, in contracts) — fire-and-forget cues (`sound:*`, `camera:*`,
