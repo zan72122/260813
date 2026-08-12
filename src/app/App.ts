@@ -1,15 +1,16 @@
 import { AmbientLight, Color, DirectionalLight, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
 import { EventBus, GameState } from '../core';
 import type { SceneModule } from '../core';
-import { AudioSystem } from '../audio/AudioSystem';
+import { NullAudioEngine } from '../audio/AudioEngine';
 import { detectReducedMotion, watchReducedMotion } from '../accessibility';
 import { CameraDirector } from '../camera/CameraDirector';
 import { GameDirector } from '../game/GameDirector';
-import { InputSystem } from '../input/InputSystem';
+import { NullInputSystem } from '../input/InputSystem';
+import { NullMaterialLibrary } from '../render/MaterialLibrary';
 import { configureRenderer } from '../render/RenderSystem';
 import { PlaceholderScene } from '../scenes';
-import { UiSystem } from '../ui/UiSystem';
-import { VfxSystem } from '../vfx/VfxSystem';
+import { NullUiSystem } from '../ui/UiSystem';
+import { NullVfxSystem } from '../vfx/VfxSystem';
 import { DisposeBag } from './DisposeBag';
 import { installDebugHook } from './debugHook';
 import { RafLoop } from './RafLoop';
@@ -34,10 +35,11 @@ export class App {
   private readonly activeScene: SceneModule;
   private readonly cameraDirector = new CameraDirector();
   private readonly gameDirector: GameDirector;
-  private readonly input = new InputSystem();
-  private readonly ui = new UiSystem();
-  private readonly vfx = new VfxSystem();
-  private readonly audio = new AudioSystem();
+  private readonly input = new NullInputSystem();
+  private readonly ui = new NullUiSystem();
+  private readonly vfx = new NullVfxSystem();
+  private readonly audio = new NullAudioEngine();
+  private readonly materials = new NullMaterialLibrary();
 
   constructor(private readonly container: HTMLElement) {
     this.state = new GameState(this.bus);
@@ -79,22 +81,34 @@ export class App {
       three: { scene: this.scene, camera: this.camera, renderer: this.renderer },
       bus: this.bus,
       quality: this.state.getSnapshot().quality,
-      viewport: initialViewport
+      viewport: initialViewport,
+      services: { materials: this.materials, audio: this.audio, vfx: this.vfx }
     });
     this.disposeBag.add(() => this.activeScene.dispose());
 
-    this.vfx.init(this.scene);
+    this.vfx.attach(this.scene);
     this.disposeBag.add(() => this.vfx.dispose());
+    this.disposeBag.add(() => this.materials.dispose());
     this.disposeBag.add(() => this.audio.dispose());
+
+    // Either GameEvent path is valid per docs/CONTRACTS_ADDENDUM.md; app forwards
+    // bus 'audioCue' events to the engine so consumers can use whichever fits.
+    const detachAudioCueForwarding = this.bus.on('audioCue', (event) => {
+      if (event.velocity !== undefined) {
+        this.audio.setContinuous(event.cue, event.velocity);
+      } else {
+        this.audio.play(event.cue);
+      }
+    });
+    this.disposeBag.add(detachAudioCueForwarding);
 
     this.gameDirector = new GameDirector(this.state, this.bus);
 
-    const detachInput = this.input.attach(this.renderer.domElement, (intent) => {
-      this.gameDirector.handleIntent(intent);
-    });
-    this.disposeBag.add(detachInput);
+    this.input.attach(this.renderer.domElement);
+    this.input.onIntent((intent) => this.gameDirector.handleIntent(intent));
+    this.disposeBag.add(() => this.input.dispose());
 
-    this.ui.init(this.bus);
+    this.ui.mount(this.container, (intent) => this.gameDirector.handleIntent(intent));
     this.disposeBag.add(() => this.ui.dispose());
 
     const detachReducedMotionWatch = watchReducedMotion((reduced) => this.state.setReducedMotion(reduced));

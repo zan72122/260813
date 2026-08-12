@@ -1,4 +1,5 @@
 export * from './types';
+export type { MaterialLibrary, AudioEngine, VfxSystem, InputSystem, UiSystem } from './interfaces';
 export { EventBus } from './EventBus';
 export { GameState, applySnap } from './GameState';
 export {

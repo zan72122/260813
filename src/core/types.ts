@@ -5,6 +5,7 @@
  */
 import type { PerspectiveCamera, Scene, WebGLRenderer } from 'three';
 import type { EventBus } from './EventBus';
+import type { AudioEngine, MaterialLibrary, VfxSystem as VfxSystemService } from './interfaces';
 
 // ---- phases ----
 export type GamePhase =
@@ -126,6 +127,8 @@ export interface SceneContext {
   bus: EventBus;
   quality: QualityTier;
   viewport: ViewportProfile;
+  /** Cross-area services (docs/CONTRACTS_ADDENDUM.md). Consumers depend on these interfaces only. */
+  services: { materials: MaterialLibrary; audio: AudioEngine; vfx: VfxSystemService };
 }
 
 export interface SceneModule {

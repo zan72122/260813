@@ -1,35 +1,48 @@
-/**
- * STUB — owner C (mobile-qa) owns src/input/**.
- * Real responsibility: pointer events -> ActionIntent, rope-drag correction
- * (Y-only, diagonal biasing), scroll/pinch suppression. This placeholder only
- * wires a pointerdown -> 'tap' ActionIntent so the app boots end-to-end;
- * it deliberately holds no game logic (per docs/CONTRACTS.md boundary).
- */
-import type { ActionIntent } from '../core';
+import type { ActionIntent, InputSystem } from '../core';
 
-export class InputSystem {
+/**
+ * Null-object stub — owner C (mobile-qa) replaces this wholesale with real
+ * pointer-event -> ActionIntent translation (rope-drag Y-only correction,
+ * scroll/pinch suppression, GamePhase-driven mode switching) per
+ * docs/CONTRACTS_ADDENDUM.md. This placeholder only wires pointerdown ->
+ * 'tap' so the app boots end-to-end; it deliberately holds no game logic
+ * (per docs/CONTRACTS.md boundary).
+ */
+export class NullInputSystem implements InputSystem {
   private element: HTMLElement | null = null;
-  private onIntent: ((intent: ActionIntent) => void) | null = null;
+  private callback: ((intent: ActionIntent) => void) | null = null;
+  private mode: 'tap' | 'lock' | 'rope' | 'choice' | 'none' = 'none';
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
     const el = this.element;
-    if (!el || !this.onIntent) return;
+    if (!el || !this.callback) return;
     const rect = el.getBoundingClientRect();
     const x = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
     const y = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0;
-    this.onIntent({ kind: 'tap', x, y });
+    this.callback({ kind: 'tap', x, y });
   };
 
-  attach(element: HTMLElement, onIntent: (intent: ActionIntent) => void): () => void {
-    this.element = element;
-    this.onIntent = onIntent;
-    element.addEventListener('pointerdown', this.handlePointerDown);
-    return () => this.detach();
+  attach(el: HTMLElement): void {
+    this.element = el;
+    el.addEventListener('pointerdown', this.handlePointerDown);
   }
 
-  detach(): void {
+  onIntent(cb: (intent: ActionIntent) => void): void {
+    this.callback = cb;
+  }
+
+  setMode(mode: 'tap' | 'lock' | 'rope' | 'choice' | 'none'): void {
+    // TODO(owner C): branch pointer interpretation (rope-drag vs tap vs choice) on mode.
+    this.mode = mode;
+  }
+
+  getMode(): 'tap' | 'lock' | 'rope' | 'choice' | 'none' {
+    return this.mode;
+  }
+
+  dispose(): void {
     this.element?.removeEventListener('pointerdown', this.handlePointerDown);
     this.element = null;
-    this.onIntent = null;
+    this.callback = null;
   }
 }

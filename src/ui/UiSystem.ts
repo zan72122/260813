@@ -1,20 +1,17 @@
+import type { ActionIntent, UiSystem } from '../core';
+
 /**
- * STUB — owner C (mobile-qa) owns src/ui/**.
- * Real responsibility: icon-only UI (no text), choice screen, mute/quality/
- * Reduce Motion toggles, all driven by GameEvent subscriptions. This
- * placeholder subscribes to nothing and renders nothing yet.
+ * Null-object stub — owner C (mobile-qa) replaces this wholesale with real
+ * icon-only UI (no text), choice screen, mute/quality/Reduce Motion toggles,
+ * all driven by GameEvent subscriptions, per docs/CONTRACTS_ADDENDUM.md.
+ * uiToggle intents flow back out through the onIntent callback.
  */
-import type { EventBus } from '../core';
-
-export class UiSystem {
-  private unsubscribes: Array<() => void> = [];
-
-  init(_bus: EventBus): void {
-    // TODO(owner C): subscribe to phaseChanged/hintShown/etc and render icon UI.
+export class NullUiSystem implements UiSystem {
+  mount(_root: HTMLElement, _onIntent: (intent: ActionIntent) => void): void {
+    // TODO(owner C): render icon UI, subscribe to bus, forward uiToggle via onIntent.
   }
 
   dispose(): void {
-    for (const unsubscribe of this.unsubscribes) unsubscribe();
-    this.unsubscribes = [];
+    // TODO(owner C): remove DOM nodes, unsubscribe from bus.
   }
 }
