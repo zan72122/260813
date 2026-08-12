@@ -62,6 +62,21 @@ export function applyHeroMaterials(
   quality: QualityTier,
   renderer?: THREE.WebGLRenderer,
 ): HeroMaterialsHandle {
+  if (renderer) {
+    // Wave 5 fix: nothing in the app configured a tone-mapping curve, so the
+    // renderer defaulted to NoToneMapping — raw linear output hard-clipped
+    // at 1.0. Under the single strong directional sun this game needs, ANY
+    // bright metal specular highlight (ours or another worker's scene
+    // geometry — e.g. the king's gold sun-disc token) blows straight to a
+    // flat #fff patch with zero rolloff, which is what Gate B's
+    // "near-total whiteout" screenshots were actually showing on top of the
+    // water shader issues fixed alongside this. A gentle filmic curve gives
+    // every material in the scene natural highlight rolloff instead of a
+    // hard clip — a scene-wide safety net, not just a water fix.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+  }
+
   const env = renderer ? buildHeroEnvironment(renderer) : null;
   const materials = buildHeroMaterials(quality, env?.texture ?? null);
   const lighting = createMorningLightingRig(scene, quality);

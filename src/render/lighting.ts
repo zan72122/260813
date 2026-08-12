@@ -31,9 +31,15 @@ export function createMorningLightingRig(scene: THREE.Scene, quality: QualityTie
   const group = new THREE.Group();
   group.name = 'hero-lighting-rig';
 
-  // Low warm morning angle: sun still fairly close to the horizon.
-  const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
-  sun.position.set(-9, 5.5, 6);
+  // Low, golden morning angle (~21° elevation) for long, legible shadows.
+  // Intensity kept moderate (not pushed higher for "richness") specifically
+  // because ANY smooth/metallic surface in the scene — ours or another
+  // worker's (e.g. the king procession's flat gold sun-disc token) — can
+  // still clip to a flat white specular patch at grazing angles even with
+  // renderer.toneMapping enabled (Wave 5 fix, see src/render/index.ts) once
+  // a directional light's peak specular radiance gets too high.
+  const sun = new THREE.DirectionalLight(0xffdca3, 1.7);
+  sun.position.set(-10, 4.2, 6.5);
   sun.target.position.set(0, 0, 0);
   sun.castShadow = true;
   const mapSize = shadowMapSizeForTier(quality);
@@ -50,7 +56,9 @@ export function createMorningLightingRig(scene: THREE.Scene, quality: QualityTie
   group.add(sun.target);
 
   // Soft pale-blue sky / warm ground ambient — no second shadow caster.
-  const sky = new THREE.HemisphereLight(0xbcd4e6, 0xe8e0d0, 0.9);
+  // Kept a touch dimmer than the sun so its long low-angle shadows stay
+  // legible instead of being washed out by flat ambient fill.
+  const sky = new THREE.HemisphereLight(0xbcd4e6, 0xe8e0d0, 0.85);
   group.add(sky);
 
   scene.add(group);

@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { QualityTier } from '../contracts';
-import { createBrassDetailTextures, createStoneTexture } from './textures';
+import { createBrassDetailTextures, createGoldDetailTexture, createHedgeTexture, createStoneTexture } from './textures';
 
 export interface HeroMaterialSet {
   hedge: THREE.MeshStandardMaterial;
@@ -19,21 +19,27 @@ export interface HeroMaterialSet {
 export function buildHeroMaterials(quality: QualityTier, envMap: THREE.Texture | null): HeroMaterialSet {
   const disposables: Array<{ dispose(): void }> = [];
 
+  const hedgeTex = createHedgeTexture(quality);
+  disposables.push(hedgeTex.map, hedgeTex.roughnessMap);
+  hedgeTex.map.repeat.set(3, 3);
+  hedgeTex.roughnessMap.repeat.set(3, 3);
   const hedge = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#3d6b4a'),
+    color: new THREE.Color('#ffffff'),
+    map: hedgeTex.map,
+    roughnessMap: hedgeTex.roughnessMap,
     emissive: new THREE.Color('#0c1c12'),
     emissiveIntensity: 1,
     roughness: 0.92,
     metalness: 0.0,
   });
-  // Slight per-vertex-less variation via a cheap fake AO: darken a touch and
-  // let geometry silhouette carry the "clipped topiary" read per spec —
-  // individual leaves are explicitly NOT drawn.
+  // Individual leaves are still NOT drawn — the hedge texture above is
+  // large soft mottling only, geometry silhouette carries the "clipped
+  // topiary" read per VISUAL_DIRECTION.
 
   const stoneTex = createStoneTexture(quality);
   disposables.push(stoneTex.map, stoneTex.roughnessMap);
-  stoneTex.map.repeat.set(2, 2);
-  stoneTex.roughnessMap.repeat.set(2, 2);
+  stoneTex.map.repeat.set(4, 4);
+  stoneTex.roughnessMap.repeat.set(4, 4);
   const stone = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#e8e2d4'),
     map: stoneTex.map,
@@ -42,16 +48,20 @@ export function buildHeroMaterials(quality: QualityTier, envMap: THREE.Texture |
     metalness: 0.02,
   });
 
+  const goldDetail = createGoldDetailTexture(quality);
+  disposables.push(goldDetail);
   const gold = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#c9a227'),
     emissive: new THREE.Color('#5a4308'),
     emissiveIntensity: 0.06,
-    roughness: 0.35,
-    metalness: 0.85,
+    normalMap: goldDetail,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughness: 0.3,
+    metalness: 0.88,
   });
   if (envMap) {
     gold.envMap = envMap;
-    gold.envMapIntensity = 0.55;
+    gold.envMapIntensity = 0.7;
   }
 
   const brassTex = createBrassDetailTextures(quality);

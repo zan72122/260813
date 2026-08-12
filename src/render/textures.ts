@@ -55,8 +55,8 @@ export function createStoneTexture(tier: QualityTier): { map: THREE.CanvasTextur
     const x = rand() * size;
     const y = rand() * size;
     const r = size * (0.06 + rand() * 0.09);
-    const shade = 210 + Math.floor(rand() * 28) - 14;
-    ctx.fillStyle = `rgba(${shade}, ${shade - 6}, ${shade - 20}, 0.16)`;
+    const shade = 210 + Math.floor(rand() * 34) - 17;
+    ctx.fillStyle = `rgba(${shade}, ${shade - 6}, ${shade - 20}, 0.24)`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -236,4 +236,135 @@ export function createEnvSkyCanvas(): HTMLCanvasElement {
   ctx.fillStyle = sun;
   ctx.fillRect(0, 0, 64, 64);
   return canvas;
+}
+
+/**
+ * Subtle clipped-topiary color variation: soft mottled patches (darker/
+ * lighter foliage clumps) + fine speckle over the base hedge green, so large
+ * flat hedge blocks don't read as one dead-flat fill under the Wave 5
+ * "materials/lighting richness" pass. Individual leaves are still NOT drawn
+ * (VISUAL_DIRECTION: silhouette carries the read, not per-leaf detail).
+ */
+export function createHedgeTexture(tier: QualityTier): { map: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  const size = textureSizeForTier(tier);
+  const { canvas, ctx } = makeCanvas(size);
+  const rand = seededRandom(505);
+
+  ctx.fillStyle = '#3d6b4a';
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft clumps of foliage — some darker (shadowed pockets), some lighter
+  // (sun-catching tips) — at a scale that reads as clipped topiary texture.
+  const clumpCount = Math.max(24, Math.floor(size / 10));
+  for (let i = 0; i < clumpCount; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = size * (0.02 + rand() * 0.045);
+    const lighter = rand() < 0.55;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    if (lighter) {
+      grad.addColorStop(0, 'rgba(150,190,140,0.30)');
+    } else {
+      grad.addColorStop(0, 'rgba(20,45,28,0.30)');
+    }
+    grad.addColorStop(1, 'rgba(61,107,74,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fine speckle for close-up (macro camera) grain.
+  const speckleCount = size * 6;
+  for (let i = 0; i < speckleCount; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const lighter = rand() < 0.5;
+    ctx.fillStyle = lighter ? 'rgba(210,230,180,0.05)' : 'rgba(10,25,15,0.06)';
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.needsUpdate = true;
+
+  const { canvas: rCanvas, ctx: rCtx } = makeCanvas(size);
+  const rRand = seededRandom(606);
+  rCtx.fillStyle = '#e0e0e0';
+  rCtx.fillRect(0, 0, size, size);
+  for (let i = 0; i < speckleCount; i++) {
+    const x = rRand() * size;
+    const y = rRand() * size;
+    const shade = 170 + Math.floor(rRand() * 60);
+    rCtx.fillStyle = `rgba(${shade},${shade},${shade},0.35)`;
+    rCtx.fillRect(x, y, 1, 1);
+  }
+  const roughnessMap = new THREE.CanvasTexture(rCanvas);
+  roughnessMap.wrapS = THREE.RepeatWrapping;
+  roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.needsUpdate = true;
+
+  return { map, roughnessMap };
+}
+
+/**
+ * Very gentle gilt surface variation for statues/sun tokens: low-amplitude
+ * normal bumps (hammered-gold read) so the envMap reflection sparkles softly
+ * across the surface instead of behaving like a perfect mirror.
+ */
+export function createGoldDetailTexture(tier: QualityTier): THREE.CanvasTexture {
+  const size = textureSizeForTier(tier);
+  const rand = seededRandom(707);
+
+  const { ctx: hCtx } = makeCanvas(size);
+  hCtx.fillStyle = '#808080';
+  hCtx.fillRect(0, 0, size, size);
+  const bumpCount = Math.floor(size * 1.2);
+  for (let i = 0; i < bumpCount; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = size * (0.008 + rand() * 0.016);
+    const raise = rand() < 0.5;
+    const grad = hCtx.createRadialGradient(x, y, 0, x, y, r);
+    const centerV = raise ? 138 : 108;
+    grad.addColorStop(0, `rgba(${centerV},${centerV},${centerV},0.35)`);
+    grad.addColorStop(1, 'rgba(128,128,128,0)');
+    hCtx.fillStyle = grad;
+    hCtx.beginPath();
+    hCtx.arc(x, y, r, 0, Math.PI * 2);
+    hCtx.fill();
+  }
+  const heightData = hCtx.getImageData(0, 0, size, size);
+
+  const { canvas: nCanvas, ctx: nCtx } = makeCanvas(size);
+  const normalImg = nCtx.createImageData(size, size);
+  const at = (x: number, y: number): number => {
+    const cx = (x + size) % size;
+    const cy = (y + size) % size;
+    return heightData.data[(cy * size + cx) * 4] ?? 128;
+  };
+  const strength = 1.1; // gentle — this is a sparkle, not a rough hammered texture
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) / 255;
+      const dy = (at(x, y + 1) - at(x, y - 1)) / 255;
+      const nx = -dx * strength;
+      const ny = -dy * strength;
+      const nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      const idx = (y * size + x) * 4;
+      normalImg.data[idx] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      normalImg.data[idx + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      normalImg.data[idx + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+      normalImg.data[idx + 3] = 255;
+    }
+  }
+  nCtx.putImageData(normalImg, 0, 0);
+  const normalMap = new THREE.CanvasTexture(nCanvas);
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.needsUpdate = true;
+  return normalMap;
 }

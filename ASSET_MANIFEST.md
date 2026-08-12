@@ -65,6 +65,46 @@
   実体は `src/main.ts` から `applyHeroMaterials` / VFXファクトリ / `createAudioDirector`
   を実シーンへ直接配線した `src/app/presentationWiring.ts` に引き継がれている。
 
+### Worker B (rendering-audio) 追記 — Wave 5（Gate B 水表現の緊急修正）
+
+Gate B で「水が水に見えない」判定（fountain-reveal 実質白飛び、finale が不透明な白い綿雲、
+pipe-run が単色べた塗り）を受けての修正。すべて procedural のまま:
+
+- `src/vfx/waterJet.ts`: 噴流ジオメトリを「テーパー付き縦シリンダー」から
+  **放物線アーク**（`y = vy*t - 1/2*g*t²` の投射運動）へ全面書き換え。各噴流内の全ストリームを
+  `three/examples/jsm/utils/BufferGeometryUtils.js` の `mergeGeometries` で 1 メッシュ・1 シェーダに
+  統合（`aThreshold` 頂点属性で各ストリーム個別の成長しきい値を焼き込み、`uIntensity` 1個の
+  uniform で全ストリームの「到達長」を GPU 側だけで駆動——JS 側の per-strand ループ更新が不要に）。
+  ブレンドを Additive → Normal（不透明度上限も大幅に低下）へ変更し、泡沫は各ストリーム末端の
+  ごく一部にのみ限定。着水点にのみ小さな低不透明度パーティクル（`landingFoam`/`mist`）を配置。
+  さらに **near-camera fade**（`vViewDist` を頂点シェーダで算出しフラグメントで減衰）を追加——
+  シネマティックカメラのブレンド遷移中に一瞬カメラが噴流のごく近く/内側に入り込むケースでも
+  白飛びしない防御的措置。
+- `src/vfx/tubeGeometry.ts`: 配管カットアウェイの断面フレームを `curve.computeFrenetFrames`
+  （ねじれが不定）から **world-up 基準の Gram-Schmidt フレーム**へ変更——開口部が配管の全長で
+  常に「上」を向くようにし、外部追従カメラからの見え方を安定させた。
+- `src/vfx/pipeFlow.ts`: 水塊シェーダを「一定の帯」から **先端が最も明るく、後方は指数減衰する
+  水濡れ痕**に再設計（フラットな一定不透明度の帯が「単色べた塗り」に見えていた原因）。
+  水ジオメトリ自体も全周チューブから、配管開口部の反対側（底）に位置する部分アークへ変更——
+  外部視点から「開口部越しに反対側の内壁がたまたま見える角度」に依存せず常に視認できるように。
+- `src/render/index.ts`: **`renderer.toneMapping = THREE.ACESFilmicToneMapping` をここで初めて設定**
+  （元々アプリのどこにも tone mapping 設定が無く `NoToneMapping` のままだった）。金属マテリアル
+  （自分の gold/brass だけでなく、他 worker のシーン内の未命名メッシュも含む）が強い directional
+  light のスペキュラで `#fff` に張り付くのを防ぐシーン全体のセーフティネット。VFX シェーダ側は
+  すべて `material.toneMapped = false` 済みなので、このカーブの影響を受けず意図した色を保つ。
+- `src/render/lighting.ts`: 上記と合わせ、太陽光強度を抑制（金属スペキュラのピーク放射を下げる）
+  しつつ hemisphere 環境光をわずかに増強して見た目の明るさを維持。
+- `src/render/textures.ts` / `materials.ts`: 新規 `createHedgeTexture()`（生垣の緑に柔らかい斑＋
+  細粒スペックル）、`createGoldDetailTexture()`（金箔の控えめな法線バンプ——環境反射が単調な
+  鏡面にならないように）。石材テクスチャの repeat とコントラストも実スケールでの視認性のため微調整。
+- `src/vfx/droplets.ts`: 共有ドロップレット/ミスト粒子シェーダにも同種の near-camera fade +
+  ポイントサイズの上限クランプを追加。
+
+一時検証ハーネス（`demo-vfx.html` + `src/vfx/demo/main.ts`、実カメラアンカー座標を
+`src/camera`/`src/scenes/anchors.ts` から読み込んで fountain-reveal/pipe-run/finale の実際の
+カメラポーズを再現）はレビュー後に削除済み。最終確認は実アプリを `tests/e2e/full-loop.spec.ts`
+で駆動し、`screenshots/390x844/{fountain-reveal,finale,pipe-run}.png` を目視で確認して行った。
+
 ## 追記ルール
 
 - Worker B (rendering-audio, `src/render/**` `src/vfx/**` `src/audio/**` `public/generated/**`):
