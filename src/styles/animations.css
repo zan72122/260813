@@ -1,0 +1,156 @@
+/* src/styles/animations.css — shared keyframes. Every animated rule here has
+   a reduced-motion fallback (either shortened via --dur-* tokens, or fully
+   swapped for a static/opacity-only alternative — see components.css). */
+
+@keyframes gauge-needle-sweep {
+  0% {
+    transform: rotate(-58deg);
+  }
+  50% {
+    transform: rotate(58deg);
+  }
+  100% {
+    transform: rotate(-58deg);
+  }
+}
+
+@keyframes steam-puff {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+  }
+  30% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.15);
+  }
+}
+
+@keyframes plate-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hint-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@keyframes hint-pulse-ring {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes hint-demo-drag-down {
+  0%,
+  15% {
+    transform: translateY(-16px);
+  }
+  60%,
+  100% {
+    transform: translateY(16px);
+  }
+}
+
+@keyframes hint-demo-drag-up {
+  0%,
+  15% {
+    transform: translateY(16px);
+  }
+  60%,
+  100% {
+    transform: translateY(-16px);
+  }
+}
+
+@keyframes hint-demo-swipe-right {
+  0%,
+  15% {
+    transform: translateX(-16px);
+  }
+  60%,
+  100% {
+    transform: translateX(16px);
+  }
+}
+
+@keyframes hint-demo-drag-to {
+  0%,
+  15% {
+    transform: translate(-12px, -12px);
+  }
+  60%,
+  100% {
+    transform: translate(12px, 12px);
+  }
+}
+
+@keyframes hint-demo-tap {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.82);
+  }
+  60% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes ripple-expand {
+  from {
+    transform: scale(0.3);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes flash-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes lever-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 196, 119, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(232, 196, 119, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

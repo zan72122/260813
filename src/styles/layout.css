@@ -1,0 +1,56 @@
+/* src/styles/layout.css — orientation-aware spacing rules that go beyond the
+   per-component media queries in components.css. Kept separate so the two
+   concerns (widget look vs. screen layout) don't tangle. */
+
+/* Portrait phones: keep the pause/sound corner controls and the back button
+   from crowding the safe-area on very narrow screens. */
+@media (orientation: portrait) {
+  .sound-toggle {
+    right: max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .pause-toggle {
+    left: max(0.75rem, env(safe-area-inset-left));
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(2, minmax(110px, 1fr));
+    max-width: 420px;
+  }
+}
+
+/* Landscape: corner controls sit inline with the safe-area, and the complete
+   menu spreads into a single row so nothing competes with the crane view
+   which stays visible through the scene canvas. */
+@media (orientation: landscape) {
+  .screen-title {
+    padding-left: max(2rem, env(safe-area-inset-left));
+    padding-right: max(2rem, env(safe-area-inset-right));
+  }
+
+  .complete-menu {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Very short landscape (phones on their side): shrink vertical rhythm so the
+   4-up menu and title plate never get clipped. */
+@media (orientation: landscape) and (max-height: 400px) {
+  .complete-menu {
+    gap: 0.75rem;
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(4, minmax(84px, 120px));
+    gap: 0.75rem;
+  }
+}
+
+/* Tablet-sized canvases: give the brass plate and menu tiles a bit more
+   breathing room since --hit-min stays the same physical size. */
+@media (min-width: 700px) {
+  .menu-grid {
+    gap: 1.5rem;
+  }
+}

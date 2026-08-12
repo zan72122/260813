@@ -1,9 +1,10 @@
 // src/game/index.ts — Gameplay module (owner: Gameplay, src/game/**, src/input/**).
-// Wave 2 note: MINIMAL-BUT-FUNCTIONAL skeleton — only auto-advances
-// opening -> hookDown after its dwell time so the loop is not stuck.
-// Wave 3b Gameplay replaces internals but MUST keep createGame()'s shape.
+// createGame()'s shape is the frozen contract (see docs/ARCHITECTURE_CONTRACT.md);
+// everything else here is free to evolve. Real work lives in ./logic.ts
+// (DOM-free, directly unit-testable) and ../input (DOM pointer plumbing).
 
-import { advance } from '../contracts/machine';
+import { createGameLogic } from './logic';
+import { createPointerInput } from '../input';
 import type { AnchorRegistry } from '../contracts/anchors';
 import type { EventBus } from '../contracts/bus';
 import type { GameStore } from '../contracts/store';
@@ -13,39 +14,25 @@ export interface GameHandle {
   dispose(): void;
 }
 
-const OPENING_DURATION_MS = 2500;
-/** ?test=1 shortens scripted-timing animations to 25% (PRODUCT_SPEC/contract). */
-const TEST_TIME_SCALE = 0.25;
-
 export function createGame(o: {
   store: GameStore;
   bus: EventBus;
   anchors: AnchorRegistry;
   element: HTMLElement;
 }): GameHandle {
-  const { store, bus } = o;
+  const { store, bus, anchors, element } = o;
 
   const testMode = new URLSearchParams(window.location.search).get('test') === '1';
-  const openingDuration = testMode ? OPENING_DURATION_MS * TEST_TIME_SCALE : OPENING_DURATION_MS;
-
-  let openingElapsedMs = 0;
-
-  const unsubscribe = bus.on('phase:enter', (payload) => {
-    if (payload.phase === 'opening') openingElapsedMs = 0;
-  });
+  const logic = createGameLogic({ store, bus, anchors, testMode });
+  const input = createPointerInput({ element, onIntent: logic.handleIntent });
 
   function update(dtMs: number): void {
-    const { phase } = store.get();
-    if (phase === 'opening') {
-      openingElapsedMs += dtMs;
-      if (openingElapsedMs >= openingDuration) {
-        advance(store, bus, 'hookDown');
-      }
-    }
+    logic.update(dtMs);
   }
 
   function dispose(): void {
-    unsubscribe();
+    input.dispose();
+    logic.dispose();
   }
 
   return { update, dispose };

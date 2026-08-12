@@ -1,14 +1,28 @@
 // src/core/index.ts — Renderer module (owner: Renderer, src/core/**).
-// Wave 2 note: this is a MINIMAL-BUT-FUNCTIONAL skeleton — a real, finished
-// sky/ground scene, deliberately simple — so `npm run verify` is green. Wave 3a
-// Renderer replaces its internals but MUST keep the exported createRenderer()
-// shape frozen by ARCHITECTURE_CONTRACT.md.
+// Implements the frozen createRenderer() contract from
+// docs/ARCHITECTURE_CONTRACT.md: WebGL2 renderer + its own internal rAF
+// loop, resize, adaptive quality, context-loss recovery, and the anchor
+// projection pass. All procedural content lives in scene/render/visual;
+// this file is the thin GPU/lifecycle shell around it.
 
-import * as THREE from 'three';
+import {
+  ACESFilmicToneMapping,
+  Color,
+  DirectionalLight,
+  Fog,
+  HemisphereLight,
+  Scene,
+  SRGBColorSpace,
+  WebGLRenderer,
+} from 'three';
 import type { AnchorRegistry } from '../contracts/anchors';
 import type { EventBus } from '../contracts/bus';
 import type { GameStore } from '../contracts/store';
-import type { QualityLevel } from '../contracts/types';
+import type { AnchorId, QualityLevel } from '../contracts/types';
+import { createCameraDirector, type CameraDirector } from '../render/camera';
+import { initialQualityStepState, QUALITY_SETTINGS, stepQuality, type QualityStepState } from '../render/quality';
+import { projectToScreen, projectedRadius } from '../render/anchorProject';
+import { createSceneRig, type SceneRig } from '../scene/index';
 
 export interface RendererStats {
   drawCalls: number;
@@ -27,7 +41,13 @@ export interface RendererHandle {
   dispose(): void;
 }
 
-const DPR_BY_QUALITY: Record<QualityLevel, number> = { low: 1, mid: 1.25, high: 1.75 };
+const DPR_HIGH = 1.75;
+const DPR_LARGE_CANVAS = 1.5;
+const LARGE_CANVAS_MIN_CSS_PX = 900;
+
+function isTestMode(): boolean {
+  return new URLSearchParams(window.location.search).get('test') === '1';
+}
 
 export function createRenderer(o: {
   canvas: HTMLCanvasElement;
@@ -35,82 +55,145 @@ export function createRenderer(o: {
   bus: EventBus;
   anchors: AnchorRegistry;
 }): RendererHandle {
-  const { canvas } = o;
+  const { canvas, store, bus, anchors } = o;
+  const testMode = isTestMode();
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_BY_QUALITY.high));
+  const renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
+  renderer.outputColorSpace = SRGBColorSpace;
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#8fb6d9');
-  scene.fog = new THREE.Fog('#c9d8e6', 40, 220);
+  const scene = new Scene();
+  scene.background = new Color('#a7c3dd');
+  scene.fog = new Fog('#e2cfa8', 55, 200);
 
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-  camera.position.set(0, 8, 22);
-  camera.lookAt(0, 5, 0);
-
-  const hemi = new THREE.HemisphereLight('#ffffff', '#6b5a4a', 1.0);
-  const sun = new THREE.DirectionalLight('#fff2d8', 1.2);
-  sun.position.set(10, 20, 10);
+  const hemi = new HemisphereLight('#fdf3d8', '#5a4636', 0.85);
+  const sun = new DirectionalLight('#ffe9bd', 1.35);
+  sun.position.set(18, 26, 12);
   scene.add(hemi, sun);
 
-  const groundGeometry = new THREE.PlaneGeometry(400, 400);
-  const groundMaterial = new THREE.MeshStandardMaterial({ color: '#6b5a44', roughness: 1 });
-  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
+  const cameraDirector: CameraDirector = createCameraDirector(bus);
 
-  let settled = false;
-  let running = false;
-  let contextLost = false;
-  let rafId = 0;
-  let fps = 0;
-  let fpsFrames = 0;
-  let fpsWindowStart = performance.now();
+  // Note: procedural details seeded once at construction (worker cloth
+  // colors, backdrop cloud/building layout) intentionally do not re-seed if
+  // the store's `seed` changes later (e.g. the "different beam" replay
+  // option) — only `state.beamShape`/`state.towerLevel`-driven geometry
+  // (the beam itself, tower height) reacts live every frame. See
+  // docs/handoffs/renderer.md for the full rationale.
+  const initialSeed = store.get().seed;
+  const sceneRig: SceneRig = createSceneRig(initialSeed);
+  scene.add(sceneRig.root);
+
+  let qualityState: QualityStepState = initialQualityStepState(testMode ? 'mid' : 'high');
+  applyQualitySettings(qualityState.level);
+
+  function dprCapForCanvas(): number {
+    const cssWidth = canvas.clientWidth || window.innerWidth;
+    const cssHeight = canvas.clientHeight || window.innerHeight;
+    const isLargeCanvas = Math.max(cssWidth, cssHeight) >= LARGE_CANVAS_MIN_CSS_PX;
+    return isLargeCanvas ? DPR_LARGE_CANVAS : DPR_HIGH;
+  }
+
+  function applyQualitySettings(level: QualityLevel): void {
+    const settings = QUALITY_SETTINGS[level];
+    const cap = Math.min(settings.dprCap, dprCapForCanvas());
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    sceneRig.setQualityDetail(settings.backdropDetail);
+    sceneRig.setParticleCaps(settings.steamMax, settings.sparkMax);
+  }
 
   function resize(): void {
     const width = canvas.clientWidth || window.innerWidth;
     const height = canvas.clientHeight || window.innerHeight;
     renderer.setSize(width, height, false);
-    camera.aspect = width / Math.max(height, 1);
-    camera.updateProjectionMatrix();
+    // DPR may need re-capping if the canvas crossed the "large canvas" threshold.
+    applyQualitySettings(qualityState.level);
   }
 
+  // The internal rAF loop (running) and GPU-context availability (contextLost)
+  // are orthogonal: stop()/start() fully own `running` (cancels/resumes the
+  // loop itself, per the frozen contract); a context loss just makes frame()
+  // skip its render/update body while the loop keeps ticking (cheap no-op),
+  // so restoration picks back up on the very next scheduled frame with no
+  // separate "was it running before" bookkeeping needed.
+  let contextLost = false;
   function onContextLost(event: Event): void {
     event.preventDefault();
     contextLost = true;
-    running = false;
-    cancelAnimationFrame(rafId);
   }
   function onContextRestored(): void {
     contextLost = false;
+    // three.js's WebGLRenderer re-uploads GPU resources from its retained
+    // JS-side geometry/material/texture descriptions automatically on the
+    // next render call; the scene graph itself (built once at construction
+    // and driven by GameState every frame) needs no rebuild.
     resize();
   }
   canvas.addEventListener('webglcontextlost', onContextLost, false);
   canvas.addEventListener('webglcontextrestored', onContextRestored, false);
 
-  function renderOnce(): void {
-    if (contextLost) return;
-    renderer.render(scene, camera);
-    fpsFrames += 1;
-    const now = performance.now();
-    const elapsed = now - fpsWindowStart;
-    if (elapsed >= 500) {
-      fps = (fpsFrames * 1000) / elapsed;
-      fpsFrames = 0;
-      fpsWindowStart = now;
+  // ---- anchor projection --------------------------------------------------
+  function publishAnchors(): void {
+    const width = canvas.clientWidth || window.innerWidth;
+    const height = canvas.clientHeight || window.innerHeight;
+    for (const [id, entry] of sceneRig.anchorWorld) {
+      const screen = projectToScreen(cameraDirector.camera, entry.pos.x, entry.pos.y, entry.pos.z, width, height);
+      const r = Math.max(
+        projectedRadius(cameraDirector.camera, entry.pos.x, entry.pos.y, entry.pos.z, entry.r, width, height),
+        48,
+      );
+      anchors.set({ id: id as AnchorId, x: screen.x, y: screen.y, r, active: entry.active && screen.visible });
     }
   }
 
-  function loop(): void {
+  // ---- render loop ----------------------------------------------------------
+  let running = false;
+  let rafId = 0;
+  let fps = 0;
+  let fpsFrames = 0;
+  let fpsWindowStart = performance.now();
+  let lastFrameTime = 0;
+
+  function frame(now: number): void {
     if (!running) return;
-    renderOnce();
-    rafId = requestAnimationFrame(loop);
+    const dtMs = testMode ? 1000 / 60 : Math.min(now - (lastFrameTime || now), 100);
+    lastFrameTime = now;
+
+    if (!contextLost) {
+      const state = store.get();
+      const width = canvas.clientWidth || window.innerWidth;
+      const height = canvas.clientHeight || window.innerHeight;
+
+      sceneRig.update(state, dtMs, cameraDirector.camera, testMode);
+      cameraDirector.update(state, sceneRig.points, width, height, dtMs, testMode);
+      publishAnchors();
+
+      renderer.render(scene, cameraDirector.camera);
+
+      fpsFrames += 1;
+      const elapsed = now - fpsWindowStart;
+      if (elapsed >= 500) {
+        fps = (fpsFrames * 1000) / elapsed;
+        fpsFrames = 0;
+        fpsWindowStart = now;
+      }
+
+      qualityState = stepQuality(qualityState, dtMs, testMode);
+      if (qualityState.level !== lastAppliedQualityLevel) {
+        lastAppliedQualityLevel = qualityState.level;
+        applyQualitySettings(qualityState.level);
+      }
+    }
+
+    rafId = requestAnimationFrame(frame);
   }
+  let lastAppliedQualityLevel: QualityLevel = qualityState.level;
 
   function start(): void {
     if (running) return;
     running = true;
-    rafId = requestAnimationFrame(loop);
+    lastFrameTime = 0;
+    rafId = requestAnimationFrame(frame);
   }
 
   function stop(): void {
@@ -120,32 +203,46 @@ export function createRenderer(o: {
 
   const ready = new Promise<void>((resolve) => {
     resize();
-    renderOnce();
-    settled = true;
+    // Render one frame synchronously so the very first paint (before start()
+    // is called by app/index.ts) already shows the built scene, and so
+    // sceneReady only resolves once real geometry exists on screen.
+    const state = store.get();
+    const width = canvas.clientWidth || window.innerWidth;
+    const height = canvas.clientHeight || window.innerHeight;
+    sceneRig.update(state, 16.67, cameraDirector.camera, testMode);
+    cameraDirector.update(state, sceneRig.points, width, height, 16.67, testMode);
+    publishAnchors();
+    renderer.render(scene, cameraDirector.camera);
     resolve();
   });
 
-  return {
-    ready,
-    start,
-    stop,
-    resize,
-    setQuality: (q) => {
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_BY_QUALITY[q]));
-    },
-    isSettled: () => settled,
-    getStats: () => ({
+  function setQuality(q: QualityLevel): void {
+    qualityState = { level: q, avgFrameMs: qualityState.avgFrameMs, overBudgetMs: 0 };
+    lastAppliedQualityLevel = q;
+    applyQualitySettings(q);
+  }
+
+  function isSettled(): boolean {
+    return cameraDirector.isSettled();
+  }
+
+  function getStats(): RendererStats {
+    return {
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
       fps: Math.round(fps),
-    }),
-    dispose: () => {
-      stop();
-      canvas.removeEventListener('webglcontextlost', onContextLost);
-      canvas.removeEventListener('webglcontextrestored', onContextRestored);
-      groundGeometry.dispose();
-      groundMaterial.dispose();
-      renderer.dispose();
-    },
-  };
+    };
+  }
+
+  function dispose(): void {
+    stop();
+    canvas.removeEventListener('webglcontextlost', onContextLost);
+    canvas.removeEventListener('webglcontextrestored', onContextRestored);
+    cameraDirector.dispose();
+    scene.remove(sceneRig.root);
+    sceneRig.dispose();
+    renderer.dispose();
+  }
+
+  return { ready, start, stop, resize, setQuality, isSettled, getStats, dispose };
 }

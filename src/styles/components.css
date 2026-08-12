@@ -1,0 +1,552 @@
+/* src/styles/components.css — UI screens & widgets: aged paper / iron / brass
+   construction-site language. No neon gradients, no glassmorphism, no cards. */
+
+/* ---------- generic button reset (every primary target keeps >=72px hit) */
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hit-area {
+  min-width: var(--hit-min);
+  min-height: var(--hit-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--radius-plate);
+}
+
+/* ---------- full-screen "screen" panels ------------------------------- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen[hidden] {
+  display: none;
+}
+
+/* ---------- loading: steam gauge --------------------------------------- */
+
+.screen-loading {
+  background: radial-gradient(ellipse at 50% 40%, var(--iron-800), var(--bg-scene) 75%);
+}
+
+.loading-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.steam-gauge {
+  width: 8.5rem;
+  height: 8.5rem;
+  position: relative;
+}
+
+.steam-gauge svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.steam-gauge .gauge-face {
+  fill: var(--iron-700);
+  stroke: var(--brass-600);
+  stroke-width: 3;
+}
+
+.steam-gauge .gauge-tick {
+  stroke: var(--paper-300);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+.steam-gauge .gauge-arc-hot {
+  stroke: var(--tower-500);
+  stroke-width: 4;
+  fill: none;
+  opacity: 0.85;
+}
+
+.steam-gauge .gauge-needle {
+  transform-origin: 50px 50px;
+  transform: rotate(-58deg);
+  stroke: var(--heat-hot);
+  stroke-width: 3;
+  stroke-linecap: round;
+  animation: gauge-needle-sweep 1.4s ease-in-out infinite;
+}
+
+.steam-gauge .gauge-hub {
+  fill: var(--brass-400);
+}
+
+.loading-label {
+  width: 3.4rem;
+  height: 3.4rem;
+  opacity: 0.85;
+}
+
+/* ---------- title ------------------------------------------------------- */
+
+.screen-title {
+  background: linear-gradient(180deg, var(--iron-900) 0%, var(--bg-scene) 100%);
+  flex-direction: column;
+  gap: clamp(1.5rem, 5vh, 3rem);
+  padding: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right))
+    max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+}
+
+.logotype {
+  font-family: var(--font-display);
+  color: var(--paper-100);
+  text-align: center;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-shadow: 0 2px 0 var(--shadow-deep);
+  font-size: clamp(1.4rem, 4.6vw, 2.4rem);
+  font-weight: 700;
+  max-width: 22ch;
+}
+
+.logotype .logotype-sub {
+  display: block;
+  font-size: 0.5em;
+  color: var(--brass-400);
+  letter-spacing: 0.2em;
+  margin-top: 0.35em;
+}
+
+.title-plate {
+  width: min(38vw, 170px);
+  height: min(38vw, 170px);
+  min-width: 120px;
+  min-height: 120px;
+  border-radius: var(--radius-round);
+  border: 6px solid var(--brass-600);
+  background: radial-gradient(circle at 35% 30%, var(--brass-300), var(--brass-500) 55%, var(--brass-700) 100%);
+  box-shadow:
+    0 8px 0 var(--brass-700),
+    0 14px 22px var(--shadow-deep),
+    inset 0 2px 6px rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  animation: lever-glow-pulse 2.6s ease-in-out infinite;
+}
+
+.title-plate:active {
+  transform: translateY(4px);
+  box-shadow:
+    0 4px 0 var(--brass-700),
+    0 6px 12px var(--shadow-deep),
+    inset 0 2px 6px rgba(255, 255, 255, 0.5);
+}
+
+.title-plate svg {
+  width: 58%;
+  height: 58%;
+  color: var(--iron-900);
+}
+
+.title-hint-row {
+  display: flex;
+  gap: 0.75rem;
+  opacity: 0.8;
+}
+
+/* ---------- sound toggle / pause toggle (small corner controls) -------- */
+
+.corner-button {
+  position: absolute;
+  width: var(--hit-min);
+  height: var(--hit-min);
+  border-radius: var(--radius-round);
+  border: 2px solid var(--brass-600);
+  background: var(--iron-800);
+  color: var(--paper-200);
+  box-shadow: 0 3px 8px var(--shadow-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.corner-button svg {
+  width: 34px;
+  height: 34px;
+}
+
+.corner-button.muted {
+  opacity: 0.55;
+}
+
+.sound-toggle {
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
+}
+
+.pause-toggle {
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: max(0.75rem, env(safe-area-inset-left));
+}
+
+.pause-toggle[hidden],
+.sound-toggle[hidden],
+.back-button[hidden] {
+  display: none;
+}
+
+/* ---------- back-to-complete --------------------------------------------- */
+
+.back-button {
+  position: absolute;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  left: max(0.75rem, env(safe-area-inset-left));
+  width: var(--hit-min);
+  height: var(--hit-min);
+  border-radius: var(--radius-round);
+  border: 2px solid var(--brass-600);
+  background: var(--iron-800);
+  color: var(--paper-200);
+  box-shadow: 0 3px 8px var(--shadow-soft);
+}
+
+.back-button svg {
+  width: 34px;
+  height: 34px;
+}
+
+/* ---------- pause overlay ------------------------------------------------ */
+
+.pause-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-pause);
+  background: rgba(20, 16, 12, 0.86);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.pause-overlay[hidden] {
+  display: none;
+}
+
+.pause-resume {
+  width: min(34vw, 150px);
+  height: min(34vw, 150px);
+  min-width: 120px;
+  min-height: 120px;
+  border-radius: var(--radius-round);
+  border: 6px solid var(--brass-600);
+  background: radial-gradient(circle at 35% 30%, var(--brass-300), var(--brass-500) 55%, var(--brass-700) 100%);
+  box-shadow: 0 8px 0 var(--brass-700), 0 14px 22px var(--shadow-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pause-resume svg {
+  width: 56%;
+  height: 56%;
+  color: var(--iron-900);
+}
+
+.pause-icon-large {
+  width: 4rem;
+  height: 4rem;
+  color: var(--paper-200);
+  opacity: 0.85;
+}
+
+/* ---------- hint layer --------------------------------------------------- */
+
+/* #ui-scoped selector: outranks base.css's `#ui > * { pointer-events: auto }`
+   (an ID-selector rule) so this overlay stays click-through as intended. */
+#ui > [data-testid='hint-layer'] {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-hint);
+  pointer-events: none;
+}
+
+.hint-pictogram {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5.5rem;
+  height: 5.5rem;
+  transform: translate(-50%, -50%);
+  color: var(--paper-100);
+  filter: drop-shadow(0 2px 4px var(--shadow-deep));
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.hint-pictogram.visible {
+  opacity: 0.92;
+}
+
+.hint-svg .hint-hand {
+  fill: var(--paper-100);
+  stroke: var(--iron-900);
+  stroke-width: 2;
+}
+
+.hint-svg .hint-arrow {
+  fill: none;
+  stroke: var(--heat-hot);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hint-svg .hint-pulse-ring {
+  fill: none;
+  stroke: var(--heat-hot);
+  stroke-width: 4;
+}
+
+.hint-pictogram.amplify .hint-arrow-group,
+.hint-pictogram.amplify .hint-hand {
+  animation: hint-breathe 1.1s ease-in-out infinite;
+  transform-origin: 48px 48px;
+}
+
+:root.reduced-motion .hint-pictogram.amplify .hint-arrow-group,
+:root.reduced-motion .hint-pictogram.amplify .hint-hand {
+  animation: none;
+}
+
+:root.reduced-motion .hint-pictogram.amplify {
+  filter: drop-shadow(0 0 0 var(--heat-hot)) drop-shadow(0 2px 4px var(--shadow-deep))
+    brightness(1.25);
+}
+
+.hint-svg .hint-pulse-ring {
+  animation: hint-pulse-ring 1.3s ease-out infinite;
+}
+
+.hint-pictogram .hint-arrow-group {
+  animation-duration: 0s;
+}
+
+.hint-pictogram.demo .hint-arrow-group {
+  animation: hint-demo-drag-down 1.1s var(--ease-out) 1;
+}
+
+.hint-pictogram.demo.gesture-drag-up .hint-arrow-group {
+  animation-name: hint-demo-drag-up;
+}
+
+.hint-pictogram.demo.gesture-swipe-right .hint-arrow-group {
+  animation-name: hint-demo-swipe-right;
+}
+
+.hint-pictogram.demo.gesture-drag-to .hint-arrow-group {
+  animation-name: hint-demo-drag-to;
+}
+
+.hint-pictogram.demo.gesture-tap .hint-hand,
+.hint-pictogram.demo.gesture-tap-hold .hint-hand {
+  animation: hint-demo-tap 1.1s var(--ease-out) 1;
+  transform-origin: 48px 48px;
+}
+
+:root.reduced-motion .hint-pictogram.demo .hint-arrow-group,
+:root.reduced-motion .hint-pictogram.demo .hint-hand {
+  animation: none;
+}
+
+:root.reduced-motion .hint-pictogram.demo {
+  filter: drop-shadow(0 0 0 var(--heat-hot)) drop-shadow(0 2px 4px var(--shadow-deep))
+    brightness(1.35);
+}
+
+/* ---------- success flash / ripple --------------------------------------- */
+
+/* #ui-scoped selector: see the hint-layer comment above — needed to beat
+   base.css's `#ui > * { pointer-events: auto }` specificity. */
+#ui > .success-flash-layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-flash);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.success-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5rem;
+  height: 5rem;
+  margin: -2.5rem 0 0 -2.5rem;
+  border-radius: var(--radius-round);
+  border: 5px solid var(--brass-300);
+  box-shadow: 0 0 24px 4px rgba(232, 196, 119, 0.55);
+  animation: ripple-expand var(--dur-slow) var(--ease-out) forwards;
+}
+
+.success-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(232, 196, 119, 0.35), transparent 70%);
+  animation: flash-fade var(--dur-slow) var(--ease-out) forwards;
+}
+
+:root.reduced-motion .success-ring {
+  animation: none;
+  opacity: 0.6;
+  transform: scale(1);
+}
+
+:root.reduced-motion .success-wash {
+  animation: none;
+  opacity: 0.18;
+}
+
+/* ---------- complete menu -------------------------------------------------- */
+
+.complete-menu {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-menu);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 4vh, 2rem);
+  background: linear-gradient(180deg, var(--iron-900), var(--bg-scene));
+  padding: max(1.25rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))
+    max(1.25rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+}
+
+.complete-menu[hidden] {
+  display: none;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 160px));
+  gap: var(--gap-min);
+}
+
+.menu-button {
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: var(--hit-min);
+  min-height: var(--hit-min);
+  border-radius: var(--radius-plate);
+  border: 3px solid var(--brass-600);
+  background: linear-gradient(160deg, var(--iron-700), var(--iron-800));
+  color: var(--paper-100);
+  box-shadow: 0 6px 0 var(--iron-950), 0 10px 18px var(--shadow-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: plate-appear var(--dur-med) var(--ease-out) both;
+}
+
+.menu-button:active {
+  transform: translateY(3px);
+  box-shadow: 0 3px 0 var(--iron-950), 0 6px 10px var(--shadow-deep);
+}
+
+.menu-button svg {
+  width: 62%;
+  height: 62%;
+}
+
+/* stagger the four plates in slightly so they feel placed, not spawned */
+.menu-button:nth-child(2) {
+  animation-delay: 60ms;
+}
+.menu-button:nth-child(3) {
+  animation-delay: 120ms;
+}
+.menu-button:nth-child(4) {
+  animation-delay: 180ms;
+}
+
+:root.reduced-motion .menu-button {
+  animation: none;
+}
+
+/* ---------- orientation-aware layouts ------------------------------------ */
+
+@media (orientation: landscape) and (min-aspect-ratio: 4/3) {
+  .menu-grid {
+    grid-template-columns: repeat(4, minmax(96px, 140px));
+  }
+
+  .screen-title {
+    flex-direction: row;
+    justify-content: space-evenly;
+    gap: clamp(1.5rem, 6vw, 4rem);
+  }
+
+  .logotype {
+    max-width: 16ch;
+  }
+}
+
+@media (max-height: 420px) {
+  .title-plate,
+  .pause-resume {
+    width: 120px;
+    height: 120px;
+  }
+
+  .logotype {
+    font-size: clamp(1.1rem, 3.4vh, 1.8rem);
+  }
+}
+
+/* ---------- error fallback (element created by app/index.ts; markup frozen,
+   restyled here to fit the construction-site language and read as friendly) */
+
+[data-testid='error-fallback'] {
+  background: linear-gradient(180deg, var(--iron-900), var(--bg-scene));
+  color: var(--paper-200);
+  gap: 1.75rem;
+}
+
+[data-testid='error-fallback'] svg {
+  width: 96px;
+  height: 96px;
+  color: var(--brass-400);
+  opacity: 0.9;
+}
+
+[data-testid='error-fallback'] button {
+  min-width: 120px;
+  min-height: 120px;
+  border-radius: var(--radius-round);
+  border: 6px solid var(--brass-600);
+  background: radial-gradient(circle at 35% 30%, var(--brass-300), var(--brass-500) 55%, var(--brass-700) 100%);
+  color: var(--iron-900);
+  font-size: 2.4rem;
+  box-shadow: 0 8px 0 var(--brass-700), 0 14px 22px var(--shadow-deep);
+}
+
+[data-testid='error-fallback'] button:active {
+  transform: translateY(4px);
+}

@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'artifacts/**',
+      '.claude/**',
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',

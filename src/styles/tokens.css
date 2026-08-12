@@ -1,0 +1,96 @@
+/* src/styles/tokens.css — 1888 construction-site palette & shared tokens.
+   Owned by UX. A single fixed visual identity (not a light/dark toggle):
+   aged paper, oxidised iron, brass, timber. */
+
+:root {
+  /* iron / steel */
+  --iron-950: #14100c;
+  --iron-900: #1c1712;
+  --iron-800: #2a221a;
+  --iron-700: #3a2f24;
+  --iron-600: #4d3f30;
+  --iron-500: #6b5943;
+
+  /* brass / rivet metal */
+  --brass-300: #e8c477;
+  --brass-400: #d9ad5e;
+  --brass-500: #b98a3d;
+  --brass-600: #8f6a2c;
+  --brass-700: #6b4e1f;
+
+  /* venice red / tower red-brown */
+  --tower-500: #a8452a;
+  --tower-600: #8a3a26;
+  --tower-700: #6b2c1c;
+
+  /* rivet heat */
+  --heat-cold: #3a2f24;
+  --heat-warm: #c8571f;
+  --heat-hot: #ff9a3c;
+  --heat-white: #ffe3b0;
+
+  /* paper / cream */
+  --paper-100: #f4ead2;
+  --paper-200: #ece0c8;
+  --paper-300: #d8c9a4;
+  --paper-ink: #2b211a;
+
+  /* timber */
+  --timber-500: #6b4a30;
+  --timber-700: #46301f;
+
+  /* semantic */
+  --bg-scene: #0d0d10;
+  --surface-plate: var(--iron-800);
+  --surface-plate-edge: var(--iron-600);
+  --text-on-iron: var(--paper-200);
+  --text-on-paper: var(--paper-ink);
+  --accent-brass: var(--brass-500);
+  --accent-glow: var(--heat-hot);
+  --shadow-deep: rgba(0, 0, 0, 0.55);
+  --shadow-soft: rgba(0, 0, 0, 0.3);
+  --focus-ring: var(--brass-300);
+
+  /* layout */
+  --hit-min: 72px;
+  --gap-min: 16px;
+  --radius-plate: 14px;
+  --radius-round: 999px;
+
+  /* stacking */
+  --z-scene-ui: 5;
+  --z-hint: 20;
+  --z-flash: 30;
+  --z-menu: 40;
+  --z-pause: 60;
+  --z-loading: 80;
+  --z-error: 1000;
+
+  /* motion */
+  --dur-fast: 180ms;
+  --dur-med: 420ms;
+  --dur-slow: 900ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* decorative wordmark */
+  --font-display: 'Copperplate', 'Futura', 'Trebuchet MS', 'Hiragino Sans', system-ui, sans-serif;
+}
+
+:root.reduced-motion {
+  --dur-fast: 1ms;
+  --dur-med: 1ms;
+  --dur-slow: 1ms;
+}
+
+/* ?test=1: scripted animation durations run at x0.25 (ARCHITECTURE_CONTRACT.md). */
+:root.test-fast {
+  --dur-fast: 45ms;
+  --dur-med: 105ms;
+  --dur-slow: 225ms;
+}
+
+:root.test-fast.reduced-motion {
+  --dur-fast: 1ms;
+  --dur-med: 1ms;
+  --dur-slow: 1ms;
+}
