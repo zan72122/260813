@@ -8,10 +8,10 @@
 // "Debug API" / OWNERSHIP.md.
 
 import { test, expect } from '@playwright/test';
-import { hasDebugApi, readDebug, waitForPhase } from './helpers/debugApi';
+import { hasDebugApi, readDebug } from './helpers/debugApi';
 import { collectConsole } from './helpers/console';
 import { driveGameLoop } from './helpers/driveLoop';
-import { synthesizeTap } from './helpers/gestures';
+import { synthesizeCircularDrag, synthesizeTap } from './helpers/gestures';
 import { ACCEPTANCE_VIEWPORTS, KEY_STATES, captureState } from './helpers/viewports';
 
 const SKIP_REASON =
@@ -62,9 +62,16 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
     expect(console_.pageErrors, `unhandled page errors: ${console_.pageErrors.join('\n')}`).toEqual([]);
   });
 
+  // Gate B landscape/tablet re-check (Wave 5): garden-idle + valve-turn +
+  // fountain-reveal at each non-primary viewport, rather than just one
+  // representative state — stops as soon as all three are captured instead
+  // of driving the whole loop to replay-choice, since only the first
+  // fountain's cycle is needed for this evidence.
+  const LANDSCAPE_KEY_STATES = ['garden-idle', 'valve-turn', 'fountain-reveal'] as const;
+
   for (const viewport of ACCEPTANCE_VIEWPORTS.filter((v) => v.label !== '390x844')) {
-    test(`representative-state screenshot at ${viewport.label}`, async ({ page }) => {
-      test.setTimeout(90_000);
+    test(`key states at ${viewport.label}`, async ({ page }) => {
+      test.setTimeout(180_000);
       const console_ = collectConsole(page);
 
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -75,13 +82,43 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
         return;
       }
 
-      await synthesizeTap(page, 0.5, 0.5); // title -> garden-idle
-      const reached = await waitForPhase(page, ['garden-idle'], 20_000);
-      expect(reached, 'expected to reach garden-idle after the title tap').toBe(true);
+      const captured = new Set<string>();
+      let valveAttempts = 0;
+      for (let step = 0; step < 200 && captured.size < LANDSCAPE_KEY_STATES.length; step++) {
+        const debug = await readDebug(page);
+        const phase = debug.phase;
 
-      const debug = await readDebug(page);
-      await page.waitForTimeout(150);
-      await captureState(page, viewport.label, debug.phase);
+        if ((LANDSCAPE_KEY_STATES as readonly string[]).includes(phase) && !captured.has(phase)) {
+          captured.add(phase);
+          await page.waitForTimeout(1300); // see the primary test's settle-time comment above
+          await captureState(page, viewport.label, phase);
+        }
+
+        switch (phase) {
+          case 'title':
+            await synthesizeTap(page, 0.5, 0.5);
+            break;
+          case 'whistle-cue': {
+            const w = debug.hotspots.whistle ?? { x: 0.5, y: 0.16, r: 0.2 };
+            await synthesizeTap(page, w.x, w.y);
+            break;
+          }
+          case 'valve-turn': {
+            const v = debug.hotspots.valve ?? { x: 0.5, y: 0.5, r: 0.2 };
+            await synthesizeCircularDrag(page, { centerXNorm: v.x, centerYNorm: v.y, turns: 1, clockwise: true });
+            valveAttempts += 1;
+            if (valveAttempts > 20) throw new Error('valve-turn did not reach openness >= 1 after 20 circular drags');
+            break;
+          }
+          default:
+            await page.waitForTimeout(400);
+            break;
+        }
+      }
+
+      for (const state of LANDSCAPE_KEY_STATES) {
+        expect(captured.has(state), `expected a screenshot of key state "${state}" at ${viewport.label}`).toBe(true);
+      }
 
       expect(console_.errors, `console errors: ${console_.errors.join('\n')}`).toEqual([]);
       expect(console_.pageErrors, `unhandled page errors: ${console_.pageErrors.join('\n')}`).toEqual([]);
