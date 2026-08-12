@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  TEMPORARY self-verification harness for Worker B (rendering-audio).
+  Exercises applyHeroMaterials + all src/vfx factories + AudioDirector
+  outside the real game scene so they can be screenshotted/reviewed in
+  isolation. Not part of the shipped game — the Integrator may delete this
+  file (and src/vfx/demo/**) once Worker B's output has been reviewed and
+  wired into the real scene by Worker A / Integrator.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Worker B VFX/Audio/Render demo (temporary)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #0a1a2f;
+        overflow: hidden;
+      }
+      #demo-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: fixed;
+        left: 8px;
+        top: 8px;
+        color: #fff;
+        font: 12px monospace;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 6px 8px;
+        border-radius: 4px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="demo-canvas"></canvas>
+    <div id="hud">Worker B demo — click to unlock audio</div>
+    <script type="module" src="/src/vfx/demo/main.ts"></script>
+  </body>
+</html>
