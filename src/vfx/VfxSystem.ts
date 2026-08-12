@@ -47,8 +47,11 @@ const TIER_COUNTS: Record<QualityTier, TierCounts> = {
   high: { dust: 200, footlights: 12, goboShafts: 5, birds: 3 }
 };
 
-const DUST_CENTER_Y = -1.3;
-const DUST_SPREAD = { x: 1.4, y: 0.9, z: 0.9 };
+// Understage spans local Y in [-3.2, 0] (src/scenes/rig/layout.ts UNDERSTAGE_BOTTOM_Y);
+// keep the whole cloud comfortably inside that band so dust never reads as a
+// starfield spread across the full frame.
+const DUST_CENTER_Y = -1.6;
+const DUST_SPREAD = { x: 1.1, y: 1.1, z: 0.9 };
 const FOOTLIGHT_Y = 0.06;
 const FOOTLIGHT_Z = 1.55;
 const FOOTLIGHT_SPAN_X = 1.3;
@@ -78,8 +81,8 @@ function buildShaftTexture(size: number): CanvasTexture {
   const canvas = makeCanvas(size);
   const ctx = getCtx2d(canvas);
   const v = ctx.createLinearGradient(0, 0, 0, size);
-  v.addColorStop(0, 'rgba(255,233,184,0.5)');
-  v.addColorStop(0.55, 'rgba(255,233,184,0.16)');
+  v.addColorStop(0, 'rgba(255,233,184,0.68)');
+  v.addColorStop(0.55, 'rgba(255,233,184,0.24)');
   v.addColorStop(1, 'rgba(255,233,184,0)');
   ctx.fillStyle = v;
   ctx.fillRect(0, 0, size, size);
@@ -160,7 +163,9 @@ export class ParticleVfxSystem implements VfxSystem {
   private birdsMaterial: PointsMaterial | null = null;
 
   constructor() {
-    this.dustTexture = buildDiscTexture('#5a4228', 48);
+    // warm honey-brown, bright enough to read as motes catching lantern light
+    // rather than cold specks against the dark understage air.
+    this.dustTexture = buildDiscTexture('#c9a172', 48);
     this.footlightsTexture = buildDiscTexture('#ffd9a0', 64);
     this.goboTexture = buildShaftTexture(96);
     this.birdsTexture = buildBirdTexture(32);
@@ -216,7 +221,9 @@ export class ParticleVfxSystem implements VfxSystem {
         if (!mesh) continue;
         const material = mesh.material as MeshBasicMaterial;
         const flicker = 0.85 + 0.15 * Math.sin(this.time * 0.6 + i * 1.7);
-        material.opacity = this.goboIntensity * 0.5 * flicker;
+        // full intensity should read as a clearly-visible dappled-light wash,
+        // not a barely-there haze.
+        material.opacity = this.goboIntensity * 0.85 * flicker;
       }
     }
 
@@ -276,12 +283,17 @@ export class ParticleVfxSystem implements VfxSystem {
   private rebuildDust(count: number): void {
     this.disposeDust();
     const rng = seededRandom(0xd057);
+    // triangular distribution (average of two uniforms) biases motes toward
+    // the center of the cloud, like dust caught in a local lantern glow,
+    // instead of an even scatter reaching uniformly to every edge (which
+    // reads as a starfield against the dark understage).
+    const centerBiased = () => (rng() + rng()) / 2;
     const positions = new Float32Array(count * 3);
     const velocities = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = (rng() * 2 - 1) * DUST_SPREAD.x;
-      positions[i * 3 + 1] = DUST_CENTER_Y + (rng() * 2 - 1) * DUST_SPREAD.y;
-      positions[i * 3 + 2] = (rng() * 2 - 1) * DUST_SPREAD.z;
+      positions[i * 3] = (centerBiased() * 2 - 1) * DUST_SPREAD.x;
+      positions[i * 3 + 1] = DUST_CENTER_Y + (centerBiased() * 2 - 1) * DUST_SPREAD.y;
+      positions[i * 3 + 2] = (centerBiased() * 2 - 1) * DUST_SPREAD.z;
       velocities[i * 3] = (rng() - 0.5) * 0.03;
       velocities[i * 3 + 1] = 0.015 + rng() * 0.02;
       velocities[i * 3 + 2] = (rng() - 0.5) * 0.03;
@@ -290,11 +302,11 @@ export class ParticleVfxSystem implements VfxSystem {
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
     const material = new PointsMaterial({
       map: this.dustTexture,
-      size: 0.045,
+      size: 0.055,
       sizeAttenuation: true,
       transparent: true,
       depthWrite: false,
-      opacity: 0.5
+      opacity: 0.7
     });
     const points = new Points(geometry, material);
     points.visible = this.dustActive;
@@ -362,7 +374,7 @@ export class ParticleVfxSystem implements VfxSystem {
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
     const material = new PointsMaterial({
       map: this.footlightsTexture,
-      size: 0.22,
+      size: 0.3,
       sizeAttenuation: true,
       transparent: true,
       depthWrite: false,

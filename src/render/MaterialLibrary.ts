@@ -10,11 +10,19 @@ import {
   paintClothWeave,
   paintCurtainFolds,
   paintEdgeUnevenness,
+  paintForestBackdrop,
+  paintForestWingCutout,
   paintGoldLeaf,
   paintMarbleVeins,
   paintMetalBrushed,
+  paintMossyRock,
   paintPlaster,
   paintRopeTwist,
+  paintRusticBackdrop,
+  paintRusticWing,
+  paintSalonBackdrop,
+  paintSalonWing,
+  paintSoftAccentProp,
   paintVelvet,
   paintWoodGrain,
   rngFor,
@@ -29,13 +37,22 @@ const TIER_ANISO: Record<QualityTier, number> = { low: 1, medium: 4, high: 8 };
 type WoodKind = 'beam' | 'drum' | 'floor' | 'furniture' | 'pulley';
 type AuditoriumKind = 'wall' | 'seat' | 'marble' | 'curtain';
 
+/**
+ * Per-scene figurative palette. Fields are reused by different painters per
+ * scene (see paintedFlat below): salon uses base=panel/light=wall,
+ * forest uses base=trunk/light=canopyLight/extra=canopyDark, rustic uses
+ * base=beam/light=plaster. accent is always the scene's warm highlight
+ * (gold / dappled light / firelight). Kept bright (VISUAL_DIRECTION calls
+ * for legible painted flats, not murky abstraction) — dark tones are
+ * reserved for the border frame and small accents only.
+ */
 const SCENE_PALETTES: Record<SceneId, { base: string; light: string; dark: string; accent: string; extra: string }> = {
-  // salon: blue-grey walls, modest gold trim, dusty rose silk (docs/VISUAL_DIRECTION.md)
-  salon: { base: '#8fa0ba', light: '#b9c3d6', dark: '#3f4a63', accent: '#c9a54e', extra: '#d8a8a0' },
-  // forest: trunk browns, layered greens, honeyed dappled light
-  forest: { base: '#5f7f4a', light: '#8faf6a', dark: '#3d2c1c', accent: '#ffe9b8', extra: '#6b5138' },
-  // rustic: warm plaster, beam wood, hearth-fire accent
-  rustic: { base: '#c9b48c', light: '#e8dcc4', dark: '#5a4127', accent: '#e8934a', extra: '#8a6a44' }
+  // salon: blue-grey panels on a warm-white wall, gold trim, dusty rose silk accent
+  salon: { base: '#7d8fab', light: '#b6c1d6', dark: '#3f4a63', accent: '#c9a54e', extra: '#d8a8a0' },
+  // forest: trunk browns, layered bright greens, honeyed dappled light
+  forest: { base: '#6b5138', light: '#a9cf82', dark: '#2e2115', accent: '#ffe9b8', extra: '#4f7038' },
+  // rustic: warm plaster wall, beam wood, hearth-fire accent, terracotta trim
+  rustic: { base: '#8a6a44', light: '#efe3c9', dark: '#4a341f', accent: '#e8934a', extra: '#c9835a' }
 };
 
 const WOOD_TONES: Record<WoodKind, { base: string; dark: string; orientation: GrainOrientation }> = {
@@ -58,47 +75,14 @@ const AUDITORIUM_COLORS: Record<AuditoriumKind, string> = {
 /** rope UV-V (length) repeats fully once per this many meters of rope travel. */
 const ROPE_REPEATS_PER_METER = 2.2;
 
-function paintedFlatColors(
-  scene: SceneId,
-  element: string
-): { top: string; bottom: string; strokes: string[]; edge: string } {
-  const p = SCENE_PALETTES[scene];
-  switch (element) {
-    case 'wing0':
-      return {
-        top: darken(p.base, 0.05),
-        bottom: darken(p.extra, 0.2),
-        strokes: [p.base, p.extra, p.accent],
-        edge: 'rgba(10,8,4,0.45)'
-      };
-    case 'wing1':
-      return { top: p.base, bottom: darken(p.base, 0.14), strokes: [p.base, p.light], edge: 'rgba(14,10,6,0.35)' };
-    case 'wing2':
-      return {
-        top: lighten(p.base, 0.16),
-        bottom: lighten(p.light, 0.05),
-        strokes: [p.light, lighten(p.base, 0.1)],
-        edge: 'rgba(20,16,12,0.2)'
-      };
-    case 'backdrop':
-      return {
-        top: lighten(p.light, 0.08),
-        bottom: p.light,
-        strokes: [p.accent, p.light, lighten(p.base, 0.2)],
-        edge: 'rgba(20,16,12,0.16)'
-      };
-    case 'border':
-      return { top: p.dark, bottom: darken(p.dark, 0.22), strokes: [p.accent, p.dark], edge: 'rgba(0,0,0,0.55)' };
-    case 'foreground':
-    default:
-      return {
-        top: p.extra,
-        bottom: darken(p.extra, 0.18),
-        strokes: [p.extra, p.accent, p.dark],
-        edge: 'rgba(10,8,4,0.4)'
-      };
-  }
-}
+const WING_RE = /^wing[0-2]$/;
+const FOREGROUND_RE = /^foreground([0-2])$/;
+
+/** Foreground prop tint by index, always distinct — never a uniform scene-wide color. */
+const FOREGROUND_ROCK_STONE = '#7d8a7a';
+const FOREGROUND_ROCK_MOSS = '#6b8a52';
+const FOREGROUND_LOG_BASE = '#a97a48';
+const FOREGROUND_LOG_DARK = '#4a2f18';
 
 interface Entry {
   material: Material;
@@ -155,20 +139,52 @@ export class ProceduralMaterialLibrary implements MaterialLibrary {
 
   paintedFlat(scene: SceneId, element: string): Material {
     const key = `flat:${scene}:${element}`;
+    // Forest wings are painted as a trunk+foliage cutout on a transparent canvas
+    // (VISUAL_DIRECTION "theatrical cut-flat look") — the material discards
+    // transparent texels via alphaTest instead of blending.
+    const isForestWingCutout = scene === 'forest' && WING_RE.test(element);
     return this.getOrCreate(
       key,
       (size) => {
         const rng = rngFor(key);
         const canvas = makeCanvas(size);
         const ctx = getCtx2d(canvas);
-        const c = paintedFlatColors(scene, element);
-        paintBaseGradient(ctx, size, c.top, c.bottom, 80 + rng() * 20);
-        paintBrushStrokes(ctx, size, rng, c.strokes, 24);
-        paintClothWeave(ctx, size, rng);
-        paintEdgeUnevenness(ctx, size, rng, c.edge);
+        const p = SCENE_PALETTES[scene];
+        const foregroundMatch = FOREGROUND_RE.exec(element);
+        if (element === 'backdrop') {
+          if (scene === 'salon') paintSalonBackdrop(ctx, size, rng, p.light, p.base, p.accent);
+          else if (scene === 'forest') paintForestBackdrop(ctx, size, rng, p.base, p.light, p.extra, p.accent);
+          else paintRusticBackdrop(ctx, size, rng, p.light, p.base, p.accent);
+        } else if (WING_RE.test(element)) {
+          if (scene === 'salon') paintSalonWing(ctx, size, rng, p.light, p.base, p.accent);
+          else if (scene === 'forest') paintForestWingCutout(ctx, size, rng, p.base, p.light, p.extra);
+          else paintRusticWing(ctx, size, rng, p.light, p.base);
+        } else if (element === 'border') {
+          paintBaseGradient(ctx, size, lighten(p.dark, 0.1), darken(p.dark, 0.14), 90);
+          paintBrushStrokes(ctx, size, rng, [p.accent, p.dark], 10);
+          paintClothWeave(ctx, size, rng, 'rgba(20,16,10,0.05)');
+          paintEdgeUnevenness(ctx, size, rng, 'rgba(0,0,0,0.4)');
+        } else if (foregroundMatch) {
+          // index-aware so a scene's foreground props read as distinct
+          // objects (rock / log / soft accent), never one uniform tint.
+          const idx = Number(foregroundMatch[1]);
+          if (idx === 0) paintMossyRock(ctx, size, rng, FOREGROUND_ROCK_STONE, FOREGROUND_ROCK_MOSS);
+          else if (idx === 1) paintWoodGrain(ctx, size, rng, FOREGROUND_LOG_BASE, FOREGROUND_LOG_DARK, 'vertical');
+          else paintSoftAccentProp(ctx, size, rng, p.extra);
+        } else {
+          // unknown element name: legible neutral fallback, never abstract noise-only
+          paintBaseGradient(ctx, size, lighten(p.light, 0.06), p.light, 90);
+          paintBrushStrokes(ctx, size, rng, [p.base, p.accent], 14);
+          paintClothWeave(ctx, size, rng);
+          paintEdgeUnevenness(ctx, size, rng, 'rgba(20,16,10,0.2)');
+        }
         return canvas;
       },
-      (texture) => new MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })
+      (texture) => {
+        const material = new MeshStandardMaterial({ map: texture, roughness: 0.85, metalness: 0.02 });
+        if (isForestWingCutout) material.alphaTest = 0.5;
+        return material;
+      }
     );
   }
 
@@ -249,12 +265,14 @@ export class ProceduralMaterialLibrary implements MaterialLibrary {
         new MeshPhysicalMaterial({
           map: texture,
           color: 0xc9a54e,
-          metalness: 0.35,
-          roughness: 0.42,
+          metalness: 0.4,
+          roughness: 0.34,
           specularIntensity: 1,
           specularColor: 0xfff1c9,
-          clearcoat: 0.12,
-          clearcoatRoughness: 0.35
+          clearcoat: 0.2,
+          clearcoatRoughness: 0.3,
+          emissive: 0x2a1c08,
+          emissiveIntensity: 0.12
         })
     );
   }
@@ -269,7 +287,8 @@ export class ProceduralMaterialLibrary implements MaterialLibrary {
         const ctx = getCtx2d(canvas);
         const base = AUDITORIUM_COLORS[kind];
         if (kind === 'wall') paintPlaster(ctx, size, rng, base);
-        else if (kind === 'seat') paintVelvet(ctx, size, rng, lighten(base, 0.28), darken(base, 0.12));
+        // deep blue velvet: darker base with a lighter sheen band at the top, not washed out
+        else if (kind === 'seat') paintVelvet(ctx, size, rng, lighten(base, 0.15), darken(base, 0.22));
         else if (kind === 'marble') paintMarbleVeins(ctx, size, rng, base, darken(base, 0.35));
         else paintCurtainFolds(ctx, size, rng, base);
         return canvas;
