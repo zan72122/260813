@@ -10,7 +10,5 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
-# Screenshots are e2e-generated evidence, but keep the directory tracked
-# (see .gitkeep) while ignoring generated PNGs from local runs.
-screenshots/*.png
-!screenshots/.gitkeep
+# Screenshots are e2e-generated ACCEPTANCE.md evidence (390x844/844x390/
+# 820x1180/1180x820 x 5 key states) and are committed, not ignored.

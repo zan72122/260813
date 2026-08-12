@@ -24,7 +24,18 @@ export interface FountainAnchor {
 export interface ValveAnchor {
   readonly position: THREE.Vector3;
   readonly restRotationY: number;
+  /** World-space position of the interactive valve head + wrench (src/scenes/
+   * build/valve.ts places the head at local y=0.61 above `position`), i.e.
+   * what the valve-macro camera beat actually frames (src/camera/beats.ts
+   * VALVE_MACRO_*_POSE lookAt) and what a debug/hit-test hotspot should
+   * project — NOT the ground-level `position`, which sits well below the
+   * visible target once the macro shot is framed. */
+  readonly headPosition: THREE.Vector3;
 }
+
+/** Local Y offset of the valve head + wrench above the ground-level valve
+ * anchor, matching src/scenes/build/valve.ts's `head.position.y = 0.5 + 0.11`. */
+export const VALVE_HEAD_HEIGHT = 0.61;
 
 export interface SceneAnchors {
   readonly valve: ValveAnchor;
@@ -114,7 +125,11 @@ export function createSceneAnchors(): SceneAnchors {
   const fountains = buildFountainAnchors();
   const { path, start } = buildProcessionPath(fountains);
   return {
-    valve: { position: VALVE_POSITION.clone(), restRotationY: 0 },
+    valve: {
+      position: VALVE_POSITION.clone(),
+      restRotationY: 0,
+      headPosition: VALVE_POSITION.clone().setY(VALVE_POSITION.y + VALVE_HEAD_HEIGHT),
+    },
     whistlePosition: WHISTLE_POSITION.clone(),
     fountains,
     pipeCurves: buildPipeCurves(fountains),

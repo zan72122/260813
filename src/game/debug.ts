@@ -64,7 +64,7 @@ export function installDebugApi(ctx: SceneContext, director: GameDirector): () =
     get hotspots() {
       return {
         whistle: projectToScreen(anchors.whistlePosition),
-        valve: projectToScreen(anchors.valve.position),
+        valve: projectToScreen(anchors.valve.headPosition),
       };
     },
     get rendererInfo() {

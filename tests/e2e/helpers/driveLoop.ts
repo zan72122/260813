@@ -71,7 +71,11 @@ export async function driveGameLoop(page: Page, options: DriveLoopOptions = {}):
       case 'fountain-reveal':
       case 'finale':
       default: {
-        await page.waitForTimeout(150);
+        // A longer poll interval here trades a little latency for far fewer
+        // Playwright/CDP round trips (each carries fixed protocol overhead
+        // in this environment) while waiting out these phases' own
+        // multi-second automatic timers.
+        await page.waitForTimeout(400);
         break;
       }
     }

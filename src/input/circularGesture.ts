@@ -21,7 +21,17 @@
 // - A gap between samples longer than `idleResetSec` (finger stopped, or a
 //   new gesture started) resets angle tracking so the next sample can't
 //   produce a spurious large jump — this is what lets a consumer verify that
-//   "deltas stop" when the finger stops moving.
+//   "deltas stop" when the finger stops moving. Integrator note (Wave 3):
+//   this threshold must only fire for a genuine "finger actually stopped"
+//   pause, never for an ordinary run of slow frames — this app's own
+//   per-frame cost (shadow maps, PMREM env, shader VFX) can legitimately
+//   delay when a queued pointermove is actually processed under load. A
+//   250-350ms threshold was measured to misfire on nearly every sample under
+//   such load (repeatedly discarding almost all accumulated rotation), so
+//   the default below is deliberately generous. It has no effect on
+//   MASTER_SPEC's actual "finger held still" freeze behavior, which the game
+//   layer already gets for free (no new samples => no new valve-rotate
+//   intents => openness simply stops advancing on its own).
 
 export interface GestureSample {
   /** Pointer position in any consistent 2D unit (CSS px, normalized, ...). */
@@ -55,7 +65,7 @@ export interface CircularGestureTrackerOptions {
 
 const DEFAULTS: Required<CircularGestureTrackerOptions> = {
   bufferSize: 12,
-  idleResetSec: 0.35,
+  idleResetSec: 1.2,
   velocityLowPassAlpha: 0.35,
   ccwDampingFactor: 0.12,
   ccwMaxMagnitudeRad: 0.035,

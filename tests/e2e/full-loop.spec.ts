@@ -20,7 +20,7 @@ const SKIP_REASON =
 
 test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
   test('title -> finale over the primary viewport, capturing all 5 key states', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(480_000);
     const console_ = collectConsole(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -36,7 +36,17 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
       onPhaseEnter: async (phase) => {
         if ((KEY_STATES as readonly string[]).includes(phase) && !captured.has(phase)) {
           captured.add(phase);
-          await page.waitForTimeout(200); // let the frame settle before capture
+          // Let the frame settle before capture: camera beats blend smoothly
+          // between phases (POSE_SMOOTH_TAU in src/camera/player.ts) rather
+          // than cutting, and fountain-reveal's water intensity itself ramps
+          // up over ~1.5s (src/game/timing.ts REVEAL_STAGE1/2_SEC) — a short
+          // settle captured a transitional mid-blend frame (camera still
+          // mid-swing from the pipe-cutaway pose, water not yet visible).
+          // 1.3s clears the camera blend and gets water intensity mostly
+          // ramped, while staying safely under pipe-run's own minimum
+          // duration (PIPE_RUN_MIN_SEC = 1.8s) so a fast valve-turn doesn't
+          // let the phase advance out from under this same capture.
+          await page.waitForTimeout(1300);
           await captureState(page, '390x844', phase);
         }
       },
@@ -54,7 +64,7 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
 
   for (const viewport of ACCEPTANCE_VIEWPORTS.filter((v) => v.label !== '390x844')) {
     test(`representative-state screenshot at ${viewport.label}`, async ({ page }) => {
-      test.setTimeout(60_000);
+      test.setTimeout(90_000);
       const console_ = collectConsole(page);
 
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -66,7 +76,7 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
       }
 
       await synthesizeTap(page, 0.5, 0.5); // title -> garden-idle
-      const reached = await waitForPhase(page, ['garden-idle'], 10_000);
+      const reached = await waitForPhase(page, ['garden-idle'], 20_000);
       expect(reached, 'expected to reach garden-idle after the title tap').toBe(true);
 
       const debug = await readDebug(page);

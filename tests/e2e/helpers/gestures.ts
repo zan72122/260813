@@ -62,6 +62,15 @@ export interface CircularDragOptions {
  * Drags a synthetic single pointer around a circle on the canvas, generating
  * a real sequence of pointermove events for src/input's circular-gesture
  * recognizer to consume (A2 clockwise recognition / A3 stop-and-freeze).
+ *
+ * `stepDelayMs` is accepted for API compatibility but deliberately NOT
+ * awaited between steps: in this environment every Playwright/CDP round
+ * trip (mouse.move, waitForTimeout, evaluate — any of them) carries a fixed
+ * ~100ms+ protocol overhead that already vastly exceeds any realistic
+ * per-step pacing value, so an explicit extra wait would only double the
+ * round-trip count (and therefore wall-clock time) for no behavioral
+ * benefit — src/input/circularGesture.ts's idle-reset threshold is tuned
+ * generously enough to tolerate the natural spacing this produces.
  */
 export async function synthesizeCircularDrag(page: Page, opts: CircularDragOptions): Promise<void> {
   const box = await canvasBox(page);
@@ -72,18 +81,15 @@ export async function synthesizeCircularDrag(page: Page, opts: CircularDragOptio
   const stepsPerTurn = opts.stepsPerTurn ?? 48;
   const steps = Math.max(1, Math.round(stepsPerTurn * turns));
   const dir = (opts.clockwise ?? true) ? 1 : -1;
-  const stepDelayMs = opts.stepDelayMs ?? 12;
 
   await page.mouse.move(cx + radius, cy);
   await page.mouse.down();
-  await page.waitForTimeout(stepDelayMs);
 
   for (let i = 1; i <= steps; i++) {
     const theta = dir * (i / stepsPerTurn) * Math.PI * 2;
     const x = cx + radius * Math.cos(theta);
     const y = cy + radius * Math.sin(theta);
     await page.mouse.move(x, y);
-    await page.waitForTimeout(stepDelayMs);
   }
 
   if (opts.release ?? true) {

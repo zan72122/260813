@@ -13,7 +13,7 @@ const SKIP_REASON =
   '(Worker A src/game/debug.ts wired into main.ts). Pre-integration this is expected, not a failure.';
 
 test('A6: phase and openness survive a portrait <-> landscape resize', async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(150_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 

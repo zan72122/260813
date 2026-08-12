@@ -32,7 +32,7 @@ async function reachValveTurn(page: import('@playwright/test').Page): Promise<Ve
 
 test.describe('valve gesture (A2 / A3)', () => {
   test('A2: a clockwise circular drag increases openness', async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(150_000);
     await page.goto('/');
     if (!(await hasDebugApi(page))) {
       test.skip(true, SKIP_REASON);
@@ -62,7 +62,7 @@ test.describe('valve gesture (A2 / A3)', () => {
   test('A3: openness (and downstream water state) freeze while the finger is held still', async ({
     page,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(150_000);
     await page.goto('/');
     if (!(await hasDebugApi(page))) {
       test.skip(true, SKIP_REASON);

@@ -29,10 +29,15 @@ export function buildValve(): ValveVisual {
   const head = new THREE.Group();
   head.name = 'valve-head';
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.22, 16), headMat);
+  // Named on the Mesh itself (not just the parent Group) so Worker B's
+  // applyHeroMaterials(scene, quality) — which traverses Mesh instances only
+  // — can match it per docs/CONTRACTS.md wiring conventions ('valve-head').
+  body.name = 'valve-head';
   body.castShadow = true;
   head.add(body);
   const squareTop = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.16), headMat);
   squareTop.position.y = 0.16;
+  squareTop.name = 'valve-head-top';
   squareTop.castShadow = true;
   head.add(squareTop);
   head.position.y = 0.5 + 0.11;
@@ -58,15 +63,20 @@ export function buildValve(): ValveVisual {
 
   const socket = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.035, 8, 16), wrenchMat);
   socket.rotation.x = Math.PI / 2;
+  // Named per-mesh (see the 'valve-head' comment above) so applyHeroMaterials
+  // upgrades the actual visible wrench geometry, not just its parent Group.
+  socket.name = 'wrench-socket';
   wrench.add(socket);
 
   const handle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.045, WRENCH_HANDLE_LENGTH), wrenchMat);
   handle.position.z = WRENCH_HANDLE_LENGTH / 2 + 0.1;
+  handle.name = 'wrench-handle';
   handle.castShadow = true;
   wrench.add(handle);
 
   const grip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), wrenchMat);
   grip.position.z = WRENCH_HANDLE_LENGTH + 0.1;
+  grip.name = 'wrench-grip';
   wrench.add(grip);
 
   wrench.position.y = 0.21;

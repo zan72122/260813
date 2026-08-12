@@ -25,7 +25,7 @@ export interface FountainVisual {
   setIntensity(intensity: number): void;
 }
 
-function buildBasin(radius: number): THREE.Group {
+function buildBasin(radius: number, id: FountainId): THREE.Group {
   const group = new THREE.Group();
 
   const profile = [
@@ -37,6 +37,9 @@ function buildBasin(radius: number): THREE.Group {
   ];
   const rimGeo = new THREE.LatheGeometry(profile, 32);
   const rim = new THREE.Mesh(rimGeo, stoneMaterial());
+  // '<id>-rim' matches applyHeroMaterials' stone rule (fountain-* + "rim"),
+  // per docs/CONTRACTS.md wiring conventions.
+  rim.name = `${id}-rim`;
   rim.castShadow = true;
   rim.receiveShadow = true;
   group.add(rim);
@@ -45,7 +48,11 @@ function buildBasin(radius: number): THREE.Group {
   const floor = new THREE.Mesh(floorGeo, waterMaterial());
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = 0.02;
-  floor.name = 'basin-water-surface';
+  // Deliberately NOT named with "basin" — applyHeroMaterials' stone rule
+  // matches on the substring "basin" and would recolor this water plane as
+  // stone. Keep it clear of every RULES substring so it keeps its own water
+  // material (Worker B's createWaterJet/basin VFX upgrades this further).
+  floor.name = `${id}-pool-surface`;
   group.add(floor);
 
   return group;
@@ -119,7 +126,7 @@ export function buildFountain(anchor: FountainAnchor): FountainVisual {
   group.name = anchor.id;
   group.position.copy(anchor.center);
 
-  const basin = buildBasin(anchor.basinRadius);
+  const basin = buildBasin(anchor.basinRadius, anchor.id);
   group.add(basin);
 
   let nozzle: { group: THREE.Group; jets: FountainJet[] };
@@ -139,7 +146,11 @@ export function buildFountain(anchor: FountainAnchor): FountainVisual {
   const wetRing = new THREE.Mesh(wetGeo, wetMat);
   wetRing.rotation.x = -Math.PI / 2;
   wetRing.position.y = 0.005;
-  wetRing.name = `wet-stone-${anchor.id}`;
+  // Deliberately avoids every applyHeroMaterials RULES substring ("stone",
+  // "basin", fountain-*+rim/base/pool): this ring's own opacity-fade-in
+  // material (driven by setIntensity below) would otherwise be clobbered by
+  // a full material swap to the shared, always-opaque hero stone material.
+  wetRing.name = `${anchor.id}-wet-glow-ring`;
   group.add(wetRing);
 
   // Gold statue punctuating the basin edge (silhouette only, per non-goals).

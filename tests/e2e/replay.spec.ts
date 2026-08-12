@@ -19,7 +19,7 @@ const SKIP_REASON_NO_UI =
   'to phase-changed by Wave 3 integration.';
 
 test('A8: replay-choice leads back into active gameplay within 2 taps', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(400_000);
   await page.goto('/');
 
   if (!(await hasDebugApi(page))) {

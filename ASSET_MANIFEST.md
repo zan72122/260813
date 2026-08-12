@@ -58,10 +58,12 @@
 - `src/audio/index.ts`: `createAudioDirector()` — 上記を統合し `AudioDirector` 契約を実装
   （DynamicsCompressor + master/mute gain、`unlock()` で AudioContext resume）。
 
-### 自己検証（一時ファイル・Integrator が削除可）
+### Wave 3 統合（Integrator）
 
-- ルート `demo-vfx.html` + `src/vfx/demo/main.ts`: 上記すべてを1画面にまとめたテストシーン。
-  `npx vite` 起動後 `/demo-vfx.html` にアクセスして確認。screenshots/vfx-demo-*.png に記録。
+- 一時自己検証ファイル `demo-vfx.html` + `src/vfx/demo/main.ts`（上記すべてを1画面に
+  まとめたレビュー用テストシーン）は Wave 3 統合時にレビュー後削除済み。
+  実体は `src/main.ts` から `applyHeroMaterials` / VFXファクトリ / `createAudioDirector`
+  を実シーンへ直接配線した `src/app/presentationWiring.ts` に引き継がれている。
 
 ## 追記ルール
 
