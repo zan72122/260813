@@ -70,3 +70,13 @@
 - Worker C (mobile-qa, `tests/**` `scripts/**`):
   アセットを生成するスクリプトを追加した場合、その場所と実行方法をこの節に追記する。
 - 外部から取得した画像・3D・音源ファイルを追加することは禁止（MASTER_SPEC 非目標 / ACCEPTANCE A9）。
+
+## Wave 2 追記（Worker C: mobile-qa）
+
+- アイコン（`src/ui/icons.ts`）: 設定クラスター（mute / dim-light）とリプレイ選択画面
+  （同じ噴水 / 庭から再開 / 自由バルブ）の全アイコンを `document.createElementNS`
+  による SVG 手続き生成で実装。画像・絵文字・外部フォント一切不使用。
+- スクリーンショット/状態キャプチャヘルパー: `scripts/screenshotMatrix.ts`
+  （ACCEPTANCE.md のビューポート4種・主要状態5種の定数 + `captureState(page, viewportLabel, state)`）。
+  `tests/e2e/*.spec.ts` から import して使用し、`npm run test:e2e` 実行時に
+  `screenshots/<viewport>/<state>.png` を生成する（外部ツール不要、Playwright 経由の自動生成）。
