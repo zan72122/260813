@@ -1,1 +1,1 @@
-export { PlaceholderScene } from './PlaceholderScene';
+export { TheaterScene, TheaterScene as PlaceholderScene } from './TheaterScene';
