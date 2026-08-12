@@ -17,6 +17,7 @@ export const PALETTE = {
   verdigris: 0x5e8f7a,
   water: 0x7fb8c4,
   lawn: 0x6f9563,
+  soil: 0x4a3a2a,
 } as const;
 
 export function hedgeMaterial(): THREE.MeshStandardMaterial {
@@ -55,4 +56,10 @@ export function waterMaterial(): THREE.MeshStandardMaterial {
 
 export function lawnMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color: PALETTE.lawn, roughness: 0.95, metalness: 0 });
+}
+
+/** Dark trench soil, visible around the pipe-run cutaway once the camera
+ * dips below ground (src/scenes/build/pipes.ts). */
+export function soilMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: PALETTE.soil, roughness: 1, metalness: 0 });
 }

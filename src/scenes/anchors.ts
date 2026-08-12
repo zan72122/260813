@@ -67,9 +67,16 @@ const NOZZLE_NAME: Record<FountainId, string> = {
   'fountain-crown': 'fountain-crown-nozzle',
 };
 
-const VALVE_POSITION = new THREE.Vector3(-3.2, 0, -1);
-const VALVE_UNDERGROUND = new THREE.Vector3(-3.2, -1.3, -1);
-const WHISTLE_POSITION = new THREE.Vector3(-2.0, 1.15, -1.9);
+// Clear of every hedge parterre block (hedges span x in [1.85, 3.35] on each
+// side, see build/ground.ts HEDGE_X) so the valve nook + whistle post read as
+// their own clearing beside the path, not stacked on/inside a hedge — Gate B
+// Wave 5 fix: they previously overlapped a hedge block at x=-3.2/z=-1. Also
+// moved near the garden entrance (z close to the -9.5 start of the path) so
+// beat-establish (src/camera/beats.ts) can frame them as the near foreground
+// while the whole path + all 3 fountains recede into the distance beyond.
+const VALVE_POSITION = new THREE.Vector3(-5.1, 0, -8.5);
+const VALVE_UNDERGROUND = new THREE.Vector3(-5.1, -1.3, -8.5);
+const WHISTLE_POSITION = new THREE.Vector3(-4.0, 1.15, -7.8);
 
 function buildFountainAnchors(): Record<FountainId, FountainAnchor> {
   const result = {} as Record<FountainId, FountainAnchor>;

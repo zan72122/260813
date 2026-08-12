@@ -41,10 +41,15 @@ describe('CinematicBeatPlayer', () => {
     player.update(1 / 60); // one frame after the transition
     const afterOneFrame = ctx.camera.position.clone();
 
+    for (let i = 0; i < 300; i++) player.update(1 / 60); // let it fully settle
+    const settledPos = ctx.camera.position.clone();
+    const totalGap = settledPos.distanceTo(beforePos);
+    const oneFrameMove = afterOneFrame.distanceTo(beforePos);
+
     // A single frame at 60fps should move only a small fraction of the total
     // gap toward the new beat's target — never an instant jump/cut.
-    expect(afterOneFrame.distanceTo(beforePos)).toBeGreaterThan(0);
-    expect(afterOneFrame.distanceTo(beforePos)).toBeLessThan(2);
+    expect(oneFrameMove).toBeGreaterThan(0);
+    expect(oneFrameMove).toBeLessThan(totalGap * 0.5);
   });
 
   it('tracks the water blob position through the pipe during pipe-run', () => {
@@ -63,8 +68,11 @@ describe('CinematicBeatPlayer', () => {
 
     const curveStart = anchors.pipeCurves['fountain-ring'].getPointAt(0);
     const curveEnd = anchors.pipeCurves['fountain-ring'].getPointAt(1);
-    expect(posAtStart.distanceTo(curveStart)).toBeLessThan(3);
-    expect(posAtEnd.distanceTo(curveEnd)).toBeLessThan(3);
+    // The camera sits outside the pipe/trench (Gate B fix #4 — never
+    // coincident with the pipe centerline), but still close enough to be
+    // clearly tracking it, not off in some unrelated part of the scene.
+    expect(posAtStart.distanceTo(curveStart)).toBeLessThan(6);
+    expect(posAtEnd.distanceTo(curveEnd)).toBeLessThan(6);
     expect(posAtEnd.distanceTo(posAtStart)).toBeGreaterThan(0.5);
   });
 

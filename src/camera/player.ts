@@ -20,6 +20,8 @@ const ORIENTATION_BLEND_SEC = 0.3;
  * for every possible pair. */
 const POSE_SMOOTH_TAU = 0.15;
 
+const UP = new THREE.Vector3(0, 1, 0);
+
 function clamp01(t: number): number {
   return Math.min(1, Math.max(0, t));
 }
@@ -155,9 +157,31 @@ export class CinematicBeatPlayer {
     const t = clamp01(this.waterT);
     const point = curve.getPointAt(t);
     const ahead = curve.getPointAt(clamp01(t + offsets.lookAhead));
+
+    // Offset perpendicular to the pipe's actual running direction (not a
+    // fixed world axis) — each fountain's pipe runs at a different angle
+    // from the valve, so a fixed +X/+Y offset could still leave the camera
+    // nearly coincident with a diagonal pipe/trench (Gate B fix #4).
+    const tangent = curve.getTangentAt(t);
+    const sideDir = new THREE.Vector3().crossVectors(UP, tangent);
+    if (sideDir.lengthSq() < 1e-6) sideDir.set(1, 0, 0);
+    sideDir.normalize();
+
+    const camPos = point
+      .clone()
+      .addScaledVector(UP, offsets.above)
+      .addScaledVector(sideDir, offsets.side);
+
+    // Aim noticeably below the camera's own (already-shallow) height, biased
+    // toward the trench floor/pipe rather than "ahead at roughly camera
+    // height" — a near-level gaze down a long trench put its close, raking
+    // near wall in the way of almost the whole frame. Tilting the look
+    // target down keeps the wall to a border/frame instead.
+    const lookTarget: [number, number, number] = [ahead.x, ahead.y - offsets.above * 1.1, ahead.z];
+
     return {
-      position: [point.x + offsets.side, point.y + offsets.above, point.z],
-      lookAt: [ahead.x, ahead.y, ahead.z],
+      position: [camPos.x, camPos.y, camPos.z],
+      lookAt: lookTarget,
       fov: fallbackPoses[0]?.fov ?? 50,
     };
   }
