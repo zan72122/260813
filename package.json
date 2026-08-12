@@ -1,0 +1,29 @@
+{
+  "name": "henshin-hoikushitsu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "へんしん！いちにち保育室 — a one-finger 3D nursery-room transformation game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.20.1",
+    "@types/three": "0.180.0",
+    "eslint": "9.39.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0",
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  }
+}
