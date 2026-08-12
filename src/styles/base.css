@@ -1,0 +1,96 @@
+/*
+ * Base layout: full-viewport canvas + DOM overlay layering, safe-area
+ * padding for every corner control, and the global prefers-reduced-motion
+ * kill-switch. Imported once as a side effect by src/ui/index.ts — the
+ * integrator does not need to import this file directly.
+ */
+
+:root {
+  --eiffel-safe-t: env(safe-area-inset-top, 0px);
+  --eiffel-safe-r: env(safe-area-inset-right, 0px);
+  --eiffel-safe-b: env(safe-area-inset-bottom, 0px);
+  --eiffel-safe-l: env(safe-area-inset-left, 0px);
+  --eiffel-paper: #ece0c8;
+  --eiffel-ink: #3c2c1e;
+  --eiffel-brass: #b08d3f;
+}
+
+#eiffel-ui-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10;
+  touch-action: none;
+}
+
+#eiffel-ui-root * {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.eiffel-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.eiffel-interactive {
+  pointer-events: auto;
+}
+
+/* Corner controls: >=56 CSS px targets, kept clear of the safe-area inset,
+   and spaced so two adjacent corner buttons never sit closer than ~64px. */
+.eiffel-corner-btn {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(236, 224, 200, 0.92);
+  color: var(--eiffel-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.eiffel-corner-btn svg {
+  width: 100%;
+  height: 100%;
+}
+
+.eiffel-corner-tl {
+  top: calc(var(--eiffel-safe-t) + 12px);
+  left: calc(var(--eiffel-safe-l) + 12px);
+}
+
+.eiffel-corner-tr {
+  top: calc(var(--eiffel-safe-t) + 12px);
+  right: calc(var(--eiffel-safe-r) + 12px);
+}
+
+/* Primary interactive targets (start badge, replay medallion, resume badge): >=72 CSS px. */
+.eiffel-primary-target {
+  min-width: 72px;
+  min-height: 72px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #eiffel-ui-root *,
+  #eiffel-ui-root *::before,
+  #eiffel-ui-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
