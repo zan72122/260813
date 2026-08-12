@@ -1,0 +1,224 @@
+/*
+ * Component styling for each overlay piece. Split from base.css purely for
+ * readability — both are imported together as a side effect by
+ * src/ui/index.ts. Portrait/landscape variants are provided for every
+ * overlay via `orientation` media queries.
+ */
+
+/* ---------- Loading / start ---------- */
+
+.eiffel-loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--eiffel-paper);
+  opacity: 1;
+  transition: opacity 0.4s ease;
+  pointer-events: auto;
+}
+
+.eiffel-loading.eiffel-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.eiffel-loading-art svg,
+.eiffel-start-badge svg {
+  display: block;
+  width: min(52vw, 220px);
+  height: min(52vw, 220px);
+  color: var(--eiffel-ink);
+}
+
+@keyframes eiffel-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.85;
+  }
+}
+
+.eiffel-pulse {
+  animation: eiffel-pulse 1.6s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+
+/* ---------- HUD corners ---------- */
+
+.eiffel-hud-sound {
+  color: var(--eiffel-ink);
+}
+
+.eiffel-hud-pause {
+  color: var(--eiffel-ink);
+}
+
+/* ---------- Pause overlay ---------- */
+
+.eiffel-pause-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 14, 8, 0.55);
+  pointer-events: auto;
+}
+
+.eiffel-pause-overlay[hidden] {
+  display: none;
+}
+
+.eiffel-resume-badge svg {
+  width: min(40vw, 160px);
+  height: min(40vw, 160px);
+  color: var(--eiffel-paper);
+}
+
+/* ---------- Leg progress ---------- */
+
+.eiffel-leg-progress {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 20px;
+  bottom: calc(var(--eiffel-safe-b) + 14px);
+}
+
+.eiffel-leg-icon svg {
+  width: 40px;
+  height: 40px;
+  color: var(--eiffel-ink);
+  opacity: 0.6;
+}
+
+.eiffel-leg-icon.eiffel-locked svg {
+  color: var(--eiffel-brass);
+  opacity: 1;
+}
+
+@media (orientation: landscape) {
+  .eiffel-leg-progress {
+    bottom: auto;
+    top: calc(var(--eiffel-safe-t) + 14px);
+    gap: 14px;
+  }
+  .eiffel-leg-icon svg {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* ---------- Hint system ---------- */
+
+.eiffel-hint-pulse-ring {
+  position: absolute;
+  width: 96px;
+  height: 96px;
+  margin-left: -48px;
+  margin-top: -48px;
+  border-radius: 50%;
+  border: 4px solid var(--eiffel-brass);
+  opacity: 0.6;
+}
+
+@keyframes eiffel-ring-pulse {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.eiffel-hint-pulse-ring.eiffel-animated {
+  animation: eiffel-ring-pulse 1.1s ease-out infinite;
+}
+
+.eiffel-ghost-hand {
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  margin-left: -45px;
+  margin-top: -45px;
+  opacity: 0.85;
+}
+
+/* ---------- Completion medallion ---------- */
+
+.eiffel-completion {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.eiffel-completion[hidden] {
+  display: none;
+}
+
+.eiffel-completion-panel {
+  position: relative;
+  width: min(66vw, 320px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 38%, #f4e6c8, #c9a45c 70%, #8a6a45 100%);
+  box-shadow: 0 10px 34px rgba(20, 14, 8, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eiffel-completion-replay {
+  min-width: 120px;
+  min-height: 120px;
+}
+
+.eiffel-completion-replay svg {
+  width: min(30vw, 140px);
+  height: min(30vw, 140px);
+  color: var(--eiffel-ink);
+}
+
+@media (orientation: landscape) {
+  .eiffel-completion-panel {
+    width: min(46vh, 280px);
+  }
+}
+
+/* ---------- Error fallback ---------- */
+
+.eiffel-error-fallback {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  background: var(--eiffel-paper);
+  pointer-events: auto;
+}
+
+.eiffel-error-scene svg {
+  width: min(50vw, 220px);
+  height: min(50vw, 220px);
+  color: var(--eiffel-ink);
+}
+
+.eiffel-error-reload svg {
+  width: min(30vw, 120px);
+  height: min(30vw, 120px);
+  color: var(--eiffel-ink);
+}
