@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ShelfTheme, WeatherKind } from '../game/types.ts';
 import { FLOOR_Y, ROOM_HALF_DEPTH, ROOM_HALF_WIDTH, WALL_HEIGHT } from './constants.ts';
-import { roundedBoxGeometry, woodBlockGeometry } from './geometry.ts';
+import { mergeGeometries, roundedBoxGeometry, woodBlockGeometry } from './geometry.ts';
 import { createFabricWeaveTexture, createWoodGrainTexture } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
 
@@ -146,12 +146,30 @@ export function buildRoom(shelfTheme: ShelfTheme): RoomHandles {
   }
   group.add(rainGroup);
 
+  // M11 fix (fix-round-1): each "cloud" was a single plain sphere ("golf
+  // balls"). Each one is now a small cluster of 3-4 squashed, offset lumps
+  // merged into one geometry (still one draw call per cloud, same as
+  // before) so the silhouette actually reads as puffy/cloud-shaped instead
+  // of a smooth ball.
   const cloudGroup = new THREE.Group();
   cloudGroup.visible = false;
   const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
   for (let i = 0; i < 3; i++) {
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.06 + Math.random() * 0.02, 8, 8), cloudMat);
-    puff.position.set(frame.position.x - 0.2 + i * 0.18, windowY + 0.15, frame.position.z + 0.01);
+    const lumpCount = 3 + Math.floor(Math.random() * 2);
+    const baseR = 0.05 + Math.random() * 0.015;
+    const lumps: THREE.BufferGeometry[] = [];
+    for (let l = 0; l < lumpCount; l++) {
+      const r = baseR * (0.55 + Math.random() * 0.55);
+      const lump = new THREE.SphereGeometry(r, 8, 6);
+      lump.scale(1, 0.62, 0.9);
+      const lx = (l - (lumpCount - 1) / 2) * baseR * 0.9 + (Math.random() - 0.5) * 0.02;
+      const ly = (Math.random() - 0.5) * baseR * 0.3;
+      lump.translate(lx, ly, 0);
+      lumps.push(lump);
+    }
+    const cloudGeo = mergeGeometries(lumps);
+    const puff = new THREE.Mesh(cloudGeo, cloudMat);
+    puff.position.set(frame.position.x - 0.2 + i * 0.2, windowY + 0.15 + (Math.random() - 0.5) * 0.04, frame.position.z + 0.01);
     cloudGroup.add(puff);
   }
   group.add(cloudGroup);

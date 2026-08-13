@@ -62,6 +62,33 @@ export function plushBlockGeometry(size: number): THREE.BufferGeometry {
   return roundedBoxGeometry({ width: size, height: size * 0.85, depth: size, cornerRadius: size * 0.32, bevelSize: size * 0.22, bevelSegments: 4 });
 }
 
+/**
+ * M11 fix (fix-round-1): plush toys need a silhouette that reads as
+ * distinctly "soft/lumpy" at a glance next to a wood block (cubic) and a
+ * plastic ball (sphere) — a heavily-rounded box (plushBlockGeometry above)
+ * still reads as a box family, just softer-edged. This merges 3 overlapping,
+ * unevenly-sized spheres into one asymmetric blob (one draw call, same as
+ * any other single-mesh toy) for a genuinely non-box, non-sphere silhouette.
+ */
+export function plushLumpGeometry(size: number): THREE.BufferGeometry {
+  const lumps: THREE.BufferGeometry[] = [];
+  const core = new THREE.SphereGeometry(size * 0.52, 12, 9);
+  lumps.push(core);
+  const earOffsets: [number, number, number, number][] = [
+    [-size * 0.32, size * 0.24, size * 0.08, 0.62],
+    [size * 0.3, size * 0.2, -size * 0.1, 0.58],
+    [0, -size * 0.22, size * 0.18, 0.5],
+  ];
+  for (const [x, y, z, scale] of earOffsets) {
+    const lump = new THREE.SphereGeometry(size * 0.52 * scale, 10, 8);
+    lump.translate(x, y, z);
+    lumps.push(lump);
+  }
+  const geo = mergeGeometries(lumps);
+  geo.scale(1, 0.88, 1);
+  return geo;
+}
+
 export function woodBlockGeometry(size: number): THREE.BufferGeometry {
   return roundedBoxGeometry({ width: size, height: size, depth: size, cornerRadius: size * 0.14, bevelSize: size * 0.05, bevelSegments: 2 });
 }

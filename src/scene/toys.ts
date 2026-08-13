@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { SeedConfig, ToyDef, ToySymbol } from '../game/types.ts';
 import { BASKET_COLORS } from './baskets.ts';
 import { vec2ToWorld } from './constants.ts';
-import { plushBlockGeometry, woodBlockGeometry } from './geometry.ts';
+import { plushLumpGeometry, woodBlockGeometry } from './geometry.ts';
 import { applySymbolUv, createFabricWeaveTexture, createSymbolAtlas, createWoodGrainTexture } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
 import { BlobShadowManager } from './shadows.ts';
@@ -92,10 +92,10 @@ export class ToySystem {
       decalSize = size * 0.62;
     } else if (toy.material === 'fabric') {
       const size = 0.17;
-      geo = plushBlockGeometry(size);
+      geo = plushLumpGeometry(size);
       mat = new THREE.MeshStandardMaterial({ color, map: fabricTex, roughness: 0.92, metalness: 0 });
-      topY = (size * 0.85) / 2;
-      decalSize = size * 0.55;
+      topY = size * 0.46;
+      decalSize = size * 0.5;
     } else {
       const radius = 0.085;
       geo = new THREE.SphereGeometry(radius, 20, 14);
