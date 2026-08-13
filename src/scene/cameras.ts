@@ -21,6 +21,8 @@ export interface CameraRig extends CameraApi {
   /** "follow"プリセットが追従する対象。Object3Dならworld座標を毎フレーム追跡。 */
   setFollowTarget(target: THREE.Object3D | THREE.Vector3 | null): void;
   setReducedMotion(on: boolean): void;
+  /** R1-03向け: プリセット遷移(goTo)のtween進行中かどうか。screenshotReady()の実装に使う。 */
+  isTransitioning(): boolean;
 }
 
 const NORMAL_DURATION = 1.1;
@@ -177,15 +179,14 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     return found;
   }
 
-  // probe-gap(石垣): S3c修正。壁はワールドX方向に長い1枚の面(法線は±Z、+Z側=approach側が
-  // ゾウの立つ側)。ゾウ(approach x=-6.4)は壁の東端(x=-6.2、WALL_WIDTH/gapColStartから算出)の
-  // すぐ外側に立ち、隙間(anchor x=-8)へ向けて西南西を向いて鼻を差し込む(向き=approach→anchor≈
-  // (-0.89,-0.45))。S3bの旧プリセットはanchorから世界+X(壁の東端の先=ゾウの背後)へ大きく離れた
-  // 位置だったため、ゾウの正面(西南西)から見て背後にカメラが回り込み「真後ろ」を映していた
-  // (dev-s3b-probe.pngで発覚)。修正: approachを基準に、ゾウの正面やや右(北西)・壁の東端より
-  // さらに外側(z=approach.z+1.5、壁のz≈-6から1.5以上離れているため「壁とゾウの間」の
-  // 狭い帯(z∈(-6,-5.2))に入らない)にカメラを置き、隙間+鼻+顔を同時に3/4前側面で狙う。
-  // 高さは鼻の高さ(1.2-1.6)に合わせて低めに変更(旧1.9-2.5は高すぎ、壁越しの俯瞰になっていた)。
+  // probe-gap(石垣): S7修正(#9)。複数の構図を試した(距離短縮のみ→鼻が映らず、ゾウのheadingを
+  // peel-bananaと同じ手法でカメラ側へ振る→被写体が近すぎて逆に鼻が画角外へ、側方プロファイル+
+  // 距離拡大)。最終的に、ゾウのheadingは対象へ完全正対のまま(他の行動と同じ既定)にして、カメラを
+  // 「backへの引き」を最小限にした側方(side主体)・中距離へ配置する構図を採用した。目・耳・壁・
+  // 隙間の位置関係は明瞭に見えるようになったが(修正前は壁越しに後頭部のみが遠景で見える構図だった)、
+  // 鼻そのものが隙間へ入り込む瞬間の視認性は静止画では依然弱く、これはS7時点での既知の制限として
+  // ops/reports/S7.mdに明記した(壁の隙間列の手前に隣接ブロックが並ぶため、通常の側面角度からは
+  // 隙間内部が見えにくい構造上の制約。追加のカメラ再設計はS7のスコープを超えるため見送り)。
   {
     const spot = spotOf("stone-gap");
     const anchor = v3(spot.position); // (-8,0.9,-6) 隙間(壁はここを中心に世界X方向へ延びる)
@@ -194,13 +195,11 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     const side = new THREE.Vector3(forward.z, 0, -forward.x); // 側方(90°)ベクトル
     // 隙間+顔を両方収めるため、狙点はanchorとapproachの中間よりやや隙間寄り(0.35)。
     const target = anchor.clone().lerp(approach, 0.35).add(new THREE.Vector3(0, 0.35, 0));
-    // side方向(側方)を主軸に、forward方向へわずかに引く(=壁から離れる)ことで、壁の面(隙間含む)
-    // を斜め横~35°相当の角度で見つつ、「壁とゾウの間」の狭い帯へカメラが入り込むのを避ける。
     const buildPos = (lateral: number, back: number, height: number): THREE.Vector3 =>
       approach.clone().addScaledVector(side, lateral).addScaledVector(forward, -back).add(new THREE.Vector3(0, height, 0));
     presets.set("behavior:probe-gap", {
-      landscape: { position: buildPos(6.0, 3.0, 1.7), target, fov: 42 },
-      portrait: { position: buildPos(4.8, 2.4, 1.9), target, fov: 58 }
+      landscape: { position: buildPos(6.1, 0.55, 1.5), target, fov: 42 },
+      portrait: { position: buildPos(4.7, 0.45, 1.6), target, fov: 58 }
     });
   }
   // dig-sand(砂場): S3c修正。approach(0,0,2.6)→anchor(0,0.05,4)はほぼ世界+Z(北向き)なので、
@@ -222,43 +221,46 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     })
   );
   // reach-pipe(土管): 横から(85°、土管の軸=approach→anchor≈世界+Xにほぼ垂直)、開口部越しに
-  // 内部(xray)が見える角度。S3b時点で「概ね良」評価だったため角度はほぼ維持し、高さのみ要件の
-  // 「~1.2」に合わせて微調整(旧1.0 → 1.2、土管口と鼻の高さがより揃うようにする)。
+  // 内部(xray)が見える角度。角度は維持。
+  // R2-03修正(S7): distance2.8は接写しすぎで土管の丸み・全体像が画面外に出てしまい
+  // (05-reach-pipe.pngで確認、暗い影の帯のみで「土管」と判別しづらい)、他の行動と静止画で似た
+  // 構図に見えていた。撮影に使うiphone-portrait(aspect~0.46)はvertical fov指定に対し実際の
+  // 水平画角がかなり狭くなるため、distance3.8程度の微調整では体感的な変化が乏しいことを実写で
+  // 確認した。土管全体(LENGTH2.6+OUTER_R0.62*2)+ゾウの鼻先が画面内に収まるまで思い切って引く
+  // (2.8→5.6)。角度・高さは変更しない(他の行動カメラには触れない、との指示どおり)。
   presets.set(
     "behavior:reach-pipe",
     behaviorShot(spotOf("pipe"), {
       rotateDeg: 85,
-      distance: 2.8,
+      distance: 5.6,
       height: 1.2,
       targetOffset: new THREE.Vector3(0, 0.25, 0),
       fovLandscape: 40,
       fovPortrait: 58
     })
   );
-  // peel-banana(ガジュマル根元): S3c修正。banyan.tsのgapPosition(根の窪み)はspot.positionそのもの
-  // =幹の中心軸上にあるため、behaviorShot()(anchor=幹中心からdistance/rotateDegだけ離れた位置に
-  // カメラを置く)ではどの角度で回っても「幹の中心を見る」構図になりやすく、ゾウ(approachに立ち
-  // 窪みへ鼻を伸ばす)の顔とカメラの間に幹の太い胴が割り込んでしまっていた(dev-s3b-banana.pngで
-  // 発覚、「ガジュマルの幹がゾウの顔とバナナ茎を隠している」)。窪みは幹の"手前側"(approach側を
-  // 向いた面)にあるため、カメラはanchor基準ではなくapproach(ゾウの立ち位置)を基準に、
-  // ゾウの正面やや横(側方ベクトル)+わずかに後ろへ引いた位置に置き、幹を横から見る形にして
-  // 幹の胴が視線を遮らないようにする。
+  // peel-banana(ガジュマル根元): S7修正(#8、選付+カメラの組み合わせ)。banyan.tsのgapPosition
+  // (根の窪み)はspot.positionそのもの=幹の中心軸(半径最大0.85の実体シリンダー)の内側にあるため、
+  // カメラの角度をどう振っても「幹の中心そのもの」を狙う限りゾウの正面や鼻先は幹の陰に回り込み
+  // やすい(dev-s3b-banana.png/S3c修正でも改善しきれず、FAILURE_LEDGER記載どおりカメラ単独調整は
+  // 2回失敗)。S7では2つを同時に変える: (1) world.tsのrunSpotBehavior()がbanyan-rootのみ、体の
+  // 向きを「幹へ完全正対」ではなく「このカメラの方向(side優位)」へ大きく振る(#8のcomputeApproach
+  // Heading参照、鼻先は独立IKで幹側anchorへ届くため不自然にならない)。(2) ここではその新しい体の
+  // 向きに合わせ、カメラを幹の裏へ回り込ませず(back成分をほぼ0近くまで縮小)、ほぼ真横〜やや正面
+  // 寄りの位置へ。狙点(target)も幹中心そのものではなく、幹とゾウの中間(lerp 0.5)へ寄せることで、
+  // 画面の主役をゾウの顔・鼻・バナナ茎側に確保する(幹自体が画面の一部に写らなくても問題ない)。
   {
     const spot = spotOf("banyan-root");
     const anchor = v3(spot.position); // (-6,0.3,3) 幹の中心/根の窪み
     const approach = v3(spot.approach); // (-4.6,0,2.2) ゾウの立ち位置
-    const forward = anchor.clone().sub(approach).setY(0).normalize(); // ゾウが窪みへ向く方向
-    const side = new THREE.Vector3(forward.z, 0, -forward.x); // 左右(側方)ベクトル
+    const forward = anchor.clone().sub(approach).setY(0).normalize(); // approach→幹中心の方向
+    const side = new THREE.Vector3(forward.z, 0, -forward.x); // 左右(側方)ベクトル(world.tsのheading計算と共通)
     const buildPos = (lateral: number, back: number, height: number): THREE.Vector3 =>
       approach.clone().addScaledVector(side, lateral).addScaledVector(forward, back).add(new THREE.Vector3(0, height, 0));
-    // 狙点は窪み(anchor)からわずかに上、剥がす作業の高さ(地面付近)。カメラは幹(anchor中心、
-    // 半径最大0.85の縦の塊)からの水平距離を5単位前後確保しつつ、ゾウ(approach)からは4単位未満に
-    // 近づけることで、ゾウの方が幹より画面上で優先して大きく映るようにする(幹が完全に見切れて
-    // いても問題ない=要件は「幹がゾウを隠さない」ことであり、幹自体を写す必要はない)。
-    const target = anchor.clone().add(new THREE.Vector3(0, 0.5, 0.1));
+    const target = anchor.clone().lerp(approach, 0.5).add(new THREE.Vector3(0, 0.65, 0.05));
     presets.set("behavior:peel-banana", {
-      landscape: { position: buildPos(4.2, -3.6, 2.0), target, fov: 44 },
-      portrait: { position: buildPos(3.4, -2.9, 2.3), target, fov: 60 }
+      landscape: { position: buildPos(5.6, -0.8, 2.1), target, fov: 44 },
+      portrait: { position: buildPos(4.4, -0.6, 2.4), target, fov: 60 }
     });
   }
   // break-branch(高木): S3c修正。旧rotateDeg15°はapproach→anchor(=ゾウ→木)の正面軸にほぼ沿った
@@ -309,6 +311,17 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     return resolveVariant(src);
   }
 
+  /** R1-02修正: 前回のgoTo()が返したPromiseが未解決のまま残っている状態で新しいtransitionへ
+   * 上書きすると、前回のPromiseが永久にstallする(gait.walkTo()のR1-01と同型の欠陥だった)。
+   * 新transition設定前に必ず呼び、前回分を明示的に解決してから差し替える。 */
+  function resolvePendingTransition(): void {
+    if (transition) {
+      const resolve = transition.resolve;
+      transition = null;
+      resolve();
+    }
+  }
+
   function goTo(preset: string, opts?: { instant?: boolean }): Promise<void> {
     const def = presets.get(preset);
     if (!def) {
@@ -319,6 +332,7 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     const variant = orientation === "portrait" ? resolveVariant(def.portrait) : resolveVariant(def.landscape);
     const duration = opts?.instant ? 0 : reducedMotion ? REDUCED_DURATION : NORMAL_DURATION;
     if (duration <= 0) {
+      resolvePendingTransition();
       camera.position.copy(variant.position);
       currentTarget.copy(variant.target);
       camera.fov = variant.fov;
@@ -328,6 +342,7 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
+      resolvePendingTransition();
       transition = {
         fromPos: camera.position.clone(),
         fromTarget: currentTarget.clone(),
@@ -378,7 +393,11 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     reducedMotion = on;
   }
 
-  const rig: CameraRig = { camera, goTo, setOrientation, update, registerPreset, setFollowTarget, setReducedMotion };
+  function isTransitioning(): boolean {
+    return transition !== null;
+  }
+
+  const rig: CameraRig = { camera, goTo, setOrientation, update, registerPreset, setFollowTarget, setReducedMotion, isTransitioning };
 
   // QA向けの一時的な橋渡し: main.ts(編集禁止)がworld.tsへCameraRigを配線するまでの間、
   // world.tsのelephantSeek(S3b)がbehavior:<id>への実カメラカットを行えるようにwindow経由で公開する

@@ -102,9 +102,13 @@ export class Gait {
     this.settleLegsInstant();
   }
 
-  /** waypointを順に辿る。全て到達したら解決するPromiseを返す。 */
+  /** waypointを順に辿る。全て到達したら解決するPromiseを返す。
+   * R1-01修正: 前回のwalkTo()が返したPromiseが未解決のまま残っていると、新タスクで
+   * this.taskを無条件上書きした場合に前回のPromiseが永久にstallする(jumpTo("seek")スタールの
+   * 根本原因だった)。stop()と同じく前タスクを明示的に解決してから差し替える。 */
   walkTo(points: Vec3Like[]): Promise<void> {
     const pts = points.map((p) => new THREE.Vector3(p.x, 0, p.z));
+    this.stop();
     if (pts.length === 0) return Promise.resolve();
     return new Promise((resolve) => {
       this.task = { points: pts, index: 0, resolve };

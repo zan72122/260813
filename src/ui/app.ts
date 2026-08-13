@@ -134,13 +134,28 @@ export function createGameApp(opts: CreateGameAppOptions): GameApp {
   const hintBubble = createHintBubble();
   hintBubble.node.classList.add("hint-bubble--floating");
   uiRoot.appendChild(hintBubble.node);
+  // R2-02修正: hintBubbleは画面上部固定の汎用「指さし」表示のみで、対象スポットと視覚的に
+  // 結びついていなかった(仕様が求める「対象の微振動・局所光」が未配線)。highlightSpot()自体は
+  // 実装済み(hide.tsのドラッグ吸着時に既に使われている)なので、ここでも同じ対象spotIdへ短時間
+  // ON/OFFする形で配線する(hintBubbleのpulse()と同じ約1.6秒で消す)。
+  let hintHighlightTimer: ReturnType<typeof setTimeout> | null = null;
   const unsubHint = events.on("hint:show", ({ spotId }) => {
     hintBubble.pulse();
+    if (hintHighlightTimer) {
+      clearTimeout(hintHighlightTimer);
+      hintHighlightTimer = null;
+    }
     if (spotId) {
       const spot = getSpot(spotId);
       world.keeperPointAt(spot.position);
+      world.highlightSpot(spotId);
+      hintHighlightTimer = setTimeout(() => {
+        world.highlightSpot(null);
+        hintHighlightTimer = null;
+      }, 1600);
     } else {
       world.keeperPointAt(null);
+      world.highlightSpot(null);
     }
   });
   // elephant:arrived(docs/INTERFACES.md契約)はbehavior:startと同時に成立したとみなし橋渡しする
@@ -280,6 +295,7 @@ export function createGameApp(opts: CreateGameAppOptions): GameApp {
   function destroy(): void {
     unsubFsm();
     unsubHint();
+    if (hintHighlightTimer) clearTimeout(hintHighlightTimer);
     reducedMotionQuery?.removeEventListener?.("change", applyReducedMotion);
     hintBubble.dispose();
     currentUnmount?.();

@@ -53,6 +53,10 @@ export interface World extends WorldApi {
   keeperPointAt(pos: Vec3 | null): void;
   /** S5: せってい「ひかりをよわく」。lighting.tsのsetDim()への薄い委譲。 */
   setLightDim(on: boolean): void;
+  /** R1-03向け: 主要tween(animateValue経由のworld側演出)またはゾウの移動/嗅ぎ/入場動作が
+   * 進行中かどうか。main.tsのscreenshotReady()実装がcameraRig.isTransitioning()と組み合わせて使う
+   * (簡易実装: behaviorのrunTimed()もanimateValue経由のためrunningAnimsに含まれる)。 */
+  isAnimating(): boolean;
 }
 
 interface RunningAnim {
@@ -304,6 +308,30 @@ export function createWorld(opts?: {
   // 5固有行動が触れる環境インスタンス一式(behaviors/types.tsのBehaviorEnv)。
   const behaviorEnv: BehaviorEnv = { stoneWall, sandPit, pipe: pipeRig, banyan, tallTree };
 
+  // S7修正(#8): peel-bananaは対象(anchor=幹の中心)へ完全に正対すると、behavior:peel-bananaカメラ
+  // (approachから見て側方寄りに位置する)から見てゾウの背中/後方しか見えず、顔・鼻・バナナ茎が体
+  // そのものに隠れてしまっていた(FAILURE_LEDGER記載、カメラ単独の調整は2回失敗済み)。カメラが
+  // 基準にする側方(side)ベクトルへ体の向きを大きく寄せ、対象方向(forward)は少しだけ残す(体を
+  // ほぼ横向きに構えつつ対象の方へわずかに傾く)ことで、顔・目・耳をカメラへ見せる。鼻先はTrunk側の
+  // 独立したIKでanchorへ伸びるため、体の正対が崩れても不自然にはならない。他の行動(dig-sand/
+  // reach-pipe/break-branch/probe-gap)は正対のままカメラ側(cameras.ts)を対象の正面寄りに置く方式で
+  // 問題なく見えている(probe-gapはS7でカメラを側方プロファイル寄りに調整、#9参照)ため、
+  // それらは既定(対象へ完全正対)を維持する。
+  const HEADING_SIDE_BLEND: Partial<Record<BehaviorId, { side: number; forward: number }>> = {
+    "peel-banana": { side: 0.82, forward: 0.32 }
+  };
+
+  function computeApproachHeading(spot: ReturnType<typeof getSpot>): number {
+    const dx = spot.position.x - spot.approach.x;
+    const dz = spot.position.z - spot.approach.z;
+    const blend = HEADING_SIDE_BLEND[spot.elephantBehavior];
+    if (!blend) return Math.atan2(dx, dz);
+    const forward = new THREE.Vector3(dx, 0, dz).normalize();
+    const side = new THREE.Vector3(forward.z, 0, -forward.x); // behaviorカメラのside基準と同じ向き
+    const blended = side.clone().multiplyScalar(blend.side).addScaledVector(forward, blend.forward).normalize();
+    return Math.atan2(blended.x, blended.z);
+  }
+
   /** spotIdの行動(BehaviorId)を1回再生する。placeFood→BEHAVIORS[...]実行→餌の後片付けまで面倒を見る。
    * elephantSeek(歩行込み)とplayBehaviorDirect(QA向け、歩行スキップ)の両方から呼ばれる共通経路。 */
   async function runSpotBehavior(spotId: SpotKind, food: FoodKind): Promise<void> {
@@ -312,7 +340,7 @@ export function createWorld(opts?: {
     // 対象(隙間/砂場/土管/根元/高木)の方をきちんと向かせてから行動を始める。walkToSpot経由でも
     // (歩いてきた方向をそのまま向いているだけで対象を向いているとは限らないため)、
     // playBehaviorDirect経由(歩行スキップ)でも、この1箇所で一貫して向きを揃える。
-    const heading = Math.atan2(spot.position.x - spot.approach.x, spot.position.z - spot.approach.z);
+    const heading = computeApproachHeading(spot);
     elephant.idleAt(spot.approach, heading);
     const foodObject = placedFoods.get(spotId);
     if (!foodObject) {
@@ -483,6 +511,12 @@ export function createWorld(opts?: {
     highlight = { spotId, anchor, basePos: anchor.position.clone(), light };
   }
 
+  function isAnimating(): boolean {
+    const state = elephant.getState();
+    const elephantBusy = state === "walking" || state === "sniffing" || state === "entering";
+    return runningAnims.length > 0 || elephantBusy;
+  }
+
   function getDebugInfo(): { elephant: { present: true; visible: boolean; state: string; position: Vec3 } } {
     return {
       elephant: {
@@ -541,7 +575,8 @@ export function createWorld(opts?: {
     setCameraRig,
     playIntro,
     keeperPointAt,
-    setLightDim
+    setLightDim,
+    isAnimating
   };
 
   // S3b: playBehaviorDirect()をQAスクリプトから直接叩けるようworld自体もwindowへ公開する

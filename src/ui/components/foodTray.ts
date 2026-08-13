@@ -32,6 +32,10 @@ export interface FoodTray {
 }
 
 const ICON_SIZE = 76; // 要件64-96pxの大きな絵
+// R2-01修正: ゴーストを指先の座標そのままに重ねると、狙い先(吸着スポットの地面)が指とゴースト自身に
+// 隠れてしまう(4歳児の指は相対的に大きく、一番見たい変化点が最も隠れやすい)。指先より上へ
+// 一定量オフセットして表示し、指の下に置き先が見えるようにする(スマホの「ドラッグ中は少し浮かせる」定番)。
+const GHOST_Y_OFFSET = 56;
 
 export function createFoodTray(items: FoodTrayItem[], callbacks: FoodTrayCallbacks): FoodTray {
   const node = el("div", { className: "food-tray food-tray--portrait" });
@@ -62,7 +66,7 @@ export function createFoodTray(items: FoodTrayItem[], callbacks: FoodTrayCallbac
       drawFoodIcon(ghostCanvas, item.food, ICON_SIZE * 1.15);
       ghost.appendChild(ghostCanvas);
       ghost.style.left = `${ev.clientX}px`;
-      ghost.style.top = `${ev.clientY}px`;
+      ghost.style.top = `${ev.clientY - GHOST_Y_OFFSET}px`;
       document.body.appendChild(ghost);
       dragging = { item, ghost, slot };
       callbacks.onDragStart(item, ev.clientX, ev.clientY);
@@ -71,7 +75,7 @@ export function createFoodTray(items: FoodTrayItem[], callbacks: FoodTrayCallbac
     slot.addEventListener("pointermove", (ev) => {
       if (!dragging || dragging.item.id !== item.id) return;
       dragging.ghost.style.left = `${ev.clientX}px`;
-      dragging.ghost.style.top = `${ev.clientY}px`;
+      dragging.ghost.style.top = `${ev.clientY - GHOST_Y_OFFSET}px`;
       callbacks.onDragMove(item, ev.clientX, ev.clientY);
     });
 

@@ -14,7 +14,11 @@ export async function probeGap(ctx: BehaviorContext): Promise<void> {
   const foodPos = worldPositionOf(foodObject);
   const dir = approachDirXZ(ctx, foodPos); // ゾウ→隙間の水平方向
   const frontPos = foodPos.clone().addScaledVector(dir, -0.4).add(new THREE.Vector3(0, 0.05, 0));
-  const insidePos = foodPos.clone().addScaledVector(dir, 0.12); // 隙間の奥へわずかに押し込む
+  // S7修正(#9): 石垣の隙間はWALL_DEPTH(0.9)の厚みがあり、旧オフセット0.12は隙間の入口をわずかに
+  // 越えた程度で「鼻が隙間へ入って見える」瞬間が薄かった(08-probe-gap.pngで未確認)。壁厚の半分
+  // (0.45)近くまで奥へ押し込み、鼻先が視覚的に隙間へ深く入り込んだ状態を作る(壁の反対側へ突き
+  // 抜けない範囲でできるだけ奥=0.38)。
+  const insidePos = foodPos.clone().addScaledVector(dir, 0.38); // 隙間の奥へ深く押し込む
 
   // 餌は隙間の奥にあり、掴むまでは見えない。
   foodObject.visible = false;

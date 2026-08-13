@@ -24,12 +24,14 @@ async function hideUiOverlay(page: Page): Promise<void> {
 
 // S3b.md「各行動の尺」(reducedMotion=false, timeScale=1の自然な尺)とS3c.mdで選定した山場%を使う。
 // S3c.mdはreducedMotion短縮下の値のため、ここではtimeScale=1の自然な尺に対する同じ%で待つ。
+// probe-gapのみS7修正#9で撮影%を0.4→0.65へ変更(挿入最深部=鼻が隙間へ最も深く入っている瞬間、
+// 進行60-70%の範囲で撮り直す指示にもとづく)。
 const BEHAVIOR_SHOTS: { id: BehaviorId; file: string; naturalSeconds: number; pct: number }[] = [
   { id: "dig-sand", file: "04-dig-sand.png", naturalSeconds: 8.0, pct: 0.6 },
   { id: "reach-pipe", file: "05-reach-pipe.png", naturalSeconds: 6.9, pct: 0.6 },
   { id: "peel-banana", file: "06-peel-banana.png", naturalSeconds: 11.0, pct: 0.6 },
   { id: "break-branch", file: "07-break-branch.png", naturalSeconds: 8.2, pct: 0.2 },
-  { id: "probe-gap", file: "08-probe-gap.png", naturalSeconds: 6.1, pct: 0.4 }
+  { id: "probe-gap", file: "08-probe-gap.png", naturalSeconds: 6.1, pct: 0.65 }
 ];
 
 test("@screenshot 製品スクショ10枚を撮影する", async ({ page, browser }, testInfo) => {

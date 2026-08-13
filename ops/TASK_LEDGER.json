@@ -344,7 +344,7 @@
     {
       "id": "S7",
       "title": "レビュー反映の最終修正",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "src/",
@@ -360,9 +360,16 @@
         "npm run qa:screenshots"
       ],
       "reportPath": "ops/reports/S7.md",
-      "commit": "",
+      "commit": "PENDING_COMMIT",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "npm run check: PASS (lint 0 errors / typecheck 0 errors / test 186 passed / build dist生成)",
+        "npm run qa:e2e: PASS (60 tests中18 run / 42 skipped / 0 failed)",
+        "npm run qa:screenshots: PASS (1 run / 3 skipped / 0 failed、10枚再生成)",
+        "目視確認5枚: 4枚合格 + probe-gapは部分改善(既知の制限としてdocs/QA_REPORT.md 9.4節/ops/reports/S7.mdに明記)",
+        "R1-05/R1-01/R1-02/R1-04/R1-03/R2-01/R2-02/R2-03/peel-banana/probe-gapの10項目を修正",
+        "詳細: ops/reports/S7.md"
+      ]
     }
   ]
 }

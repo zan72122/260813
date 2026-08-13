@@ -61,7 +61,8 @@ function createMockWorld(): { world: World; events: EventBus; placed: Map<SpotKi
     },
     setCameraRig: () => {},
     playIntro: async () => {},
-    keeperPointAt: () => {}
+    keeperPointAt: () => {},
+    isAnimating: () => false
   };
   return { world, events, placed };
 }
@@ -74,7 +75,8 @@ function createMockCameraRig(): CameraRig {
     update: () => {},
     registerPreset: () => {},
     setFollowTarget: () => {},
-    setReducedMotion: () => {}
+    setReducedMotion: () => {},
+    isTransitioning: () => false
   };
 }
 

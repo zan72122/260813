@@ -119,14 +119,19 @@ function main(): void {
 
   const debugApi = installDebugApi(config.qa);
   debugApi.registerHandlers({
-    getState: () => ({
-      qa: config.qa,
-      quality: renderer.quality,
-      timeScale: clock.timeScale,
-      elapsed: clock.elapsed,
-      seed: config.seed,
-      ...(app.getDebugSnapshot() as Record<string, unknown>)
-    }),
+    getState: () => {
+      // R1-04修正: renderer.instance.info(draw calls/triangles)をgetState()へ配線する。
+      const stats = renderer.getStats();
+      return {
+        qa: config.qa,
+        quality: renderer.quality,
+        timeScale: clock.timeScale,
+        elapsed: clock.elapsed,
+        seed: config.seed,
+        render: { drawCalls: stats.calls, triangles: stats.triangles, calls: stats.calls },
+        ...(app.getDebugSnapshot() as Record<string, unknown>)
+      };
+    },
     setTimeScale: (v: number) => {
       clock.timeScale = v;
     },
@@ -143,16 +148,24 @@ function main(): void {
       if (seed !== undefined) url.searchParams.set("seed", String(seed));
       window.location.href = url.toString();
     },
-    screenshotReady: () => true
+    // R1-03修正: カメラプリセット遷移(tween)中でなく、かつworld側の主要tween/ゾウの移動動作も
+    // 静止していればtrueを返す(docs/INTERFACES.mdの契約「カメラ遷移・tween静止でtrue」の簡易実装)。
+    screenshotReady: () => !cameraRig.isTransitioning() && !world.isAnimating()
   });
   // hideFoodDirectはdocs/INTERFACES.mdのDebugApi契約には含まれない、S4向けE2E補助の追加プロパティ。
   // 既存インスタンスを丸ごと差し替えると(spread等)プロトタイプ上のメソッド群が失われるため、
   // 同一オブジェクトへ直接プロパティを生やす(ドラッグ操作のE2E化が難しい場合の代替経路。
   // 手動ドラッグ経路はscreens/hide.tsに別途残っている)。
-  const debugApiHandle = window.__ELEPHANT_GAME_DEBUG__ as unknown as Record<string, unknown> | undefined;
-  if (debugApiHandle) {
-    debugApiHandle.hideFoodDirect = (spotId: Parameters<typeof app.hideFoodDirect>[0], food: Parameters<typeof app.hideFoodDirect>[1]) =>
-      app.hideFoodDirect(spotId, food);
+  // R1-05修正: config.qaがfalse(本番ビルド)の場合は生やさない。__ELEPHANT_GAME_DEBUG__自体は
+  // qa未指定でも常に存在する(installDebugApi()参照)ため、ここでガードしないと本番でも
+  // コンソールから隠し場所へ直接食材を配置できてしまう(docs/INTERFACES.mdの
+  // 「本番でも ready/getState のみ露出」契約への違反)。
+  if (config.qa) {
+    const debugApiHandle = window.__ELEPHANT_GAME_DEBUG__ as unknown as Record<string, unknown> | undefined;
+    if (debugApiHandle) {
+      debugApiHandle.hideFoodDirect = (spotId: Parameters<typeof app.hideFoodDirect>[0], food: Parameters<typeof app.hideFoodDirect>[1]) =>
+        app.hideFoodDirect(spotId, food);
+    }
   }
 
   // Service Worker登録(PWA/オフライン対応)。?nosw=1でE2E安定化のためスキップできる(既存契約どおり)。

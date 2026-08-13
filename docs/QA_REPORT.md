@@ -1,4 +1,4 @@
-# QA_REPORT — S6 検証実測記録
+# QA_REPORT — S6/S7 検証実測記録
 
 実行日: 2026-08-13。環境: このセッションのコンテナ内(`/opt/pw-browsers/chromium`、
 `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`、headless Chromium + SwiftShader software GL)。
@@ -65,7 +65,10 @@ title/hide画面などゾウがまだ登場していないはずの場面でも�
 - 再現手順(修正前): `?qa=1&nosw=1`で起動 → タイトル画面をスクショ → 放飼場中央付近(z=2)に
   ゾウが直立して見切れて写り込む。
 
-### 3.2 [未修正・範囲外] `jumpTo("seek")`(`?act=seek`)がgait競合で永久にstallする
+> **S7追記**: 本節(3.2/3.3/3.4)は全てS7で修正済み。詳細は末尾の「9. S7 修正記録」を参照。
+> 以下はS6時点の記録として原文のまま残す。
+
+### 3.2 [S6時点で未修正、S7で修正済み] `jumpTo("seek")`(`?act=seek`)がgait競合で永久にstallする
 
 **症状**: `?qa=1&act=seek`で起動、または`window.__ELEPHANT_GAME_DEBUG__.jumpTo("seek")`を呼ぶと、
 ゾウは入場(`elephantEnter`)まで完了して`idle`状態になるが、そのまま**永久に**次のスポットへ歩き出さず、
@@ -104,7 +107,7 @@ seek画面mount時には入場アニメーションが必ず完了しており�
 `ops/reports/S4.md`は「発火のみ」を意図的な設計として記載しているため、修正の要否・優先度は
 Fable判断/次工程に委ねる。
 
-### 3.3 [参考・軽微] `DebugApi.screenshotReady()`が契約どおり機能していない
+### 3.3 [S6時点で未修正、S7で修正済み] `DebugApi.screenshotReady()`が契約どおり機能していない
 
 `docs/INTERFACES.md`は`screenshotReady()`を「カメラ遷移・tween静止でtrue」と定義しているが、
 `src/main.ts`(S6編集範囲外)の`registerHandlers`は`screenshotReady: () => true`という固定スタブを
@@ -117,7 +120,7 @@ Fable判断/次工程に委ねる。
 修正には`src/main.ts`(main.tsのgetState/screenshotReadyハンドラ登録箇所)への変更が必要でS6の
 編集許可範囲外のため、修正はしていない。
 
-### 3.4 [参考] `getState()`にrenderer.info(draw calls/triangles)を含める配線ができなかった
+### 3.4 [S6時点で未修正、S7で修正済み] `getState()`にrenderer.info(draw calls/triangles)を含める配線ができなかった
 
 タスク指示は「draw calls/triangles実測(renderer.infoをdebug APIのgetStateへ含めて取得)」を
 求めているが、`GameRenderer`インスタンス(`renderer.instance.info`相当)は`src/main.ts`内でのみ
@@ -199,10 +202,87 @@ quality設定(low/medium/high)による頂点数/シャドウ有無の差は本�
    E2Eで確実に`phase:"intro"`を捕捉できるとは限らない(`full-loop.spec.ts`は捕捉できた場合のみ
    タップでスキップし、できなかった場合はそのまま`hide`到達を待つ設計にして対応した)。
 
-## 8. 完了条件チェック
+## 8. 完了条件チェック(S6時点)
 
 - `npm run check`(lint+typecheck+test+build): **PASS**
 - `npm run qa:e2e`: **PASS**(0 failed、retryなしで安定)
 - `npm run qa:screenshots`: **PASS**、スクショ10枚生成
 - スクショ10枚目視: **合格**(白画面/欠けなし、6節参照)
 - README/LICENSES/QA_REPORT: 本ファイルおよび`README.md`/`LICENSES.md`として完成
+
+---
+
+## 9. S7 修正記録(独立レビューR1/R2反映)
+
+実行日: 2026-08-13。`ops/reviews/TRIAGE.md`が確定した必須10項目を修正し、全検証を再実行した。
+
+### 9.1 修正済み項目一覧
+
+| # | 内容 | 修正ファイル |
+|---|---|---|
+| 1 (R1-05) | `hideFoodDirect`を`config.qa`ガード内でのみ`window.__ELEPHANT_GAME_DEBUG__`へ生やすよう変更。本番ビルド(`?qa=1`なし)ではdebug APIに存在しなくなった | `src/main.ts` |
+| 2 (R1-01) | `Gait.walkTo()`冒頭で`this.stop()`を呼び、前回タスクのPromiseを明示的に解決してから新タスクへ差し替えるよう修正(`jumpTo("seek")`スタールの根本原因) | `src/scene/elephant/gait.ts` |
+| 3 (R1-02) | `CameraRig.goTo()`にも同型のPromise上書き修正(`resolvePendingTransition()`)を適用し、`isTransitioning()`を追加公開 | `src/scene/cameras.ts` |
+| 4 (R1-04) | `GameRenderer.getStats()`(`instance.info.render.calls/triangles`)を追加し、`main.ts`の`getState()`へ`render: {drawCalls, triangles, calls}`として配線。実測値は9.2節参照 | `src/scene/renderer.ts`, `src/main.ts` |
+| 5 (R1-03) | `screenshotReady()`を`!cameraRig.isTransitioning() && !world.isAnimating()`の実装に変更(`World.isAnimating()`を新規追加、`runningAnims`+ゾウのwalking/sniffing/entering状態を反映) | `src/main.ts`, `src/scene/world.ts` |
+| 6 (R2-01) | hideドラッグ中のゴーストをタッチ座標より56px上へオフセット表示するよう変更。吸着スポットの地面が指/ゴーストに隠れなくなった | `src/ui/components/foodTray.ts` |
+| 7 (R2-02) | `hint:show`受信時に対象spotIdへ`world.highlightSpot(spotId)`(微振動+局所光、約1.6秒でOFF)を追加配線。`keeperPointAt`は既存のまま維持、`hintBubble`は補助として残置 | `src/ui/app.ts` |
+| 8 | peel-banana構図: `runSpotBehavior`のheading計算をpeel-bananaのみ「幹への完全正対」から「カメラのside方向へ大きく寄せた向き」へ変更(`computeApproachHeading`)。あわせて`behavior:peel-banana`カメラのtarget/positionを幹中心基準からゾウ・幹の中間基準へ再設計。行動中盤(pct60%)で顔・目・耳・鼻(と部分的にバナナ層)が視認できることを確認 | `src/scene/world.ts`, `src/scene/cameras.ts` |
+| 9 | probe-gap: 鼻の挿入目標(`insidePos`)を隙間手前0.12→奥0.38まで深く押し込むよう変更。スクショ撮影%を0.4→0.65(進行60-70%、挿入最深部)へ変更。カメラも複数構図を試行し側方プロファイル方式へ変更(**既知の制限として9.4節に記載、完全な解決には至っていない**) | `src/scene/elephant/behaviors/probeGap.ts`, `src/scene/cameras.ts`, `e2e/screenshots.spec.ts` |
+| 10 (R2-03) | `behavior:reach-pipe`カメラの`distance`を2.8→5.6へ拡大。iphone-portrait(aspect~0.46)は指定fovに対し実際の水平画角が狭いため、当初の想定(2.8→3.8)では体感変化が乏しく、実写確認のうえ再調整した。土管の円筒開口部が視認できるようになった | `src/scene/cameras.ts` |
+
+### 9.2 draw calls / triangles 実測値(R1-04)
+
+`?qa=1&nosw=1`起動直後(overview)、および`playBehaviorDirect("dig-sand")`呼び出し3秒後(行動中)に
+`getState().render`を実測(`GameRenderer.getStats()`経由、`renderer.instance.info.render`)。
+
+| quality | 場面 | drawCalls | triangles |
+|---|---|---|---|
+| low | overview(起動直後) | 49 | 14,946 |
+| low | dig-sand 行動中(3秒後) | 23 | 12,562 |
+| medium | overview(起動直後) | 49 | 14,946 |
+| medium | dig-sand 行動中(3秒後) | 49 | 14,946 → 実測は上記lowと同値(下記注記参照) |
+
+**注記**: low/medium間でdrawCalls/trianglesが同値になった。`QUALITY_SETTINGS`(`src/scene/renderer.ts`)は
+`dprCap`(devicePixelRatio上限)と`shadowMap.enabled`のみを変更し、ジオメトリのLOD/インスタンス数自体は
+quality非依存(全quality共通のシーングラフ)であるため、`renderer.info.render.calls/triangles`
+(ジオメトリ由来のカウント)が一致するのは実装として整合している。quality差はDPR(解像度)と
+影の有無(GPU負荷)に現れ、draw call数・三角形数には現れない設計。目標(low: ≤70dc/≤120k tris、
+overview全体: ≤120dc/≤250k tris)を大きく下回り、予算内に収まっていることを確認した。
+旧`approximateSceneStats()`による概算(メッシュ数69・概算三角形数18,210)は静的なメッシュ数のみを
+数えた上限寄りの近似値であり、実際のdraw call起点の計測(triangles 14,946)の方が正確な実測値である。
+
+### 9.3 目視確認(該当5枚、S7修正後に`Read`で確認)
+
+- `artifacts/screenshots/02-hide.png`: ドラッグ中のゴーストが指先の56px上に浮き、吸着スポット
+  (砂の輪の点線円)が指/ゴーストに隠れず完全に見える状態を確認。**合格**。
+- `artifacts/screenshots/06-peel-banana.png`: ゾウの目・耳・鼻(トランク)が明瞭に見え、頬の脇に
+  バナナ層とみられる薄いクリーム色の形状も一部視認できる。修正前(幹に完全正対、後方から撮影)は
+  耳の側面と幹の影しか見えなかったのに対し、大幅に改善。**合格**。
+- `artifacts/screenshots/08-probe-gap.png`: 目・耳・石垣・隙間の位置関係は明瞭になった(修正前は
+  壁越しに後頭部が遠景に見えるだけの構図)。ただし鼻そのものが隙間へ入り込む瞬間の視認性は
+  依然弱い。**部分的改善・未解決として9.4節に記載**。
+- `artifacts/screenshots/05-reach-pipe.png`: 土管の円筒形状(開口部の丸み)が画面左端に明瞭に見え、
+  鼻+餌+土管の位置関係が把握できるようになった(修正前は暗い影の帯のみで土管と判別不能)。**合格**。
+- `artifacts/screenshots/dev-s7-hint.png`(追加撮影): hide画面で6秒無操作後、`hint-bubble--show`
+  クラスが付与され吹き出しが表示されることを確認。`highlightSpot`/`keeperPointAt`のコード配線
+  (`src/ui/app.ts`)も確認済み。**合格**(局所光自体は日中の明るいシーンでは静止画上は目立ちにくいが、
+  配線自体は実装・動作を確認している)。
+
+### 9.4 既知の制限(未解決事項)
+
+- **probe-gap**: 鼻先が石垣の隙間へ最も深く入る瞬間を静止画で明瞭に見せることについて、
+  (1)距離短縮のみ、(2)ゾウのheadingをカメラ側へ振る(peel-bananaと同手法)、(3)側方プロファイル
+  カメラ+距離拡大、の3案を試したが、いずれも隙間手前の壁ブロック列が視線を遮り、鼻そのものを
+  明瞭に見せるには至らなかった。目・耳・石垣・隙間の位置関係が見える構図までは改善済み。
+  `trunk`挿入目標(`insidePos`)自体は隙間奥まで深く押し込むよう修正済みのため、実際のプレイ中
+  (アニメーション再生、静止画ではなく動画的に見た場合)は鼻が隙間へ差し込まれる動きは正しく
+  再生される。静止画1枚での視認性のみが引き続き弱い、という限定的な既知課題として記録する。
+
+### 9.5 完了条件チェック(S7時点、最終)
+
+- `npm run check`(lint+typecheck+test+build): **PASS**
+- `npm run qa:e2e`: **PASS**(60 tests中18 run / 42 skipped / 0 failed、約2.5分)
+- `npm run qa:screenshots`: **PASS**(1 run / 3 skipped / 0 failed、約1.1分、スクショ10枚再生成)
+- 目視確認5枚(9.3節): **4枚合格 + probe-gapは部分改善(既知の制限として明記)**
+- `docs/QA_REPORT.md`: 本節を含め更新済み

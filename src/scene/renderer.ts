@@ -20,6 +20,8 @@ export interface GameRenderer {
   setQuality(q: Quality): void;
   resize(): void;
   render(scene: THREE.Scene, camera: THREE.Camera): void;
+  /** R1-04向け: instance.info(draw calls/triangles)の薄いgetter。main.tsのgetState()配線用。 */
+  getStats(): { calls: number; triangles: number };
   dispose(): void;
 }
 
@@ -99,6 +101,10 @@ class Renderer implements GameRenderer {
   render(scene: THREE.Scene, camera: THREE.Camera): void {
     if (this.isPaused || this.contextLost) return;
     this.instance.render(scene, camera);
+  }
+
+  getStats(): { calls: number; triangles: number } {
+    return { calls: this.instance.info.render.calls, triangles: this.instance.info.render.triangles };
   }
 
   dispose(): void {
