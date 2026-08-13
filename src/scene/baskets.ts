@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BasketDef, SeedConfig } from '../game/types.ts';
 import { vec2ToWorld } from './constants.ts';
+import { mergeGeometries } from './geometry.ts';
 import { createFabricWeaveTexture } from './materials/textures.ts';
 import { applySymbolUv, createSymbolAtlas } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
@@ -56,35 +57,36 @@ export class BasketSystem {
   ): BasketVisual {
     const color = BASKET_COLORS[index % BASKET_COLORS.length]!;
     const bodyMat = new THREE.MeshStandardMaterial({ color, map: weaveTex, roughness: 0.85, metalness: 0 });
+
+    // Draw-call budget fix (fix-round-1, see M3/B2/B3 note in VERIFICATION.md
+    // "Fix round 1"): body+rim+bottom all share bodyMat and never need to
+    // move independently, so they're pre-transformed and merged into ONE
+    // geometry/draw call instead of three. Likewise the two symbol decals
+    // share BASKET_SYMBOL_MATERIAL and merge into one more. Net: 2 draw
+    // calls per basket instead of the naive 5 (was 4 pre-B2), which is what
+    // kept peak draw calls under budget after adding the B2 up-facing symbol.
     const bodyGeo = new THREE.CylinderGeometry(def.radius * 0.62, def.radius * 0.5, 0.16, 16, 1, true);
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.08;
-
+    bodyGeo.translate(0, 0.08, 0);
     const rimGeo = new THREE.TorusGeometry(def.radius * 0.62, 0.014, 8, 20);
-    const rim = new THREE.Mesh(rimGeo, bodyMat);
-    rim.rotation.x = Math.PI / 2;
-    rim.position.y = 0.16;
-
+    rimGeo.rotateX(Math.PI / 2);
+    rimGeo.translate(0, 0.16, 0);
     const bottomGeo = new THREE.CircleGeometry(def.radius * 0.5, 16);
-    const bottom = new THREE.Mesh(bottomGeo, bodyMat);
-    bottom.rotation.x = -Math.PI / 2;
-    bottom.position.y = 0.001;
+    bottomGeo.rotateX(-Math.PI / 2);
+    bottomGeo.translate(0, 0.001, 0);
+    const bodyMergedGeo = mergeGeometries([bodyGeo, rimGeo, bottomGeo]);
+    const body = new THREE.Mesh(bodyMergedGeo, bodyMat);
 
-    // Front-facing badge (reads well at eye-level / 3/4 angles). Material is
-    // the shared BASKET_SYMBOL_MATERIAL — never disposed per-basket.
+    // Front-facing badge (reads well at eye-level / 3/4 angles) + the B2 large
+    // up-facing symbol on the interior floor, merged into one mesh.
     const symbolPlaneGeo = new THREE.PlaneGeometry(def.radius * 0.62, def.radius * 0.62);
     applySymbolUv(symbolPlaneGeo, atlas.uvRect(def.symbol));
-    const symbolPlane = new THREE.Mesh(symbolPlaneGeo, BASKET_SYMBOL_MATERIAL);
-    symbolPlane.position.set(0, 0.09, def.radius * 0.63);
-
-    // B2 fix: a large, high-contrast symbol facing straight UP on the basket's interior
-    // floor. This is the one that actually registers from the top-down cleanup camera —
-    // the front badge above is viewed edge-on from that angle and doesn't read at all.
+    symbolPlaneGeo.translate(0, 0.09, def.radius * 0.63);
     const symbolUpGeo = new THREE.PlaneGeometry(def.radius * 0.92, def.radius * 0.92);
     applySymbolUv(symbolUpGeo, atlas.uvRect(def.symbol));
     symbolUpGeo.rotateX(-Math.PI / 2);
-    const symbolUp = new THREE.Mesh(symbolUpGeo, BASKET_SYMBOL_MATERIAL);
-    symbolUp.position.y = 0.022;
+    symbolUpGeo.translate(0, 0.022, 0);
+    const symbolMergedGeo = mergeGeometries([symbolPlaneGeo, symbolUpGeo]);
+    const symbols = new THREE.Mesh(symbolMergedGeo, BASKET_SYMBOL_MATERIAL);
 
     const proxyGeo = new THREE.SphereGeometry(def.radius * 1.6, 8, 6);
     const proxy = new THREE.Mesh(proxyGeo, new THREE.MeshBasicMaterial());
@@ -94,7 +96,7 @@ export class BasketSystem {
     const group = new THREE.Group();
     const worldPos = vec2ToWorld(def.position);
     group.position.copy(worldPos);
-    group.add(body, rim, bottom, symbolPlane, symbolUp, proxy);
+    group.add(body, symbols, proxy);
     body.userData['basketId'] = def.id;
     proxy.userData['basketId'] = def.id;
 
