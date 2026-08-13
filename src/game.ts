@@ -155,6 +155,15 @@ export class Game {
 
     for (let i = 0; i < STAR_GOAL; i++) this.el.stars.appendChild(document.createElement('i'))
 
+    // WebGL が使えない端末では 真っ暗になるので、おとなに向けて 一言おく
+    if (this.r.failed) {
+      const note = document.createElement('p')
+      note.className = 'oops'
+      note.textContent = 'この ブラウザでは あそべません'
+      this.el.title.appendChild(note)
+      this.el.start.setAttribute('hidden', '')
+    }
+
     this.bindUI()
     this.resize()
     this.applyMode()

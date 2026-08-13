@@ -190,7 +190,7 @@ vec3 lens(vec3 c, vec2 p) {
   col += vec3(0.45, 0.55, 0.78) * smoothstep(0.86, 1.0, r) * (0.26 + 0.20 * uLight);
   col += vec3(0.85, 0.92, 1.0) * smoothstep(1.0 - aaw * 4.0, 1.0 - aaw, r) * 0.42;
 
-  col += vec3(1.0, 0.95, 0.98) * uFlash * 0.42;
+  col += vec3(1.0, 0.95, 0.98) * uFlash * 0.32;
 
   return mix(c, col, body);
 }
