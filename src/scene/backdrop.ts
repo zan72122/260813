@@ -37,6 +37,16 @@ export function createBackdropRig(
   const group = new Group();
   group.name = 'backdrop';
 
+  // ---- ground plane (D2: everything must sit ON real ground, nothing floats) --
+  // Champ-de-Mars earth/grass, large enough to run from under the yard all the
+  // way past the Seine/city and out to where fog (core/index.ts) swallows it,
+  // so there is never a raw-sky gap between the yard and the distant city.
+  const groundGeo = new PlaneGeometry(520, 420);
+  const ground = new Mesh(groundGeo, materials.ground);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, 0, -60);
+  group.add(ground);
+
   // ---- Seine ribbon ----------------------------------------------------------
   const riverMat = new MeshBasicMaterial({ color: 0x6f93a8, transparent: true, opacity: 0.85 });
   const river = new Mesh(new PlaneGeometry(260, 14), riverMat);
@@ -132,6 +142,7 @@ export function createBackdropRig(
   }
 
   function dispose(): void {
+    groundGeo.dispose();
     riverMat.dispose();
     (river.geometry as PlaneGeometry).dispose();
     blockGeo.dispose();

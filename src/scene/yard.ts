@@ -17,10 +17,13 @@ export function createYardRig(materials: MaterialSet, rand: () => number): YardR
   const group = new Group();
   group.name = 'yard';
 
-  const deckGeo = new PlaneGeometry(30, 24);
+  // A clearly-bounded work yard, not a world-spanning floor (D2) — it sits ON
+  // the backdrop's ground plane (y=0), not in place of it, so timber (yard)
+  // vs. grass/earth (ground) reads as a real footprint at the tower's feet.
+  const deckGeo = new PlaneGeometry(24, 19);
   const deck = new Mesh(deckGeo, materials.timber);
   deck.rotation.x = -Math.PI / 2;
-  deck.position.y = 0.01;
+  deck.position.y = 0.015;
   group.add(deck);
 
   // stacked spare beams near the yard edge (cosmetic, low-poly boxes)

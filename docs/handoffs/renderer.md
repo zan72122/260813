@@ -204,3 +204,174 @@ viewports, screenshots each, and asserts zero console/page errors +
 `window.__game.stats()` within budget. That script is not part of this delivery
 (FILE_OWNERSHIP reserves `tests/**` for Foundation/Integrator) — if useful, ask and
 I can describe/reconstruct it, but nothing was added under `tests/`.
+
+## Visual repair round (post-Wave-4 QA failure fixes)
+
+Fixed the six director-flagged failures in `docs/VISUAL_ACCEPTANCE.md`'s
+checklist, verified against `artifacts/qa/{phone-portrait,tablet-landscape}/*`
+(regenerated via the real-gesture `tests/e2e/qa-screens.spec.ts`, not just
+`setPhase` probes) plus ~15 throwaway Playwright screenshot rounds in
+`/tmp` during iteration.
+
+**Salvage**: a prior interrupted attempt at
+`.claude/worktrees/wf_8429f10f-160-1/src/{core,scene,visual}` had 9 files
+diverged from main (tower.ts lattice-pylon rewrite, backdrop/yard ground
+plane, steam normal-blending cap, sky gradient texture wiring, worker
+repositioning). Diffed it, judged the approach directly on-target for
+D1/D2/D5, and copied it into main as the starting point rather than
+reimplementing from scratch. It built and typechecked clean but had not been
+visually validated — the copy surfaced one real bug (below) and the rivet
+station camera needed a full re-tune the salvage hadn't done, both fixed
+here.
+
+### D1/D2 — tower + ground (mostly from the salvaged tower.ts/backdrop.ts/yard.ts)
+
+- `tower.ts`: 4 legs rebuilt as tapered square-cross-section lattice pylons —
+  real corner chords (16, one geometry with the leg webs and the operating
+  leg's twin climb rails, still 1 draw call), a procedural X-lattice
+  cross-hatch **texture** (`visual/textures.ts`'s `makeLatticeIronTexture`,
+  `materials.legLattice`) for the panel read, and real horizontal ring-girder
+  belts (InstancedMesh, `placeRingGirder`) only at completed level
+  boundaries. The old leg-to-leg full-span thin diagonal tangle is gone —
+  `placeFaceDiagonal` only ever spans two corners of the *same* leg within
+  one panel row. `BASE_HEIGHT` raised from an effective ~2.4 to 11.5 world
+  units so towerLevel 0 already reads as a real structure.
+- `backdrop.ts` / `yard.ts`: added a real `ground` plane (Champ-de-Mars
+  earth/grass texture, y=0, fades into the existing fog) and shrank the
+  yard deck from 30×24 to 24×19 so it reads as a bounded work yard sitting
+  *on* the ground instead of a world-spanning floor. River/buildings/bridges
+  were already grounded in the pre-repair code (`RIVER_Z`/building `y=h/2`);
+  the ground plane is what was missing underneath them.
+- `core/index.ts`: wired the already-defined-but-unused `makeSkyTexture()`
+  into `scene.background` (was a flat `Color` before) for a horizon-haze
+  gradient consistent with the ground fog color.
+
+**Bug found and fixed** (pre-existing, not part of the salvage diff):
+`rivet.forgeGroup`'s position was never set after being added to the scene
+graph in `scene/index.ts` — it sat at the group's default `(0,0,0)`, i.e. on
+the ground at the world origin, instead of tracking `points.forge` up on the
+working platform. One-line fix: `rivet.forgeGroup.position.copy(points.forge)`
+each frame, right before `points.rivetHole` is refreshed.
+
+### D3 — steam crane
+
+Salvaged crane.ts tweaks kept: bulkier boiler/chimney proportions and a
+second brass boiler band (was one) so the crane doesn't read as a sliver
+against the now much taller/thicker legs. Twin climb rails (thin rods,
+`RAIL_RADIUS`=0.045, `RAIL_INSET`=0.35 toward the axis to sit under the
+carriage) were added to the operating leg's merged geometry in `tower.ts`.
+Not further re-tuned beyond the salvage's version — lower priority than
+D1/D2/D4 given the effort budget; flagging as the thinnest of the six if
+another pass happens.
+
+### D4 — rivet station camera + team layout (the hardest fix this round)
+
+The salvage's worker repositioning (semicircle around the plate,
+`hammerSpot` unified with `beam.rivetHolePosition` instead of a separate
+~1-unit-off approximation) was sound, but raising the tower's `BASE_HEIGHT`
+moved the whole rivet station onto a narrower, more-converged part of the
+leg curve, and the existing `rivetMacro` camera numbers (untouched by the
+salvage) hadn't been re-tuned for that — first rebuild produced a rivet-macro
+shot dominated edge-to-edge by a tower leg at point-blank range.
+
+Root-caused numerically rather than by eyeballing: added a temporary
+`window.__debugCam` hook to `render/camera.ts` (removed before finishing),
+pulled the real op/target/camera world points, and wrote a throwaway node
+script (`/tmp`, not committed) that ports `legRadiusAt`/`legOffsetAt` and
+computes, for a grid of `{distance, elevation, azimuth, blend}`, the
+worst-case angular offset between the camera's view axis and *all four* tower
+legs (sampled across their full height). This showed the rivet station's own
+anchor points sit close enough to the operating leg's centerline (by design —
+that's literally where the new beam rivets onto the existing structure) that
+no camera angle alone gets more than ~15-22° of separation from *some* leg at
+macro-shot distances.
+
+Fixed with two changes together:
+1. **Scene**: widened the platform (`4.2×2.1` → `5.8×3.2`) and scaled the
+   forge/heater/catcher/holder local offsets ~1.5x outward (striker kept
+   closer, ~1.3x, since the hammer still has to reach `hammerSpot`) so the
+   team has real separation from the leg/crane cluster instead of being
+   crammed within ~1.5 world units of it.
+2. **Camera**: re-solved `rivetMacro` for both aspects (`cameraCompose.ts`)
+   against the widened layout — portrait
+   `{distance:5.6, elevation:1.2, azimuth:0.25, blend:0.62, fov:54}`, landscape
+   `{distance:5.2, elevation:1.1, azimuth:0.25, blend:0.62, fov:50}` — a
+   higher, more overhead angle that reads as "looking down onto the work
+   platform" rather than "into the leg". `align`'s distance was bumped
+   3.6%/(unchanged landscape) only as far as needed to keep the
+   `cameraCompose.test.ts` "rivetMacro is the closest shot" invariant
+   (portrait `align` 5.2→5.7; landscape untouched, 6.0 already ≥ 5.2).
+
+Verified against the real-gesture `qa-screens.spec.ts` capture (not just
+`setPhase`): `rivet-macro.png` now clearly shows the glowing forge, workers
+facing the camera (not backs), and the tongs/hammer anchors, in both
+viewports. Not a pixel-perfect "forge left / hole dead-center" composition
+in every rivet sub-phase (rivetCarry/rivetInsert/rivetHammer share one
+static-ish camera cue per `PHASE_CUE_MAP` — re-aiming per relay station
+would be a further improvement, not attempted this round), but the specific
+failure mode (worker backs, invisible forge, hole on a worker's back) is
+gone.
+
+### D5 — steam/flash tame-down (from the salvaged steam.ts)
+
+`AdditiveBlending` (white stacks toward pure white as puffs overlap — the
+literal cause of the completion.png whiteout) replaced with `NormalBlending`
+at a capped `opacity: 0.5`, puff size range cut roughly in half
+(`0.5-1.2` → `0.22-0.48`), and a proper rise-then-shrink scale curve instead
+of grow-only. Also reduced climb valve burst frequency/count in
+`scene/index.ts` (was up to ~2 puffs/30ms ≈ 60+/s at full throttle; now 1
+puff per 130-260ms). Verified: no white-out in any climb/reveal screenshot,
+including a 40-frame sustained-climb probe.
+
+### D6 — reveal growth
+
+Not touched directly (tower rebuild was already correct — `heightForLevel`
+is a pure function of `towerLevel`), but re-verified after all the above
+changes with a dedicated before/after check: dispatched the real transition
+chain (`title→opening→…→climb→reveal`, using `dispatch()`/`advance()` so
+`PHASE_RESET.reveal`'s `towerLevel + 1` actually fires, not `setPhase`) and
+screenshotted `towerLevel=0` vs the post-`reveal` `towerLevel=1` state side
+by side — an extra completed ring-girder band and taller legs are clearly
+visible.
+
+### Validation actually run
+
+- `npx tsc --noEmit` — 0 errors.
+- `npx eslint src/core src/render src/scene src/visual` — 0 errors.
+- `npx vitest run` — 212/212 passed (30 files), including the untouched
+  `cameraCompose.test.ts` invariants (rivetMacro still the closest shot,
+  align/wide-shot distance orderings preserved) and `curve.test.ts`/
+  `beamShapes.test.ts` (leg profile / beam geometry math, unaffected by the
+  visual-only tower/camera constant changes).
+- `npx playwright test full-loop resilience --project=phone-portrait
+  --project=tablet-landscape` — 14/14 passed (anchors stayed reachable
+  through real pointer gestures across the whole loop + all 5 resilience
+  scenarios, so the enlarged platform / re-tuned camera didn't push any
+  interactive anchor off-screen or unreachable).
+- `npx playwright test qa-screens --project=phone-portrait
+  --project=tablet-landscape` — 2/2 passed; regenerated the actual
+  `artifacts/qa/**/*.png` deliverables via real gameplay gestures (not
+  `setPhase`) as the authoritative before/after evidence.
+- `window.__game.stats()` swept across all 18 phases × both viewports:
+  worst observed 78 draw calls (budget ≤90 normal / ≤110 climb) and ~16.9k
+  triangles (budget ≤250k) — large headroom, no regression from the added
+  corner-chord/rail/ring-girder geometry (still merged into the tower's
+  single draw call) or the enlarged platform.
+- Preview server (`vite preview --port 4399`) killed after iteration.
+
+### Known remaining gaps (flagging, not blocking)
+
+1. D3 (steam crane read) got the smallest re-tune this round — wheels/twin
+   rails exist geometrically but aren't a strong visual read at typical
+   camera distances; a dedicated close-in "runner on rails" establishing
+   beat during `climb` would sell it better.
+2. `rivetMacro`'s single static-ish camera cue across all 5 rivet sub-phases
+   means the actual point of action (forge → tongs → hole) isn't always
+   dead-center for every sub-phase, only reliably on-screen (verified via
+   `window.__game.anchors()` staying within viewport bounds with margin,
+   plus the full-loop E2E passing real taps against them).
+3. Did not re-tune `hoist`/`bolts`/`sling` camera cues — they weren't called
+   out as failing and weren't touched beyond whatever incidental effect the
+   taller `BASE_HEIGHT` has (they use the same `topOfLeg`-derived focus
+   points as before, just at a higher absolute height); worth a director
+   pass if time allows.

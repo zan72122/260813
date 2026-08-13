@@ -173,7 +173,10 @@ export function createSceneRig(seed: number): SceneRig {
   root.add(shadows.mesh);
 
   // ---- working platform under the current beam slot (simple static prop) ----
-  const platformGeo = new BoxGeometry(4.2, 0.14, 2.1);
+  // Enlarged from the original 4.2x2.1 (D4: the rivet team + forge need real
+  // breathing room away from the tower leg/crane cluster so a macro camera
+  // shot can frame them without the leg dominating the whole frame).
+  const platformGeo = new BoxGeometry(5.8, 0.14, 3.2);
   const platform = new Mesh(platformGeo, materials.timber);
   root.add(platform);
 
@@ -259,8 +262,13 @@ export function createSceneRig(seed: number): SceneRig {
 
     platform.position.set(slotPos.x, slotPos.y - 0.55, slotPos.z);
     platform.rotation.y = OPERATING_ANGLE;
-    rotateLocal(-2.0, -0.55, 1.0, OPERATING_ANGLE, slotPos, points.forge);
-    rotateLocal(0, -0.55, 1.0, OPERATING_ANGLE, slotPos, points.hammerSpot);
+    rotateLocal(-1.65, -0.5, 1.15, OPERATING_ANGLE, slotPos, points.forge);
+    // hammerSpot IS the rivet hole (D4: "hammerSpot/rivetHole anchors must
+    // project onto their actual objects") — it used to be defined via a
+    // separate rotateLocal offset ~1 world unit away from the actual hole, so
+    // the striker's swing anchor and the rivet's real position visibly
+    // disagreed.
+    points.hammerSpot.copy(beam.rivetHolePosition);
 
     // ---- crane carriage height ---------------------------------------------------
     const climbing = state.phase === 'climb' || state.phase === 'playClimb';
@@ -352,6 +360,11 @@ export function createSceneRig(seed: number): SceneRig {
     rivet.setFormed(state.rivet.hits / 3);
     rivet.update(dtMs);
 
+    // ---- forge/brazier: previously left at the group's default (0,0,0) —
+    // it never tracked points.forge, so it sat on the ground at the world
+    // origin instead of up on the working platform next to the heater. ----
+    rivet.forgeGroup.position.copy(points.forge);
+
     points.rivetHole.copy(beam.rivetHolePosition);
     const stationPoints: readonly Vector3[] = [
       points.forge,
@@ -367,18 +380,34 @@ export function createSceneRig(seed: number): SceneRig {
     rivet.rivetGroup.visible = state.rivet.temp > 0.001 || state.rivet.inserted;
 
     // ---- worker poses (driven by rivet station/hits from the store) ----------------
-    rotateLocal(-2.2, -0.55, 1.25, OPERATING_ANGLE, slotPos, tmpVec);
+    // D4: staged in a semicircle AROUND the plate/rivetHole so the camera
+    // (rivetMacro, op=rivetHole/target=forge) always sees the forge (left),
+    // the plate (center), and nobody standing between the lens and the
+    // actual rivet — verified against the real camera-space projection, not
+    // just eyeballed (see docs/handoffs/renderer.md for the derivation).
+    // heater: tending the forge, camera-left. Offsets scaled ~1.5x from the
+    // original derivation (and the platform enlarged to match) so the whole
+    // team sits clearly clear of the tower leg/crane cluster — close-macro
+    // camera angles were otherwise dominated by the leg's own mass regardless
+    // of azimuth/elevation, since the un-scaled stations sat right against it.
+    rotateLocal(-2.39, -0.55, 1.67, OPERATING_ANGLE, slotPos, tmpVec);
     team.heater.group.position.copy(tmpVec);
     team.heater.group.rotation.y = OPERATING_ANGLE + Math.PI;
-    rotateLocal(-0.9, -0.55, 1.1, OPERATING_ANGLE, slotPos, tmpVec);
+    // catcher: mid, relaying between the forge and the hole.
+    rotateLocal(-0.726, -0.55, 0.573, OPERATING_ANGLE, slotPos, tmpVec);
     team.catcher.group.position.copy(tmpVec);
     team.catcher.group.rotation.y = OPERATING_ANGLE + Math.PI;
-    rotateLocal(0.3, -0.5, -0.35, OPERATING_ANGLE, slotPos, tmpVec);
+    // holder: behind the plate, bracing it from the far side (expected to
+    // read as mostly hidden behind the beam — that's the "behind" pose).
+    rotateLocal(-0.504, -0.5, -0.572, OPERATING_ANGLE, slotPos, tmpVec);
     team.holder.group.position.copy(tmpVec);
     team.holder.group.rotation.y = OPERATING_ANGLE;
-    rotateLocal(0.3, -0.55, 1.05, OPERATING_ANGLE, slotPos, tmpVec);
+    // striker: camera-right, swinging in on the hole from the side (kept
+    // closer to the hole than the 1.5x team scale-up — the hammer still
+    // needs to plausibly reach hammerSpot).
+    rotateLocal(0.18, -0.55, -0.62, OPERATING_ANGLE, slotPos, tmpVec);
     team.striker.group.position.copy(tmpVec);
-    team.striker.group.rotation.y = OPERATING_ANGLE + Math.PI;
+    team.striker.group.rotation.y = OPERATING_ANGLE;
 
     const readySwing = Math.sin(simTimeMs * 0.004) * 0.1;
     team.heater.setPose(state.rivet.station === 0 ? readySwing - 0.3 : -0.1, 0);
@@ -415,11 +444,16 @@ export function createSceneRig(seed: number): SceneRig {
       steam.burst(tmpVec.x, tmpVec.y, tmpVec.z, 1);
     }
     if (climbing) {
+      // D5: rhythmic small chuffs timed to the climb, never a screen-filling
+      // cloud — the old 30-90ms interval at count=2 could emit ~60+ puffs/sec,
+      // which is what was stacking (even after softening individual puffs)
+      // into the completion.png white-out. One puff per "chuff", spaced out
+      // enough to read as distinct bursts even at full throttle.
       valveSteamAccumMs += dtMs;
-      const interval = Math.max(90 - state.climb.lever * 60, 30);
+      const interval = Math.max(260 - state.climb.lever * 140, 130);
       if (valveSteamAccumMs > interval) {
         valveSteamAccumMs = 0;
-        steam.burst(crane.group.position.x, crane.group.position.y + 0.3, crane.group.position.z, 2);
+        steam.burst(crane.group.position.x, crane.group.position.y + 0.3, crane.group.position.z, 1);
       }
     }
     steam.update(dtMs, camera);

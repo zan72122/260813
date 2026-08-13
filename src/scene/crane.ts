@@ -91,19 +91,25 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   superstructure.position.y = 0.6;
   group.add(superstructure);
 
-  // ---- boiler + chimney -----------------------------------------------------
-  const boiler = new Mesh(new CylinderGeometry(0.34, 0.4, 1.1, 10), materials.ironDark);
-  boiler.position.set(-0.15, 0.75, 0.1);
+  // ---- boiler + chimney (D3: slightly bulkier so the crane reads as a real
+  // steam machine, not a toy sliver, against the now-taller tower legs) -----
+  const boiler = new Mesh(new CylinderGeometry(0.4, 0.47, 1.15, 10), materials.ironDark);
+  boiler.position.set(-0.15, 0.78, 0.1);
   superstructure.add(boiler);
-  const chimney = new Mesh(new CylinderGeometry(0.1, 0.13, 0.9, 8), materials.ironDark);
-  chimney.position.set(-0.15, 1.6, 0.1);
+  const chimney = new Mesh(new CylinderGeometry(0.11, 0.15, 0.95, 8), materials.ironDark);
+  chimney.position.set(-0.15, 1.68, 0.1);
   superstructure.add(chimney);
-  const chimneyCap = new Mesh(new CylinderGeometry(0.14, 0.1, 0.1, 8), materials.brass);
-  chimneyCap.position.set(-0.15, 2.08, 0.1);
+  const chimneyCap = new Mesh(new CylinderGeometry(0.16, 0.11, 0.11, 8), materials.brass);
+  chimneyCap.position.set(-0.15, 2.19, 0.1);
   superstructure.add(chimneyCap);
-  const brassBand = new Mesh(new CylinderGeometry(0.42, 0.42, 0.08, 10), materials.brass);
-  brassBand.position.set(-0.15, 1.05, 0.1);
-  superstructure.add(brassBand);
+  // two brass boiler bands (D3: "brass boiler bands", plural)
+  const brassBandGeo = new CylinderGeometry(0.49, 0.49, 0.09, 10);
+  const brassBandLower = new Mesh(brassBandGeo, materials.brass);
+  brassBandLower.position.set(-0.15, 0.5, 0.1);
+  superstructure.add(brassBandLower);
+  const brassBandUpper = new Mesh(brassBandGeo, materials.brass);
+  brassBandUpper.position.set(-0.15, 1.1, 0.1);
+  superstructure.add(brassBandUpper);
 
   // ---- cable drum ------------------------------------------------------------
   const drum = new Mesh(new CylinderGeometry(0.28, 0.28, 0.42, 12), materials.ironDark);
@@ -126,8 +132,8 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
 
   const boomLength = 3.6;
   const boomChordGeoms = [
-    box(boomLength, 0.06, 0.06).translate(boomLength / 2, 0.18, 0),
-    box(boomLength, 0.06, 0.06).translate(boomLength / 2, -0.02, 0),
+    box(boomLength, 0.075, 0.075).translate(boomLength / 2, 0.18, 0),
+    box(boomLength, 0.075, 0.075).translate(boomLength / 2, -0.02, 0),
   ];
   const boomBraceGeoms: BoxGeometry[] = [];
   const boomBays = 8;
@@ -137,7 +143,7 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     const dx = x1 - x0;
     const dy = i % 2 === 0 ? -0.2 : 0.2;
     const len = Math.hypot(dx, dy);
-    const diag = box(len, 0.045, 0.045);
+    const diag = box(len, 0.055, 0.055);
     diag.rotateZ(Math.atan2(dy, dx));
     diag.translate(x0 + dx / 2, 0.08 + (i % 2 === 0 ? 0.1 : -0.1), 0);
     boomBraceGeoms.push(diag);
@@ -259,7 +265,7 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     boiler.geometry.dispose();
     chimney.geometry.dispose();
     chimneyCap.geometry.dispose();
-    brassBand.geometry.dispose();
+    brassBandGeo.dispose();
     drum.geometry.dispose();
     cableWindGeo.dispose();
     boomGeo.dispose();

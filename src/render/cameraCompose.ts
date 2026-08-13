@@ -32,7 +32,7 @@ const PORTRAIT: Record<CameraCueName, CameraShot> = {
   establish: { distance: 21, elevation: 0.34, azimuth: 0.55, blend: 0.5, lookAtHeightOffset: 1.5, fov: 62 },
   approach: { distance: 6.5, elevation: 0.22, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 0.3, fov: 54 },
   hoist: { distance: 8, elevation: 0.22, azimuth: 0.55, blend: 0.45, lookAtHeightOffset: 0.4, fov: 52 },
-  align: { distance: 5.2, elevation: 0.16, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 0.1, fov: 50 },
+  align: { distance: 5.7, elevation: 0.16, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 0.1, fov: 50 },
   // Integrator (Wave 4) fix: the rivet relay's four interactive stations
   // (forge / tongs / rivetHole / hammerSpot) span ~2.3 world units, but this
   // single shot has to hold all of them in frame across rivetHeat/Carry/
@@ -44,7 +44,7 @@ const PORTRAIT: Record<CameraCueName, CameraShot> = {
   // Widened fov (kept distance < align's 5.2 so the "closest shot" unit
   // test still holds) until every station anchor stays on-screen with
   // margin across all 4 E2E viewport projects.
-  rivetMacro: { distance: 5.1, elevation: 0.42, azimuth: 0.4, blend: 0.5, lookAtHeightOffset: 0.15, fov: 60 },
+  rivetMacro: { distance: 5.6, elevation: 1.2, azimuth: 0.25, blend: 0.62, lookAtHeightOffset: 0.15, fov: 54 },
   climb: { distance: 7, elevation: 0.06, azimuth: 1.25, blend: 0.5, lookAtHeightOffset: 0.6, fov: 58 },
   reveal: { distance: 23, elevation: 0.3, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 2, fov: 60 },
   complete: { distance: 21, elevation: 0.32, azimuth: 0.55, blend: 0.5, lookAtHeightOffset: 2, fov: 58 },
@@ -56,7 +56,7 @@ const LANDSCAPE: Record<CameraCueName, CameraShot> = {
   hoist: { distance: 9, elevation: 0.2, azimuth: 0.5, blend: 0.45, lookAtHeightOffset: 0.4, fov: 46 },
   align: { distance: 6, elevation: 0.14, azimuth: 0.4, blend: 0.5, lookAtHeightOffset: 0.1, fov: 44 },
   // See the portrait rivetMacro comment above — same fix, landscape numbers.
-  rivetMacro: { distance: 4.6, elevation: 0.38, azimuth: 0.32, blend: 0.5, lookAtHeightOffset: 0.15, fov: 48 },
+  rivetMacro: { distance: 5.2, elevation: 1.1, azimuth: 0.25, blend: 0.62, lookAtHeightOffset: 0.15, fov: 50 },
   climb: { distance: 8.5, elevation: 0.05, azimuth: 1.15, blend: 0.5, lookAtHeightOffset: 0.6, fov: 52 },
   reveal: { distance: 26, elevation: 0.26, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 2, fov: 54 },
   complete: { distance: 24, elevation: 0.28, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 2, fov: 52 },

@@ -10,6 +10,7 @@ import type { TextureSet } from './textures';
 export interface MaterialSet {
   iron: MeshStandardMaterial;
   ironDark: MeshStandardMaterial;
+  legLattice: MeshStandardMaterial;
   brass: MeshStandardMaterial;
   timber: MeshStandardMaterial;
   ghost: MeshStandardMaterial;
@@ -20,6 +21,7 @@ export interface MaterialSet {
   coal: MeshStandardMaterial;
   crateWood: MeshStandardMaterial;
   bridgeStone: MeshStandardMaterial;
+  ground: MeshStandardMaterial;
 }
 
 const CLOTH_PALETTE = ['#4a5f7a', '#7a4a3f', '#5c6b45', '#8a6a3a', '#3f4a5c'];
@@ -36,6 +38,12 @@ export function buildMaterialSet(tex: TextureSet): MaterialSet {
     roughness: 0.9,
     metalness: 0.4,
     color: new Color('#5a4640'),
+  });
+  const legLattice = new MeshStandardMaterial({
+    map: tex.latticeIron,
+    roughness: 0.82,
+    metalness: 0.38,
+    color: new Color('#a84e35'),
   });
   const brass = new MeshStandardMaterial({
     color: new Color('#c9a24a'),
@@ -65,10 +73,12 @@ export function buildMaterialSet(tex: TextureSet): MaterialSet {
   });
   const crateWood = new MeshStandardMaterial({ map: tex.timber, color: new Color('#a9895f'), roughness: 0.9 });
   const bridgeStone = new MeshStandardMaterial({ color: new Color('#d8cdb4'), roughness: 1, metalness: 0 });
+  const ground = new MeshStandardMaterial({ map: tex.ground, roughness: 1, metalness: 0 });
 
   return {
     iron,
     ironDark,
+    legLattice,
     brass,
     timber,
     ghost,
@@ -79,12 +89,14 @@ export function buildMaterialSet(tex: TextureSet): MaterialSet {
     coal,
     crateWood,
     bridgeStone,
+    ground,
   };
 }
 
 export function disposeMaterialSet(set: MaterialSet): void {
   set.iron.dispose();
   set.ironDark.dispose();
+  set.legLattice.dispose();
   set.brass.dispose();
   set.timber.dispose();
   set.ghost.dispose();
@@ -95,4 +107,5 @@ export function disposeMaterialSet(set: MaterialSet): void {
   set.coal.dispose();
   set.crateWood.dispose();
   set.bridgeStone.dispose();
+  set.ground.dispose();
 }

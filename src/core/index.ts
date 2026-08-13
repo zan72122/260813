@@ -7,7 +7,6 @@
 
 import {
   ACESFilmicToneMapping,
-  Color,
   DirectionalLight,
   Fog,
   HemisphereLight,
@@ -23,6 +22,7 @@ import { createCameraDirector, type CameraDirector } from '../render/camera';
 import { initialQualityStepState, QUALITY_SETTINGS, stepQuality, type QualityStepState } from '../render/quality';
 import { projectToScreen, projectedRadius } from '../render/anchorProject';
 import { createSceneRig, type SceneRig } from '../scene/index';
+import { makeSkyTexture } from '../visual/textures';
 
 export interface RendererStats {
   drawCalls: number;
@@ -64,8 +64,12 @@ export function createRenderer(o: {
   renderer.toneMappingExposure = 1.05;
 
   const scene = new Scene();
-  scene.background = new Color('#a7c3dd');
-  scene.fog = new Fog('#e2cfa8', 55, 200);
+  // Warm afternoon gradient (horizon haze band matches the fog color below)
+  // instead of a flat color, so the sky itself already reads as "grounded"
+  // atmosphere rather than a solid backdrop the buildings float against.
+  const skyTexture = makeSkyTexture();
+  scene.background = skyTexture;
+  scene.fog = new Fog('#e2cfa8', 55, 230);
 
   const hemi = new HemisphereLight('#fdf3d8', '#5a4636', 0.85);
   const sun = new DirectionalLight('#ffe9bd', 1.35);
@@ -241,6 +245,7 @@ export function createRenderer(o: {
     cameraDirector.dispose();
     scene.remove(sceneRig.root);
     sceneRig.dispose();
+    skyTexture.dispose();
     renderer.dispose();
   }
 

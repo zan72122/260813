@@ -67,6 +67,98 @@ export function makeIronTexture(rand: Rand, size = 256): CanvasTexture {
   return finish(canvas);
 }
 
+/**
+ * Riveted iron with a faint procedural X-lattice cross-hatch baked in, for
+ * the tower legs (VISUAL_ACCEPTANCE hero material #1: "鉄骨...X格子"). Real
+ * 3D corner chords + diagonal members (tower.ts) carry the actual silhouette
+ * reading; this texture is the supporting surface detail on the leg faces.
+ */
+export function makeLatticeIronTexture(rand: Rand, size = 256): CanvasTexture {
+  const { canvas, ctx } = makeCanvas(size);
+  ctx.fillStyle = '#7a2e1e';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 700; i += 1) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 1 + rand() * 3;
+    const dark = rand() < 0.5;
+    ctx.fillStyle = dark ? `rgba(30,18,14,${0.05 + rand() * 0.15})` : `rgba(170,90,55,${0.05 + rand() * 0.12})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // X-lattice cells: a grid of cross-hatch diagonals reading as riveted panel
+  // bracing at a glance, with a rivet dot at every intersection.
+  const cells = 4;
+  const cell = size / cells;
+  ctx.strokeStyle = 'rgba(18,10,8,0.5)';
+  ctx.lineWidth = Math.max(1.5, size * 0.012);
+  for (let cy = 0; cy < cells; cy += 1) {
+    for (let cx = 0; cx < cells; cx += 1) {
+      const x0 = cx * cell;
+      const y0 = cy * cell;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + cell, y0 + cell);
+      ctx.moveTo(x0 + cell, y0);
+      ctx.lineTo(x0, y0 + cell);
+      ctx.stroke();
+    }
+  }
+  ctx.fillStyle = 'rgba(200,160,90,0.55)';
+  const dot = Math.max(1.4, size * 0.014);
+  for (let cy = 0; cy <= cells; cy += 1) {
+    for (let cx = 0; cx <= cells; cx += 1) {
+      ctx.beginPath();
+      ctx.arc(cx * cell, cy * cell, dot, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // soot streaks (same treatment as the plain iron plate)
+  for (let i = 0; i < 18; i += 1) {
+    const x = rand() * size;
+    ctx.strokeStyle = `rgba(15,12,10,${0.05 + rand() * 0.08})`;
+    ctx.lineWidth = 2 + rand() * 5;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + (rand() - 0.5) * 30, size);
+    ctx.stroke();
+  }
+  return finish(canvas);
+}
+
+/** Champ-de-Mars earth/grass ground: mottled green-brown, deliberately low-
+ * contrast/flat so it reads calmly under fog rather than competing with the
+ * hero iron/rivet/steam materials. */
+export function makeGroundTexture(rand: Rand, size = 256): CanvasTexture {
+  const { canvas, ctx } = makeCanvas(size);
+  ctx.fillStyle = '#5c6a3c';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 500; i += 1) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 3 + rand() * 10;
+    const dirt = rand() < 0.4;
+    ctx.fillStyle = dirt
+      ? `rgba(112,92,58,${0.06 + rand() * 0.14})`
+      : `rgba(120,138,80,${0.05 + rand() * 0.12})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // a few worn dirt patches near the (implied) work paths
+  for (let i = 0; i < 10; i += 1) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const w = 20 + rand() * 40;
+    ctx.fillStyle = `rgba(100,82,52,${0.08 + rand() * 0.1})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, w, w * 0.55, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return finish(canvas);
+}
+
 /** Rough sawn timber planks for the yard deck. */
 export function makeTimberTexture(rand: Rand, size = 256): CanvasTexture {
   const { canvas, ctx } = makeCanvas(size);
@@ -166,6 +258,8 @@ export function makeSkyTexture(size = 256): CanvasTexture {
 
 export interface TextureSet {
   iron: CanvasTexture;
+  latticeIron: CanvasTexture;
+  ground: CanvasTexture;
   timber: CanvasTexture;
   haussmann: CanvasTexture;
   softCircle: CanvasTexture;
@@ -174,8 +268,14 @@ export interface TextureSet {
 }
 
 export function buildTextureSet(rand: Rand): TextureSet {
+  const latticeIron = makeLatticeIronTexture(rand);
+  latticeIron.repeat.set(3, 7);
+  const ground = makeGroundTexture(rand);
+  ground.repeat.set(48, 48);
   return {
     iron: makeIronTexture(rand),
+    latticeIron,
+    ground,
     timber: makeTimberTexture(rand),
     haussmann: makeHaussmannTexture(rand),
     softCircle: makeSoftCircleTexture(),

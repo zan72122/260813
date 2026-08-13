@@ -5,12 +5,12 @@
 // A pooled fixed-capacity array avoids any per-frame allocation.
 
 import {
-  AdditiveBlending,
   Color,
   DynamicDrawUsage,
   InstancedMesh,
   Matrix4,
   MeshBasicMaterial,
+  NormalBlending,
   PlaneGeometry,
   Quaternion,
   Vector3,
@@ -55,12 +55,18 @@ const rollQuat = new Quaternion();
 
 export function createSteamSystem(texture: CanvasTexture): SteamSystem {
   const geometry = new PlaneGeometry(1, 1);
+  // Normal (not additive) alpha blending, capped opacity: additive white
+  // sprites stack toward pure white as puffs overlap (the D5 "white-out"
+  // failure) — normal blending caps every pixel at this material's opacity
+  // regardless of how many puffs overlap there, so the frame center can
+  // never wash out to solid white.
   const material = new MeshBasicMaterial({
     map: texture,
     transparent: true,
+    opacity: 0.5,
     depthWrite: false,
-    blending: AdditiveBlending,
-    color: new Color('#ffffff'),
+    blending: NormalBlending,
+    color: new Color('#fbf8f2'),
   });
   const mesh = new InstancedMesh(geometry, material, MAX_CAPACITY);
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -98,8 +104,10 @@ export function createSteamSystem(texture: CanvasTexture): SteamSystem {
       p.vy = (reduced ? 0.9 : 1.4) + pseudoRand(emitCursor + 3) * 0.6;
       p.vz = (pseudoRand(emitCursor + 4) - 0.5) * (reduced ? 0.3 : 0.6);
       p.age = 0;
-      p.life = (reduced ? 2.2 : 1.6) + pseudoRand(emitCursor + 5) * 0.8;
-      p.size = 0.5 + pseudoRand(emitCursor + 6) * 0.7;
+      p.life = (reduced ? 2.0 : 1.5) + pseudoRand(emitCursor + 5) * 0.7;
+      // Small, soft puffs (D5) — the old 0.5-1.2 range read as huge opaque
+      // spheres once several overlapped; this tops out well under half that.
+      p.size = 0.22 + pseudoRand(emitCursor + 6) * 0.26;
       p.spin = (pseudoRand(emitCursor + 7) - 0.5) * 0.6;
       emitCursor += 8;
     }
@@ -125,11 +133,15 @@ export function createSteamSystem(texture: CanvasTexture): SteamSystem {
       p.z += p.vz * dt;
 
       const t = p.age / p.life;
-      // fade in/out is approximated purely through scale growth (no per-instance
-      // alpha in InstancedMesh without a custom shader) — small puffs read as
-      // "just emitted", large soft ones read as "dispersing".
-      const fadeScale = t < 0.15 ? t / 0.15 : 1;
-      const scale = p.size * (0.6 + t * 1.6) * fadeScale;
+      // Rise-and-dissipate silhouette approximated purely through scale (no
+      // per-instance alpha in InstancedMesh without a custom shader): grow in
+      // over the first fifth of life, then visibly shrink away over the last
+      // third instead of just popping out at end-of-life — reads as
+      // "dispersing" rather than "growing into a screen-filling cloud".
+      const growT = Math.min(t / 0.2, 1);
+      const shrinkT = t > 0.65 ? (t - 0.65) / 0.35 : 0;
+      const fadeScale = (0.55 + growT * 0.55) * (1 - shrinkT * 0.7);
+      const scale = p.size * fadeScale;
 
       scratchPos.set(p.x, p.y, p.z);
       // Billboard: face the camera by aligning the plane's local +z to the
