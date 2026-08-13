@@ -58,9 +58,9 @@ export class Scene {
     for (let i = 0; i < nPal; i++) pal.push(rng.pick(palettes));
 
     // 遠くの木立
-    const nTrees = rng.int(4, 7);
+    const nTrees = rng.int(6, 10);
     for (let i = 0; i < nTrees; i++) {
-      const x = rng.range(-560, 560);
+      const x = rng.range(-760, 760);
       items.push({ kind: 6, x, y: rng.range(4, 16), size: rng.range(52, 88), seed: rng(),
         h: grassHue + rng.range(-0.03, 0.02), s: rng.range(0.42, 0.6), v: rng.range(0.48, 0.62) });
     }
@@ -71,14 +71,14 @@ export class Scene {
 
     // 草むらと花を、手前ほど大きく
     const bands = [
-      { y: [22, 60], size: [12, 20], n: 26 },
-      { y: [60, 130], size: [18, 30], n: 30 },
-      { y: [130, 250], size: [26, 44], n: 30 },
-      { y: [250, 430], size: [40, 70], n: 24 },
+      { y: [22, 60], size: [12, 20], n: 36 },
+      { y: [60, 130], size: [18, 30], n: 40 },
+      { y: [130, 250], size: [26, 44], n: 40 },
+      { y: [250, 430], size: [40, 70], n: 32 },
     ];
     for (const band of bands) {
       for (let i = 0; i < band.n; i++) {
-        const x = rng.range(-660, 660);
+        const x = rng.range(-820, 820);
         const y = rng.range(band.y[0], band.y[1]);
         const size = rng.range(band.size[0], band.size[1]);
         const roll = rng();
@@ -294,16 +294,18 @@ void main() {
   float spec = 0.0;
 
   // 根もとの小さな影（太陽は背後なので、影はほとんど見えない）
-  float shadow = smoothstep(1.0, 0.0, ellipse(p - vec2(0.0, 0.86), vec2(0.78, 0.20)));
+  float shadow = smoothstep(1.0, 0.0, ellipse(p - vec2(0.0, 0.80), vec2(0.70, 0.16)));
+  // 四角の外周でかならず 0 にする。切り口が線になって見えるのを防ぐ。
+  float edgeFade = smoothstep(1.0, 0.90, abs(p.x)) * smoothstep(-1.0, -0.86, p.y);
 
   if (kind == 0) {
     // 草むら（根もとがふくらんだ、やわらかい株）
     float t = p.y * 0.5 + 0.5;                 // 0 = 先, 1 = 根もと
     float w = 0.92 * (0.18 + 0.82 * pow(t, 0.7));
     float blades = abs(fract(p.x * 2.2 + seed * 3.0) - 0.5) * 2.0;
-    float clump = smoothstep(w, w * 0.35, abs(p.x)) * smoothstep(-1.05, -0.75, p.y);
-    mask = clump * (0.58 + 0.42 * smoothstep(0.05, 0.85, blades));
-    col = mix(base * 0.86, base * 1.12, t);
+    float clump = smoothstep(w, w * 0.58, abs(p.x)) * smoothstep(-1.0, -0.80, p.y);
+    mask = clump * (0.74 + 0.26 * smoothstep(0.05, 0.85, blades));
+    col = mix(base * 0.78, base * 1.10, t);
     spec = smoothstep(0.6, 1.0, blades) * (1.0 - abs(p.x)) * 0.8;
   } else if (kind == 1) {
     // 花（茎 + 花びら + 芯）
@@ -373,10 +375,10 @@ void main() {
   // 遠くほど空気の色にとける
   col = mix(vec3(0.82, 0.89, 0.93), col, 0.62 + 0.38 * smoothstep(0.0, 0.14, vDepth));
 
-  float a = mask;
+  float a = mask * edgeFade;
   vec3 outc = col * a;
   // 影は下に敷く
-  float sa = shadow * 0.20 * (1.0 - a);
+  float sa = shadow * 0.20 * (1.0 - a) * edgeFade;
   outc += vec3(0.16, 0.22, 0.14) * sa;
   a += sa;
   if (a < 0.004) discard;

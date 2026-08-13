@@ -67,8 +67,10 @@ export class Camera {
 
     this._drift = Math.sin(time * 0.17) * 2.2; // ごくわずかな呼吸
 
+    // 画面が大きくなっても、そのぶん丸ごと拡大はしない。
+    // iPad で「電話の画面を2倍にしただけ」に見えないよう、ゆるやかに追従させる。
     const shortSide = Math.min(this.width, this.height);
-    this.scale = (shortSide / REF) * this.zoom;
+    this.scale = Math.pow(shortSide / REF, 0.62) * this.zoom;
     this.horizonY = (this.baseHorizonFrac() + this.horizonAdj) * this.height + this._drift;
 
     this.radius = RAINBOW_R * this.scale;
