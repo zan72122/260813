@@ -14,6 +14,17 @@
 // twist/balloon unpredictably around a curve's start tangent and blew the
 // trench cross-section up far larger than intended, putting the "outside"
 // camera effectively inside it.
+//
+// Gate B round 2 fix: src/app/presentationWiring.ts (Integrator) hides the
+// WHOLE 'pipe-network' group by name once Worker B's real VFX pipe/water
+// shell (src/vfx/pipeFlow.ts) takes over — that's correct for the placeholder
+// pipe tube + water blob below (Worker B's version is better), but it was
+// silently taking the trench walls down with it, leaving pipe-run with only
+// a bare tube floating on the sky gradient: no ground line, no trench, no
+// visible water. The trench is real scene geometry (Worker B's VFX only
+// covers the pipe/water shader, not terrain), so it's now returned as a
+// SEPARATE, separately-named group the integrator's hide-by-name call never
+// touches — see registerScenes() in src/scenes/index.ts, which adds both.
 
 import * as THREE from 'three';
 import type { FountainId } from '../../contracts';
@@ -21,7 +32,12 @@ import { getSceneAnchors } from '../anchors';
 import { brassMaterial, soilMaterial, waterMaterial } from './materials';
 
 export interface PipesVisual {
+  /** Placeholder pipe tube + water blob — hidden by src/app/presentationWiring.ts
+   * once Worker B's real VFX pipe/water (src/vfx/pipeFlow.ts) is wired in. */
   readonly group: THREE.Group;
+  /** Soil trench walls — always visible; NOT superseded by the VFX pass,
+   * since Worker B's VFX only covers the pipe shell + water, not terrain. */
+  readonly trenchGroup: THREE.Group;
   readonly waterBlob: THREE.Mesh;
   /** Move the glowing water blob to t (0..1) along the given fountain's pipe. */
   setWaterProgress(fountain: FountainId, t: number): void;
@@ -29,13 +45,14 @@ export interface PipesVisual {
 }
 
 const PIPE_RADIUS = 0.16;
-const TRENCH_HALF_WIDTH = 0.62;
-const TRENCH_DEPTH = 0.75;
-// Kept low relative to the pipe-run camera's small "above" offset
-// (src/camera/beats.ts PIPE_CAMERA_OFFSETS) so the camera always clears the
-// wall tops while still staying below y=0 ground everywhere along the curve
-// — see that file's comment for the full reasoning.
-const TRENCH_WALL_TOP = 0.05;
+// Snug around the pipe (radius 0.16) rather than a wide pit: all three
+// fountains' trenches fan out from the same shared valve point, so a wide
+// cross-section made neighboring trenches overlap in view near the start of
+// the run, and a deep/wide pit needed a near-vertical camera angle to see
+// past its own walls down to the pipe at all.
+const TRENCH_HALF_WIDTH = 0.4;
+const TRENCH_DEPTH = 0.4;
+const TRENCH_WALL_TOP = 0.04;
 const UP = new THREE.Vector3(0, 1, 0);
 
 interface CurveFrame {
@@ -114,6 +131,8 @@ export function buildPipes(): PipesVisual {
   const anchors = getSceneAnchors();
   const group = new THREE.Group();
   group.name = 'pipe-network';
+  const trenchGroup = new THREE.Group();
+  trenchGroup.name = 'pipe-trench-network';
 
   const pipeMat = brassMaterial();
   const trenchMat = soilMaterial();
@@ -125,7 +144,7 @@ export function buildPipes(): PipesVisual {
   for (const id of Object.keys(anchors.pipeCurves) as FountainId[]) {
     const curve = anchors.pipeCurves[id];
 
-    group.add(buildTrench(curve, id, trenchMat));
+    trenchGroup.add(buildTrench(curve, id, trenchMat));
 
     const geometry = new THREE.TubeGeometry(curve, 40, PIPE_RADIUS, 10, false);
     const mesh = new THREE.Mesh(geometry, pipeMat);
@@ -148,6 +167,7 @@ export function buildPipes(): PipesVisual {
 
   return {
     group,
+    trenchGroup,
     waterBlob,
     setWaterProgress(fountain: FountainId, t: number): void {
       const curve = anchors.pipeCurves[fountain];

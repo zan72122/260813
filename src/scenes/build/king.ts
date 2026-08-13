@@ -3,6 +3,15 @@
 // abstracted) atop a small pole, trailed by a tiny simplified cortege — a
 // handful of plain cone "attendant" markers. Deliberately NOT a detailed
 // human figure, per MASTER_SPEC non-goals ("精密人物モデリング禁止").
+//
+// Gate B round 2 fix: every mesh here is now explicitly named containing
+// 'sun'/'gilt' so src/render/index.ts applyHeroMaterials' gold-matching RULES
+// (which only traverse and match named THREE.Mesh instances) pick them up.
+// Previously unnamed, they kept this file's own bare goldMaterial() (no
+// envMap) — under the hero lighting rig's single directional sun + ambient
+// hemisphere only, that high-metalness/no-envMap combination renders almost
+// black outside the direct specular highlight, which is what read as a dark
+// spiky mace + dark cortege cones rather than a lit gold sun disc.
 
 import * as THREE from 'three';
 import { goldMaterial } from './materials';
@@ -20,6 +29,7 @@ function buildSunDisc(): THREE.Group {
   const mat = goldMaterial();
 
   const disc = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), mat);
+  disc.name = 'king-sun-disc';
   group.add(disc);
 
   const rays = new THREE.Group();
@@ -27,6 +37,7 @@ function buildSunDisc(): THREE.Group {
   for (let i = 0; i < rayCount; i++) {
     const angle = (i / rayCount) * Math.PI * 2;
     const ray = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 6), mat);
+    ray.name = 'king-sun-ray';
     ray.position.set(Math.cos(angle) * 0.27, Math.sin(angle) * 0.27, 0);
     ray.rotation.z = angle - Math.PI / 2;
     rays.add(ray);
@@ -43,6 +54,7 @@ export function buildKingProcession(): KingProcessionVisual {
 
   const poleMat = goldMaterial();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.1, 8), poleMat);
+  pole.name = 'king-sun-pole';
   pole.position.y = 0.55;
   group.add(pole);
 
@@ -63,6 +75,7 @@ export function buildKingProcession(): KingProcessionVisual {
   ];
   for (const [x, z] of offsets) {
     const attendant = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.4, 8), attendantMat);
+    attendant.name = 'king-cortege-gilt-cone';
     attendant.position.set(x ?? 0, 0.2, z ?? 0);
     attendant.castShadow = true;
     cortege.add(attendant);

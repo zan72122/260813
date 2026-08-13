@@ -95,6 +95,11 @@ export function createGardenScene(ctx: SceneContext): GardenSceneHandle {
 
   const pipes = buildPipes();
   group.add(pipes.group);
+  // Kept as a SEPARATE child (not nested under pipes.group/'pipe-network'):
+  // src/app/presentationWiring.ts hides 'pipe-network' by name once Worker
+  // B's VFX pipe/water takes over, but the trench is real terrain geometry
+  // that VFX doesn't provide and must stay visible regardless.
+  group.add(pipes.trenchGroup);
 
   ctx.scene.add(group);
 

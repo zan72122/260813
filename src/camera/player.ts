@@ -21,6 +21,10 @@ const ORIENTATION_BLEND_SEC = 0.3;
 const POSE_SMOOTH_TAU = 0.15;
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** Hard ceiling for the pipe-run camera's Y — stays comfortably below y=0 so
+ * it never clips through the single lawn plane even near the curve's
+ * shallow arrival end (src/scenes/build/ground.ts). */
+const GROUND_CLEARANCE_CEILING = -0.14;
 
 function clamp01(t: number): number {
   return Math.min(1, Math.max(0, t));
@@ -167,20 +171,20 @@ export class CinematicBeatPlayer {
     if (sideDir.lengthSq() < 1e-6) sideDir.set(1, 0, 0);
     sideDir.normalize();
 
-    const camPos = point
-      .clone()
-      .addScaledVector(UP, offsets.above)
-      .addScaledVector(sideDir, offsets.side);
+    // camPos.y is clamped (not just point.y + above) so a big enough "above"
+    // to look steeply DOWN into Worker B's pipe shell (src/vfx/pipeFlow.ts —
+    // a partial-arc tube open ~100° at the top, with the water resting near
+    // the bottom of that opening, only visible from a real downward angle)
+    // never pokes above y=0 ground near the shallow arrival end of the curve
+    // and clips through the single lawn plane (src/scenes/build/ground.ts).
+    const camY = Math.min(point.y + offsets.above, GROUND_CLEARANCE_CEILING);
+    const camPos = point.clone().addScaledVector(sideDir, offsets.side);
+    camPos.y = camY;
 
-    // Aim noticeably below the camera's own (already-shallow) height, biased
-    // toward the trench floor/pipe rather than "ahead at roughly camera
-    // height" — a near-level gaze down a long trench put its close, raking
-    // near wall in the way of almost the whole frame. Tilting the look
-    // target down keeps the wall to a border/frame instead.
-    const lookTarget: [number, number, number] = [ahead.x, ahead.y - offsets.above * 1.1, ahead.z];
+    const lookTarget: [number, number, number] = [ahead.x, ahead.y, ahead.z];
 
     return {
-      position: [camPos.x, camPos.y, camPos.z],
+      position: [camPos.x, camY, camPos.z],
       lookAt: lookTarget,
       fov: fallbackPoses[0]?.fov ?? 50,
     };

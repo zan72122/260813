@@ -91,26 +91,43 @@ const PIPE_CUTAWAY_LANDSCAPE: CameraPose[] = [
   pose([valveHead.x + 2.2, -0.2, valveHead.z], [valveHead.x, -1.1, valveHead.z + 1.5], 52),
 ];
 
-/** Camera offset from the water blob's curve point, per orientation — Gate B
- * fix #4, second pass: an (above:2.3, side:2.0) offset pulled the camera
- * clear of the pipe/trench itself, but "above" pushed the camera's absolute
- * Y back ABOVE ground level (the pipe curve's Y is only -1.3..-0.35), so its
- * view of the trench clipped straight through the single large lawn plane
- * at y=0 (src/scenes/build/ground.ts) — filling the frame with a close-up
- * of the lawn's underside instead of the trench. `above` must stay small
- * enough that point.y + above never reaches 0 across the whole curve (worst
- * case near arrival, point.y ≈ -0.35); `side` (horizontal only — sideDir has
- * no Y component) is free to be larger for a proper 3rd-person trench view.
- * Portrait still emphasizes the vertical plunge (storyboard: "縦画面: 地上→
- * 地下→地上"), landscape the horizontal run. */
+/** Camera offset from the water blob's curve point, per orientation. `above`
+ * is now clamped in src/camera/player.ts (GROUND_CLEARANCE_CEILING) rather
+ * than kept tiny here, so it's free to be large enough for a real downward
+ * look into Worker B's pipe shell (src/vfx/pipeFlow.ts — a partial-arc tube
+ * open ~100° at the TOP; its water sits near the bottom of that opening and
+ * is only visible from a genuinely steep-ish downward angle, not a near-level
+ * gaze). `side` (horizontal only — sideDir has no Y component) keeps the
+ * camera outside the pipe/trench for a 3rd-person view. Portrait still
+ * emphasizes the vertical plunge (storyboard: "縦画面: 地上→地下→地上"),
+ * landscape the horizontal run. */
 export const PIPE_CAMERA_OFFSETS = {
-  portrait: { above: 0.33, side: 1.1, lookAhead: 0.07 },
-  landscape: { above: 0.31, side: 1.5, lookAhead: 0.09 },
+  // `side` deliberately stays modest: all three fountains' pipes fan out
+  // from the SAME shared valve point (src/scenes/anchors.ts), so a large
+  // sideways offset near the start of the run can cross into a neighboring
+  // fountain's trench and read as visual clutter instead of a clean single
+  // cutaway. `above` is large because it's clamped in player.ts
+  // (GROUND_CLEARANCE_CEILING), not because a bigger number here means a
+  // proportionally bigger real offset.
+  portrait: { above: 1.1, side: 0.9, lookAhead: 0.07 },
+  landscape: { above: 1.0, side: 1.1, lookAhead: 0.09 },
 } as const;
 
 // ---- fountain-reveal (close): per fountain, differentiated angle/motion --
 // Gate B fix #5: pulled back from the water surface so the WHOLE fountain
 // (basin rim to full jet height) fits in frame with sky visible above.
+//
+// Gate B round 2 fix: landscape previously used a large lateral (x) offset
+// to fill its wide aspect, which put the camera right next to (or almost on
+// top of) the Wave-5-added garden dressing — the statue line sits at
+// x=±(HEDGE_X+HEDGE_HALF_WIDTH+1.1)=±4.45, the balustrade runs the whole
+// path at x=±1.8, hedges span x∈[1.85,3.35] — so the reveal read as "distant
+// speck behind a foreground hedge, giant gold post cutting the edge" (a
+// statue nearly co-located with the camera). Landscape's much wider
+// horizontal FOV doesn't need a big lateral offset to fill frame the way
+// portrait's narrow one does — keeping x inside the open path corridor
+// (|x| < PATH_HALF_WIDTH = 1.6, same idea portrait already used
+// successfully) stays clear of every one of those obstacles regardless of z.
 function fanReveal(): { portrait: CameraPose[]; landscape: CameraPose[] } {
   const c = anchors.fountains['fountain-fan'].center;
   return {
@@ -119,8 +136,8 @@ function fanReveal(): { portrait: CameraPose[]; landscape: CameraPose[] } {
       pose([c.x + 0.7, 1.1, c.z + 5.6], [c.x, 1.2, c.z], 44),
     ],
     landscape: [
-      pose([c.x + 4.8, 0.95, c.z + 4.8], [c.x, 1.0, c.z], 46),
-      pose([c.x + 4.3, 1.15, c.z + 4.3], [c.x, 1.2, c.z], 42),
+      pose([c.x + 1.2, 0.95, c.z + 5.6], [c.x, 1.0, c.z], 48),
+      pose([c.x + 1.4, 1.15, c.z + 5.0], [c.x, 1.2, c.z], 44),
     ],
   };
 }
@@ -135,8 +152,8 @@ function ringReveal(): { portrait: CameraPose[]; landscape: CameraPose[] } {
       pose([c.x - 2.9, 1.05, c.z + 4.8], [c.x, 0.8, c.z], 44),
     ],
     landscape: [
-      pose([c.x + 5.6, 1.0, c.z + 2.1], [c.x, 0.7, c.z], 44),
-      pose([c.x - 3.4, 1.1, c.z + 4.5], [c.x, 0.8, c.z], 42),
+      pose([c.x + 1.3, 1.0, c.z + 5.4], [c.x, 0.7, c.z], 46),
+      pose([c.x - 1.3, 1.1, c.z + 5.6], [c.x, 0.8, c.z], 44),
     ],
   };
 }
@@ -151,8 +168,8 @@ function crownReveal(): { portrait: CameraPose[]; landscape: CameraPose[] } {
       pose([c.x + 0.8, 2.9, c.z + 6.6], [c.x, 2.1, c.z], 44),
     ],
     landscape: [
-      pose([c.x + 5.6, 0.85, c.z + 5.6], [c.x, 0.9, c.z], 46),
-      pose([c.x + 5.0, 2.7, c.z + 5.3], [c.x, 2.1, c.z], 42),
+      pose([c.x + 1.2, 0.85, c.z + 6.4], [c.x, 0.9, c.z], 48),
+      pose([c.x + 1.3, 2.7, c.z + 6.6], [c.x, 2.1, c.z], 44),
     ],
   };
 }
