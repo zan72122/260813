@@ -1,0 +1,77 @@
+:root {
+  --color-bg: #fff8ef;
+  --color-text: #5a4a3a;
+  --color-accent: #ff8a70;
+  --color-accent-soft: #ffc9c0;
+  --color-accent-yellow: #ffd66e;
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --shadow-soft: 0 8px 24px rgba(90, 74, 58, 0.18);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Hiragino Maru Gothic ProN", "Rounded Mplus 1c", "Yu Gothic", sans-serif;
+}
+
+#scene-root,
+#ui-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#scene-root {
+  z-index: 0;
+}
+
+#scene-root canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#ui-root {
+  z-index: 1;
+  pointer-events: none;
+  padding: calc(var(--safe-top) + 8px) calc(var(--safe-right) + 8px) calc(var(--safe-bottom) + 8px)
+    calc(var(--safe-left) + 8px);
+}
+
+#ui-root > * {
+  pointer-events: auto;
+}
+
+button {
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+}
+
+.card {
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
