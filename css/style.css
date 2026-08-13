@@ -227,60 +227,6 @@ button {
   display: flex; align-items: center; justify-content: center;
 }
 
-/* ------------------------------------------------ 硬貨 */
-.coin {
-  --size: 56px;
-  width: var(--size);
-  height: var(--size);
-  border-radius: 50%;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  box-shadow: inset 0 -3px 0 rgba(0,0,0,.14), inset 0 3px 0 rgba(255,255,255,.5), 0 3px 4px rgba(91,70,54,.25);
-  border: 3px solid rgba(0,0,0,.08);
-}
-.coin .cnum {
-  font-size: calc(var(--size) * .42);
-  font-weight: 900;
-  z-index: 1;
-  color: rgba(70, 55, 40, .82);
-  text-shadow: 0 1px 0 rgba(255,255,255,.55);
-}
-.coin .hole {
-  position: absolute;
-  width: 26%;
-  height: 26%;
-  top: 14%;
-  border-radius: 50%;
-  background: var(--bg);
-  box-shadow: inset 0 2px 3px rgba(0,0,0,.22);
-}
-.coin.c1   { background: radial-gradient(circle at 35% 30%, #F4F5F7, #D8DBE1 70%); }
-.coin.c5   { background: radial-gradient(circle at 35% 30%, #F2D98A, #D9B24A 70%); }
-.coin.c10  { background: radial-gradient(circle at 35% 30%, #E2A877, #C07A45 70%); }
-.coin.c50  { background: radial-gradient(circle at 35% 30%, #EDEFF2, #C6CBD4 70%); }
-.coin.c100 { background: radial-gradient(circle at 35% 30%, #F0F2F5, #C9CED8 70%); --size: 62px; }
-.coin.coin-sm { --size: 44px; }
-.coin.coin-xs { --size: 30px; border-width: 2px; }
-.coin.coin-xs .cnum { text-shadow: none; }
-
-.coin.pay-hint { animation: coin-hint 1s infinite; border-color: var(--sun); }
-@keyframes coin-hint {
-  0%, 100% { transform: translateY(0) scale(1); box-shadow: inset 0 -3px 0 rgba(0,0,0,.14), inset 0 3px 0 rgba(255,255,255,.5), 0 3px 4px rgba(91,70,54,.25), 0 0 0 0 rgba(255,209,102,.8); }
-  50% { transform: translateY(-6px) scale(1.06); box-shadow: inset 0 -3px 0 rgba(0,0,0,.14), inset 0 3px 0 rgba(255,255,255,.5), 0 6px 8px rgba(91,70,54,.3), 0 0 0 8px rgba(255,209,102,.25); }
-}
-
-.coin.dragging { opacity: .35; }
-.coin-ghost {
-  position: fixed;
-  z-index: 1000;
-  pointer-events: none;
-  transform: translate(-50%, -50%) scale(1.15);
-  filter: drop-shadow(0 8px 10px rgba(91,70,54,.3));
-}
-
 /* ------------------------------------------------ 売場タブ */
 .aisle-tabs {
   display: flex;

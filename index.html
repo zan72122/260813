@@ -5,20 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>ほんものイオン！100えんおかいもの</title>
-<link rel="stylesheet" href="css/style.css">
+<title>おかいものシアター</title>
+<link rel="stylesheet" href="css/coins.css">
+<link rel="stylesheet" href="css/theater.css">
 </head>
 <body>
-<div id="app" aria-live="polite"></div>
-<div id="fx-layer"></div>
+<!-- 3D舞台 -->
+<canvas id="stage"></canvas>
+
+<!-- 最小限のHUD（所持金・台詞・ヒント・一時ボタン） -->
+<div id="hud">
+  <div id="wallet-hud" class="hidden">
+    <span class="wh-icon">👛</span>
+    <span class="wh-coins"></span>
+  </div>
+  <div id="hint" class="hidden"></div>
+  <div id="bubble" class="hidden"><span class="bb-face"></span><span class="bb-text"></span></div>
+</div>
+<div id="overlay-layer"></div>
 <div id="drag-layer"></div>
 
-<!-- データ層: fetch(data/products.json) を第一優先、file:// 時は下記フォールバックを使用 -->
+<!-- タイトル -->
+<div id="title-screen">
+  <div class="t-store">
+    <span class="t-mini">ほんもの かかくで あそぶ</span>
+    <h1>おかいもの<br>シアター</h1>
+    <span class="t-cart">🛒</span>
+  </div>
+  <button id="btn-start">おかいものに いく</button>
+  <a id="link-classic" href="classic.html">ミニゲームであそぶ</a>
+  <div class="t-note">イオン具志川店の実売価格DBを使用した教育用ゲームです（イオン公式アプリではありません）</div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<!-- データ層: fetch(data/products.json) 優先、file:// 時はフォールバック -->
 <script src="data/products.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/data.js"></script>
 <script src="js/visuals.js"></script>
 <script src="js/coins.js"></script>
-<script src="js/game.js"></script>
+<script src="js/theater/world.js"></script>
+<script src="js/theater/game.js"></script>
 </body>
 </html>
