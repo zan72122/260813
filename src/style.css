@@ -1,0 +1,521 @@
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --ink: #2a1740;
+  --btn: 19vmin;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: #0d0716;
+  color: #fff;
+  font-family:
+    "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 45%, rgba(6, 2, 14, 0.55) 100%);
+}
+
+/* ---------- すすみぐあいの点 ---------- */
+#steps {
+  position: absolute;
+  top: calc(var(--safe-t) + 2.2vmin);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 1.8vmin;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+#steps.on {
+  opacity: 1;
+}
+
+#steps i {
+  width: 2.2vmin;
+  height: 2.2vmin;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 0.4vmin rgba(0, 0, 0, 0.18);
+  transition:
+    background 0.3s,
+    transform 0.3s;
+}
+
+#steps i.done {
+  background: #ffd76a;
+}
+
+#steps i.now {
+  background: #fff;
+  transform: scale(1.5);
+}
+
+/* ---------- ゆびヒント ---------- */
+.hint {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  width: 24vmin;
+  height: 24vmin;
+  margin: -12vmin 0 0 -12vmin;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s;
+  will-change: transform, opacity;
+}
+
+.hint.on {
+  opacity: 0.96;
+}
+
+.hint-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16vmin;
+  height: 16vmin;
+  margin: -8vmin 0 0 -8vmin;
+  border-radius: 50%;
+  border: 0.9vmin solid rgba(255, 255, 255, 0.85);
+  animation: pulse 1.5s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.hint-hand {
+  position: absolute;
+  left: 46%;
+  top: 42%;
+  width: 11vmin;
+  filter: drop-shadow(0 0.6vmin 0.8vmin rgba(0, 0, 0, 0.4));
+  animation: tapper 1.5s ease-in-out infinite;
+}
+
+@keyframes tapper {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(-6deg);
+  }
+  45% {
+    transform: translate(0, 1.6vmin) rotate(-2deg);
+  }
+}
+
+.hint.swipe .hint-hand {
+  animation: swiper 1.6s ease-in-out infinite;
+}
+
+@keyframes swiper {
+  0%,
+  100% {
+    transform: translate(-5vmin, 0) rotate(-10deg);
+  }
+  50% {
+    transform: translate(5vmin, 0) rotate(8deg);
+  }
+}
+
+.hint.up .hint-hand {
+  animation: upper 1.6s ease-in-out infinite;
+}
+
+@keyframes upper {
+  0%,
+  100% {
+    transform: translate(0, 3.5vmin) rotate(-4deg);
+  }
+  50% {
+    transform: translate(0, -4vmin) rotate(-4deg);
+  }
+}
+
+.hint.hold .hint-ring {
+  animation: holder 1.7s ease-in-out infinite;
+}
+
+@keyframes holder {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.2;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
+/* ---------- おおきなことば ---------- */
+.word {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  transform: translate(-50%, -50%) scale(0.4);
+  font-size: 11vmin;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow:
+    0 0 2vmin rgba(255, 190, 90, 0.8),
+    0 0.8vmin 0 rgba(0, 0, 0, 0.25);
+}
+
+.word.pop {
+  animation: wordpop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes wordpop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.3) rotate(-8deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12) rotate(2deg);
+  }
+  40% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -62%) scale(1.02);
+  }
+}
+
+/* ---------- 画面（タイトル・たな） ---------- */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4vmin;
+  padding: calc(var(--safe-t) + 3vmin) calc(var(--safe-r) + 3vmin) calc(var(--safe-b) + 3vmin)
+    calc(var(--safe-l) + 3vmin);
+  transition:
+    opacity 0.45s,
+    visibility 0.45s;
+}
+
+.screen.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#title {
+  background: radial-gradient(85% 65% at 50% 45%, rgba(30, 14, 52, 0.1), rgba(9, 4, 18, 0.62));
+}
+
+.title-jp {
+  font-size: 9vmin;
+  line-height: 1.18;
+  text-align: center;
+  font-weight: 900;
+  text-shadow: 0 0.8vmin 1.4vmin rgba(0, 0, 0, 0.55);
+}
+
+.title-jp span {
+  display: block;
+}
+
+.t1 {
+  color: #ffcf6b;
+}
+
+.t2 {
+  color: #8ff2ff;
+}
+
+.t3 {
+  background: linear-gradient(90deg, #ff8ad8, #ffd76a, #7cf3c4, #8fb8ff, #ff8ad8);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: nijiflow 5s linear infinite;
+}
+
+@keyframes nijiflow {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+.bigbtn {
+  width: 30vmin;
+  height: 30vmin;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  animation: breathe 2.4s ease-in-out infinite;
+  touch-action: manipulation;
+}
+
+.bigbtn.small {
+  width: 18vmin;
+  height: 18vmin;
+  animation: none;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+.bigbtn-ico {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 1vmin 1.6vmin rgba(0, 0, 0, 0.5));
+}
+
+.bb-bg {
+  fill: #ffd76a;
+}
+
+.bb-fg {
+  fill: #4a2a10;
+}
+
+.bb-stroke {
+  stroke: #4a2a10;
+  fill: none;
+}
+
+.bigbtn:active {
+  transform: scale(0.94);
+}
+
+/* ---------- ツールボタン ---------- */
+.tools {
+  position: absolute;
+  right: calc(var(--safe-r) + 2.5vmin);
+  bottom: calc(var(--safe-b) + 2.5vmin);
+  display: flex;
+  gap: 2vmin;
+  align-items: flex-end;
+}
+
+.toolbtn {
+  width: var(--btn);
+  height: var(--btn);
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 0.6vmin 1.6vmin rgba(0, 0, 0, 0.4);
+  padding: 2.2vmin;
+  cursor: pointer;
+  transition:
+    transform 0.18s,
+    opacity 0.3s,
+    visibility 0.3s;
+  touch-action: manipulation;
+}
+
+.toolbtn svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tb-line {
+  fill: rgba(255, 255, 255, 0.85);
+}
+
+.tb-dot {
+  fill: #ffd76a;
+}
+
+.tb-dot2 {
+  fill: #8ff2ff;
+}
+
+.tb-stroke {
+  stroke: #fff;
+}
+
+.toolbtn.accent {
+  background: #ffd76a;
+}
+
+.toolbtn.accent .tb-dot {
+  fill: #4a2a10;
+}
+
+.toolbtn.accent .tb-stroke {
+  stroke: #4a2a10;
+}
+
+.toolbtn:active {
+  transform: scale(0.9);
+}
+
+.toolbtn.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.snd-slash {
+  stroke: #ff7a7a;
+  opacity: 0;
+}
+
+body.muted .snd-slash {
+  opacity: 1;
+}
+
+body.muted .snd-wave {
+  opacity: 0.25;
+}
+
+/* ---------- かざりだな ---------- */
+#shelf {
+  background: linear-gradient(180deg, #120a20, #241238);
+  justify-content: space-between;
+}
+
+.shelf-grid {
+  flex: 1;
+  width: 100%;
+  max-width: 900px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(22vmin, 1fr));
+  gap: 2.5vmin;
+  align-content: start;
+  padding: 2vmin 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.shelf-cell {
+  aspect-ratio: 1;
+  border-radius: 3vmin;
+  background:
+    radial-gradient(70% 60% at 50% 80%, rgba(255, 255, 255, 0.13), transparent 70%),
+    rgba(255, 255, 255, 0.06);
+  border: 0.4vmin solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.shelf-cell img,
+.shelf-cell canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.shelf-cell.empty {
+  opacity: 0.35;
+}
+
+.shelf-empty-ico {
+  width: 42%;
+  opacity: 0.5;
+}
+
+/* 横向きのとき：タイトルを横並びに */
+@media (orientation: landscape) {
+  .title-jp {
+    font-size: 6.4vmin;
+    padding: 0 2vmin;
+  }
+
+  .title-jp span {
+    display: inline;
+    margin: 0 0.6vmin;
+  }
+
+  #title {
+    gap: 3vmin;
+  }
+
+  .bigbtn {
+    width: 26vmin;
+    height: 26vmin;
+  }
+
+  .word {
+    top: 20%;
+    font-size: 9vmin;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bigbtn,
+  .hint-ring,
+  .hint-hand,
+  .t3 {
+    animation: none !important;
+  }
+}

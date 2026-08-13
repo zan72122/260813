@@ -1,0 +1,21 @@
+{
+  "name": "toro-kakukaku-niji-bismuth",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "とろっ！カクカク！にじビスマス工房 - 4歳児向けビスマス結晶づくりモバイルWebゲーム",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test:e2e": "playwright test",
+    "test:smoke": "playwright test tests/smoke.spec.js"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "vite": "^5.4.10"
+  }
+}
