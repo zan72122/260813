@@ -153,6 +153,20 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
       case 'resumeAmbient':
         master.setSuspended(false);
         return;
+
+      case 'stopAllContinuous': {
+        // F3 (review round 1): silence every leftover continuous voice
+        // (a leg's sand loop, a leg's near-target resonance swell) — see
+        // cueRouter.ts's 'replayRequested'/'phaseChanged' cases for when
+        // this fires. Each `stop()` already ramps its own gain down over a
+        // short release (startSandLoop/startNearTargetSwell in voices.ts)
+        // rather than cutting hard, so this is a clean fade, not a click.
+        for (const loop of sandLoops.values()) loop.stop();
+        sandLoops.clear();
+        for (const swell of nearTargetSwells.values()) swell.stop();
+        nearTargetSwells.clear();
+        return;
+      }
     }
   }
 
@@ -169,6 +183,8 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
     'settled',
     'soundToggled',
     'pauseChanged',
+    'replayRequested',
+    'phaseChanged',
   ];
 
   function subscribeAll(): void {
@@ -181,9 +197,69 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
     }
   }
 
+  // F6 (review round 1): hidden previously only muted the master gain —
+  // the AudioContext itself kept running (battery drain) and the ambient
+  // bed's `setTimeout`-scheduled clangs (voices.ts's `startAmbientBed`)
+  // kept firing in the background. Now, once hidden, we additionally
+  // `ctx.suspend()` (after letting the mute ramp finish audibly, so the
+  // suspend itself is never what the player hears as a cut) and fully stop
+  // (not just silence) the ambient bed so its clang scheduler goes away
+  // too; both are undone symmetrically on return to visibility.
+  const HIDE_SUSPEND_DELAY_MS = 200;
+  let hideSuspendTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Set when a visibility-triggered `ctx.resume()` is rejected (iOS Safari can refuse a resume outside a user gesture, leaving the context 'interrupted'/'suspended') — retried on the next real pointerdown, mirroring the original unlock()'s gesture requirement. */
+  let needsGestureResume = false;
+
+  function stopAmbient(): void {
+    ambient?.stop();
+    ambient = undefined;
+  }
+
+  function startAmbientIfNeeded(): void {
+    if (!ctx || !master || ambient) return;
+    ambient = startAmbientBed(ctx, master.gain, opts.getState().seed ^ 0x51ee);
+  }
+
   function handleVisibility(): void {
-    if (!master) return;
-    master.setSuspended(document.hidden);
+    if (!master || !ctx) return;
+    if (hideSuspendTimer !== undefined) {
+      clearTimeout(hideSuspendTimer);
+      hideSuspendTimer = undefined;
+    }
+
+    if (document.hidden) {
+      master.setSuspended(true);
+      stopAmbient();
+      const ctxAtHide = ctx;
+      hideSuspendTimer = setTimeout(() => {
+        hideSuspendTimer = undefined;
+        // Re-check nothing changed while this fired (a quick hide/show
+        // flicker could have already reversed it) before actually
+        // suspending the context.
+        if (ctx === ctxAtHide && typeof document !== 'undefined' && document.hidden) {
+          void ctx.suspend();
+        }
+      }, HIDE_SUSPEND_DELAY_MS);
+    } else {
+      master.setSuspended(false);
+      void ctx.resume().catch(() => {
+        needsGestureResume = true;
+      });
+      startAmbientIfNeeded();
+    }
+  }
+
+  /** Fallback resume path for iOS Safari rejecting the visibilitychange-driven `ctx.resume()` above — armed on every real pointerdown, exactly like the original unlock() gesture requirement. */
+  function handleGestureResume(): void {
+    if (!needsGestureResume || !ctx) return;
+    ctx
+      .resume()
+      .then(() => {
+        needsGestureResume = false;
+      })
+      .catch(() => {
+        // Still blocked — stay armed for the next gesture.
+      });
   }
 
   async function unlock(): Promise<void> {
@@ -197,6 +273,7 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
     subscribeAll();
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibility);
+      document.addEventListener('pointerdown', handleGestureResume);
     }
   }
 
@@ -208,6 +285,11 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
   function dispose(): void {
     for (const off of unsubscribers) off();
     unsubscribers.length = 0;
+    if (hideSuspendTimer !== undefined) {
+      clearTimeout(hideSuspendTimer);
+      hideSuspendTimer = undefined;
+    }
+    needsGestureResume = false;
     ambient?.stop();
     ambient = undefined;
     for (const loop of sandLoops.values()) loop.stop();
@@ -218,6 +300,7 @@ export function createAudioEngine(opts: AudioEngineOptions): AudioEngineHandle {
     master = undefined;
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('pointerdown', handleGestureResume);
     }
     if (ctx) {
       void ctx.close();

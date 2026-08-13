@@ -117,8 +117,17 @@ async function fastForward(page: Page, frames: number): Promise<GameState> {
   }, frames);
 }
 
-/** Bulk-ticks (fast, no render) in batches until `predicate(state)` holds. */
-async function fastForwardUntil(
+/**
+ * Bulk-ticks (fast, no render) in batches until `predicate(state)` holds.
+ * Exported (F1, review round 1) for tests/e2e/full-loop.spec.ts's finalReveal
+ * step: `game/controller.ts` deliberately makes `finalReveal`'s reveal-beat/
+ * settle/pullback chain NOT mash-skippable via `drive.advance()` anymore
+ * (PRODUCT_SPEC's biggest reward, protected from a child's rapid taps), so
+ * hurrying through it in a test now means advancing real logical time
+ * (`__eiffelFastForward`, i.e. this function) instead of `skipUntil`'s
+ * repeated `drive.advance()` calls.
+ */
+export async function fastForwardUntil(
   page: Page,
   predicate: (s: GameState) => boolean,
   opts: { batch?: number; maxFrames?: number; label?: string } = {},

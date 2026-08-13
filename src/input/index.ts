@@ -9,6 +9,8 @@
  *   handles: handleRegistry,    // the same HandleRegistry the renderer writes to every frame
  *   sink: game,                 // a GameController (src/game) — or any { applyIntent(Intent) }
  *   getState: () => game.getState(), // optional; currently only gates new grabs while paused
+ *   // viewport defaults to `window` when available — omit unless testing
+ *   // (see AttachInputOptions.viewport's own doc comment, F4/review round 1).
  * });
  *
  * // ...later, on teardown:

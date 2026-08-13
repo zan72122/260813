@@ -46,6 +46,17 @@ export interface AttachInputOptions {
   sink: IntentSink;
   /** Optional live-state peek; currently used only to ignore new grabs while `paused`. Safe to omit entirely. */
   getState?: () => GameState | undefined;
+  /**
+   * F4 (review round 1): window-like target `resize`/`orientationchange`
+   * fire on — an in-flight gesture is cleanly ended (exactly like
+   * `pointercancel`) whenever either fires, so a mid-drag rotation can never
+   * slam `gateOpen`/wedge progress with a spurious jump once the handle's
+   * on-screen position has moved out from under the player's finger.
+   * Defaults to the global `window` when available (production); pass a
+   * fake `EventTargetLike` in tests to drive this deterministically without
+   * a real `window`/jsdom (see tests/unit/game-input.test.ts).
+   */
+  viewport?: EventTargetLike;
 }
 
 export interface InputHandle {

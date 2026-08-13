@@ -181,7 +181,14 @@ export function createRenderSystem(options: RenderSystemOptions): RenderSystem {
   const initialState = getState();
 
   let materials: HeroMaterials = createHeroMaterials();
-  let sceneHandles: SceneHandles = buildScene(materials, initialQuality);
+  // F8 (review round 1): threading the run's seed through gives every leg
+  // its own `legScenario(seed, leg).propVariant`-derived scaffold/worker
+  // dressing (scene/sceneBuilder.ts) instead of identical props on every
+  // leg/seed. `initialState.seed` is stable for this RenderSystem's whole
+  // lifetime (a replay resets GameState, never the seed — stateMachine.ts
+  // doc §6), so the context-restore rebuild below reuses the same constant
+  // rather than re-reading `getState()` again.
+  let sceneHandles: SceneHandles = buildScene(materials, initialQuality, initialState.seed);
   let lighting: Lighting = createLighting(initialQuality);
   sceneHandles.scene.add(lighting.key, lighting.key.target, lighting.hemi);
 
@@ -234,7 +241,7 @@ export function createRenderSystem(options: RenderSystemOptions): RenderSystem {
       disposeHeroMaterials(materials);
       lighting.dispose();
       materials = createHeroMaterials();
-      sceneHandles = buildScene(materials, qualityManager.state);
+      sceneHandles = buildScene(materials, qualityManager.state, initialState.seed);
       lighting = createLighting(qualityManager.state);
       sceneHandles.scene.add(lighting.key, lighting.key.target, lighting.hemi);
       contextLostFlag = false;

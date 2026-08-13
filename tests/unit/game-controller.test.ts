@@ -8,6 +8,8 @@ import type { GameController } from '../../src/game';
 const LEGS: LegId[] = [0, 1, 2, 3];
 /** A larger-than-real-time dt is safe to drive physics with — sandStep/jackStroke both clamp to the remaining distance. */
 const FAST_DT = 0.35;
+/** A realistic fixed-engine-step dt (ARCHITECTURE_CONTRACT's 1/60s) for the timing-sensitive F1/F2 tests below, where the actual magnitude of `dt` matters (not just "eventually converges"). */
+const REAL_DT = 1 / 60;
 
 function createRecordingBus(): { bus: EventBus; log: GameEvent[] } {
   const inner = new TypedEventBus();
@@ -460,5 +462,176 @@ describe('GameController — reducedMotion shortens cinematics', () => {
     const normalTicks = ticksToSand(withoutReduced);
     expect(reducedTicks).toBeGreaterThan(0);
     expect(reducedTicks).toBeLessThan(normalTicks);
+  });
+});
+
+describe('GameController — finalReveal is not mash-skippable (F1)', () => {
+  function reachFinalReveal(controller: GameController): void {
+    for (const _leg of LEGS) completeActiveLeg(controller, FAST_DT);
+    expect(controller.getState().phase).toBe('finalReveal');
+  }
+
+  /**
+   * Drives `controller` tick-by-tick with `dt`, queuing `advancesPerTick`
+   * `advance` intents before every single tick (0 = no mashing at all), and
+   * records the TICK NUMBER (1-indexed, first tick = 1) each `revealBeat`
+   * (by index), `settled`, and `phaseChanged->complete` event first appears
+   * in `log`. Stops as soon as `complete` is reached.
+   */
+  function driveFinalRevealAndRecordTiming(
+    controller: GameController,
+    log: GameEvent[],
+    dt: number,
+    advancesPerTick: number,
+    maxTicks = 2000,
+  ): { beatTickOf: [number, number, number, number]; settledTick: number; completeTick: number } {
+    const beatTickOf: [number, number, number, number] = [-1, -1, -1, -1];
+    let settledTick = -1;
+    let completeTick = -1;
+
+    for (let tick = 1; tick <= maxTicks && completeTick === -1; tick++) {
+      for (let m = 0; m < advancesPerTick; m++) controller.applyIntent({ type: 'advance' });
+      const before = log.length;
+      controller.tick(dt);
+      for (let i = before; i < log.length; i++) {
+        const e = log[i];
+        if (!e) continue;
+        if (e.type === 'revealBeat' && beatTickOf[e.index] === -1) beatTickOf[e.index] = tick;
+        if (e.type === 'settled' && settledTick === -1) settledTick = tick;
+        if (e.type === 'phaseChanged' && e.phase === 'complete' && completeTick === -1) completeTick = tick;
+      }
+    }
+    if (completeTick === -1) {
+      throw new Error(`driveFinalRevealAndRecordTiming: did not reach complete within ${String(maxTicks)} ticks`);
+    }
+    return { beatTickOf, settledTick, completeTick };
+  }
+
+  it('a lone advance intent during finalReveal is silently ignored: no beat/settled/complete fires from it alone', () => {
+    const { bus, log } = createRecordingBus();
+    const controller = createGame({ bus, seed: 42, reducedMotion: false });
+    reachFinalReveal(controller);
+
+    const lenBefore = log.length;
+    controller.applyIntent({ type: 'advance' });
+    controller.applyIntent({ type: 'advance' });
+    controller.applyIntent({ type: 'advance' });
+    // A negligible dt: if the advance intents were (incorrectly) still
+    // zeroing/forwarding anything, this would still show up as new events;
+    // if they are correctly ignored, essentially nothing should happen from
+    // 0.0001s of "real" time passing.
+    controller.tick(0.0001);
+
+    expect(controller.getState().phase).toBe('finalReveal'); // never jumped straight to complete
+    const newEvents = log.slice(lenBefore).map((e) => e.type);
+    expect(newEvents).not.toContain('revealBeat');
+    expect(newEvents).not.toContain('settled');
+    expect(newEvents.some((t) => t === 'phaseChanged')).toBe(false);
+  });
+
+  it('spamming advance every tick during finalReveal does not change when reveal beats/settled/complete fire, vs. no mashing at all', () => {
+    const runNoMash = createRecordingBus();
+    const noMashController = createGame({ bus: runNoMash.bus, seed: 42, reducedMotion: false });
+    reachFinalReveal(noMashController);
+    const noMash = driveFinalRevealAndRecordTiming(noMashController, runNoMash.log, REAL_DT, 0);
+
+    const runMash = createRecordingBus();
+    const mashController = createGame({ bus: runMash.bus, seed: 42, reducedMotion: false });
+    reachFinalReveal(mashController);
+    // A child mashing frantically: several `advance` intents queued before
+    // every single tick, for the whole finale.
+    const mash = driveFinalRevealAndRecordTiming(mashController, runMash.log, REAL_DT, 5);
+
+    expect(mash.beatTickOf).toEqual(noMash.beatTickOf);
+    expect(mash.settledTick).toEqual(noMash.settledTick);
+    expect(mash.completeTick).toEqual(noMash.completeTick);
+
+    // Sanity: the reveal genuinely takes real, scheduled time (this isn't a
+    // vacuously-true comparison of two instant completions) — every beat
+    // fires strictly after the previous one, and completion is well after
+    // the first tick.
+    expect(noMash.beatTickOf[0]).toBeGreaterThan(1);
+    expect(noMash.beatTickOf[1]).toBeGreaterThan(noMash.beatTickOf[0]);
+    expect(noMash.beatTickOf[2]).toBeGreaterThan(noMash.beatTickOf[1]);
+    expect(noMash.beatTickOf[3]).toBeGreaterThan(noMash.beatTickOf[2]);
+    expect(noMash.settledTick).toBeGreaterThan(noMash.beatTickOf[3]);
+    expect(noMash.completeTick).toBeGreaterThan(noMash.settledTick);
+  });
+
+  it('establish/intro/orbit remain mash-advanceable exactly as before (F1 only restricts finalReveal)', () => {
+    const { bus, log } = createRecordingBus();
+    const controller = createGame({ bus, seed: 6, reducedMotion: false });
+
+    // Mashing advance from boot should still fly straight through
+    // establish/intro to 'sand' in a handful of ticks, same as any
+    // pre-existing test in this file relies on.
+    for (let i = 0; i < 10 && controller.getState().legs[0].phase !== 'sand'; i++) {
+      controller.applyIntent({ type: 'advance' });
+      controller.applyIntent({ type: 'advance' });
+      controller.tick(FAST_DT);
+    }
+    expect(controller.getState().legs[0].phase).toBe('sand');
+    expect(log.some((e) => e.type === 'phaseChanged' && e.phase === 'establish')).toBe(true);
+  });
+});
+
+describe('GameController — elapsed accounting (F2: no multi-counting)', () => {
+  it('after N ticks of dt, with heavy same-tick intent traffic during the sand phase, elapsed === N*dt (within float epsilon)', () => {
+    const controller = createGame({ bus: createRecordingBus().bus, seed: 3, reducedMotion: true });
+    runToLegPhase(controller, 'sand', FAST_DT);
+    // Hold the gate open: the sand-phase gate-integration call inside
+    // tick() fires every remaining tick (one of the multi-counting sources
+    // F2 fixes), on top of whatever discrete intents are also queued below.
+    controller.applyIntent({ type: 'gateSet', open: 1 });
+
+    const dt = 0.05;
+    const N = 50;
+    const elapsedAtStart = controller.getState().elapsed;
+    for (let i = 0; i < N; i++) {
+      // A mashing player: several discrete intents queued for the SAME
+      // tick (jackStroke/hammerTap are safe no-ops outside their own
+      // phases — they still exercise contracts/stateMachine.ts's
+      // `withElapsed` on every call, which is exactly the multi-counting
+      // path under test).
+      controller.applyIntent({ type: 'jackStroke' });
+      controller.applyIntent({ type: 'hammerTap' });
+      controller.applyIntent({ type: 'jackStroke' });
+      controller.tick(dt);
+    }
+
+    expect(controller.getState().elapsed).toBeCloseTo(elapsedAtStart + N * dt, 9);
+  });
+
+  it('elapsed advances by exactly dt per tick() even while spamming advance during finalReveal (F1+F2 combined)', () => {
+    const controller = createGame({ bus: createRecordingBus().bus, seed: 4, reducedMotion: true });
+    for (const _leg of LEGS) completeActiveLeg(controller, FAST_DT);
+    expect(controller.getState().phase).toBe('finalReveal');
+
+    const dt = REAL_DT;
+    const N = 30;
+    const elapsedAtStart = controller.getState().elapsed;
+    for (let i = 0; i < N; i++) {
+      controller.applyIntent({ type: 'advance' });
+      controller.applyIntent({ type: 'advance' });
+      controller.applyIntent({ type: 'advance' });
+      controller.tick(dt);
+    }
+
+    expect(controller.getState().elapsed).toBeCloseTo(elapsedAtStart + N * dt, 9);
+  });
+
+  it('a replay mid-tick resets the elapsed baseline: elapsed after that tick is exactly dt, not dt + whatever had accumulated before', () => {
+    const controller = createGame({ bus: createRecordingBus().bus, seed: 5, reducedMotion: true });
+    runToLegPhase(controller, 'sand', FAST_DT);
+    controller.applyIntent({ type: 'gateSet', open: 1 });
+    for (let i = 0; i < 20; i++) controller.tick(FAST_DT);
+    expect(controller.getState().elapsed).toBeGreaterThan(0);
+
+    const dt = 0.1;
+    controller.replay();
+    controller.tick(dt);
+
+    expect(controller.getState().phase).toBe('establish');
+    expect(controller.getState().elapsed).toBeCloseTo(dt, 9);
   });
 });

@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { LEG_ORDER, type LegId, type GameState } from '../contracts/types';
 import type { QualityState } from '../contracts/quality';
+import { legScenario } from '../contracts/rng';
 import type { HeroMaterials } from '../render/materials';
 import type { LiveSignals } from '../render/liveSignals';
 import { GIRDER_RING_Y, GROUND_Y, LEG_LATTICE_LEVELS, legBaseXZ } from './layout';
@@ -35,10 +36,22 @@ function seededRng(seed: number): () => number {
   };
 }
 
-function workerPlacements(): WorkerPlacement[] {
-  const rng = seededRng(0x7042);
+/**
+ * Per-leg worker placements. F8 (review round 1): each leg's RNG sub-stream
+ * is now seeded from the run's `seed` AND `legScenario(seed, leg).propVariant`
+ * (contracts/rng.ts) — not a single shared, hardcoded constant — so worker
+ * positions/poses actually vary per run and per leg's variant, instead of
+ * every leg/seed showing the identical placements (the original bug: the
+ * hardcoded `0x7042` seed fed one shared RNG stream that never referenced
+ * `seed` or `propVariant` at all). Pure function of `(seed, leg's variant)`,
+ * so replaying the same seed reproduces byte-identical placements — see
+ * tests/unit/scene-prop-variety.test.ts.
+ */
+export function workerPlacements(seed: number): WorkerPlacement[] {
   const placements: WorkerPlacement[] = [];
   for (const leg of LEG_ORDER) {
+    const variant = legScenario(seed, leg).propVariant;
+    const rng = seededRng(((seed >>> 0) ^ Math.imul(leg + 1, 0x1000193) ^ Math.imul(variant + 1, 0x2545f491)) >>> 0);
     const base = legBaseXZ(leg);
     for (let i = 0; i < 2; i++) {
       const angle = rng() * Math.PI * 2;
@@ -52,6 +65,11 @@ function workerPlacements(): WorkerPlacement[] {
     }
   }
   return placements;
+}
+
+/** Per-leg scaffold pole-ring starting-angle offsets, one per `propVariant` step (F8) — see `scaffoldMath.ts#allScaffoldSegments`. */
+function scaffoldAngleOffsets(seed: number): readonly [number, number, number, number] {
+  return LEG_ORDER.map((leg) => (legScenario(seed, leg).propVariant * Math.PI) / 6) as [number, number, number, number];
 }
 
 export interface SceneHandles {
@@ -71,8 +89,17 @@ export interface SceneHandles {
   approxDrawCalls: number;
 }
 
-/** Builds the entire scene graph. `quality` controls sand grain instance budget at build time (see visual/sand/sandVisual.ts) — a full rebuild (dispose + buildScene again) is expected on a quality-tier downgrade or WebGL context restore. */
-export function buildScene(materials: HeroMaterials, quality: QualityState): SceneHandles {
+/**
+ * Builds the entire scene graph. `quality` controls sand grain instance
+ * budget at build time (see visual/sand/sandVisual.ts) — a full rebuild
+ * (dispose + buildScene again) is expected on a quality-tier downgrade or
+ * WebGL context restore. `seed` (F8, review round 1) drives per-leg prop
+ * variety (scaffold arrangement, worker placement) via
+ * `contracts/rng.ts`'s `legScenario(seed, leg).propVariant` — defaults to 0
+ * so every pre-existing call site that doesn't care about variety (this
+ * file's own budget tests) keeps building the same scene as before.
+ */
+export function buildScene(materials: HeroMaterials, quality: QualityState, seed = 0): SceneHandles {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xbcd9e8, 60, 210);
 
@@ -113,10 +140,10 @@ export function buildScene(materials: HeroMaterials, quality: QualityState): Sce
     sandVisuals[leg] = sandVisual;
   }
 
-  const scaffold = buildScaffold(materials.wood, scaffoldHeight(GIRDER_RING_Y));
+  const scaffold = buildScaffold(materials.wood, scaffoldHeight(GIRDER_RING_Y), scaffoldAngleOffsets(seed));
   scene.add(scaffold);
 
-  const workers = buildWorkerInstances(materials.worker, workerPlacements());
+  const workers = buildWorkerInstances(materials.worker, workerPlacements(seed));
   scene.add(workers);
 
   const dustPuff = buildDustPuff(0xcbb98c);

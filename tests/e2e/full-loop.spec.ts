@@ -6,7 +6,7 @@ import {
   getState,
   renderSync,
   renderSyncUntilSettled,
-  skipUntil,
+  fastForwardUntil,
   advanceToSand,
   depleteSand,
   pumpToSnap,
@@ -186,13 +186,20 @@ test.describe.serial(`full loop (seed=${String(SEED)})`, () => {
     // Let the reveal-beat chain run at the *real* rate (never skipped) so
     // every `revealBeat` actually fires in order — this is the "四方向の金属
     // 音が一つへ収束" beat, the moment that most benefits from not being
-    // fast-forwarded past. src/game/constants.ts: 4×600ms beats + 400ms +
-    // 1200ms holds ≈ 3.6s worst-case (reducedMotion off) ≈ 216 real frames;
-    // batch through it via the fast (game-logic-only) path and confirm we
-    // land past `finalReveal` without needing to skip anything.
-    const complete = await skipUntil(page, (s: GameState) => s.phase === 'complete', {
-      maxSkips: 10,
-      label: 'finalReveal beats -> complete',
+    // fast-forwarded past. F1 (review round 1) made this NOT skippable via
+    // `drive.advance()` on purpose — PRODUCT_SPEC's biggest reward, now
+    // protected from a mashing child's rapid taps at the game-logic level
+    // (src/game/controller.ts) — so this no longer uses `skipUntil`
+    // (repeated `drive.advance()`, which used to shortcut straight through
+    // the chain); `fastForwardUntil` bulk-ticks real logical time instead,
+    // exactly the mechanism a mash-proof finale requires. src/game/constants.ts:
+    // 4×600ms beats + 400ms + 1200ms holds ≈ 3.6s worst-case (reducedMotion
+    // off) ≈ 216 real 1/60s ticks; batch through it via the fast
+    // (game-logic-only, `__eiffelFastForward`) path with generous headroom.
+    const complete = await fastForwardUntil(page, (s: GameState) => s.phase === 'complete', {
+      batch: 30,
+      maxFrames: 600,
+      label: 'finalReveal beats -> complete (real logical time, not mash-skipped)',
     });
     expect(complete.phase).toBe('complete');
 

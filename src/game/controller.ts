@@ -53,6 +53,21 @@
  *    This is also why boot never gets an internal timer: leaving `boot`
  *    should correspond to a real audio-unlock gesture, not an autonomous
  *    clock, so it only ever advances via an explicit `advance` intent.
+ *
+ *    EXCEPTION — `finalReveal` is never mash-skippable (review round 1,
+ *    F1). PRODUCT_SPEC names the four-beat reveal chain (revealBeat×4 →
+ *    settle → pullback) the single biggest reward in the whole game ("四本
+ *    目完成が最大の報酬"); the "tap = advance sooner" shortcut above exists
+ *    for *waiting* cinematics (establish hold, leg intro, orbit) a child
+ *    may want to hurry past, not for the payoff itself. So while
+ *    `state.phase === 'finalReveal'`, a queued `advance` intent is dropped
+ *    silently — never punished, never forwarded to `transition()` (which
+ *    would otherwise jump straight to `complete` per stateMachine.ts's
+ *    finalReveal branch), and the in-flight `pending` timer (if any) is
+ *    left counting down untouched. Every beat/settle/pullback still fires,
+ *    always at its scheduled logical time, driven only by `tick(dt)` — see
+ *    tests/unit/game-controller.test.ts's "finalReveal is not
+ *    mash-skippable" suite.
  */
 
 import type { EventBus, GameEvent } from '../contracts/events';
@@ -356,10 +371,40 @@ export function createGameController(options: GameControllerOptions): GameContro
     tick(dt: number): void {
       if (state.paused) return;
 
+      // F2 (review round 1): `elapsed` bookkeeping. contracts/stateMachine.ts's
+      // `transition()` adds `dt` to `elapsed` on EVERY `{kind:'intent', ...}`
+      // action with dt>0 (its `withElapsed` helper — frozen, cannot change),
+      // not only on a `{kind:'tick', dt}` action. This controller calls
+      // `transition()` once per queued intent, once more for the sand-gate
+      // integration below, AND once for the trailing tick action, so passing
+      // the same real `dt` to all of them would multi-count elapsed up to
+      // (queued.length + 2)x real time in a single `tick(dt)` call — worst
+      // during the sand phase, where a mashing/heavy-intent-traffic frame
+      // could have several queued intents plus the gate call. `gateSet` is
+      // the one intent that legitimately needs the real `dt` passed through
+      // (legModel.sandStep integrates physics by it), so we cannot just zero
+      // it there — instead we snapshot `elapsed` here and force it back to
+      // exactly `elapsedBaseline + dt` at the very end of this function,
+      // regardless of how many intermediate `transition()` calls happened or
+      // what dt each one saw. `replay` resets `elapsed` to 0 mid-tick (via a
+      // fresh `createGameState`), so the baseline is re-snapshotted right
+      // after it fires too, keeping "exactly dt of logical time passes per
+      // real tick(dt) call" true across a same-tick replay as well.
+      let elapsedBaseline = state.elapsed;
+
       const queued = intentQueue.splice(0, intentQueue.length);
       for (const intent of queued) {
         if (intent.type === 'replay') {
           handleReplay();
+          elapsedBaseline = state.elapsed;
+          continue;
+        }
+        if (intent.type === 'advance' && state.phase === 'finalReveal') {
+          // finalReveal's reveal-beat/settle/pullback chain is the game's
+          // biggest reward and deliberately NOT mash-skippable (module doc
+          // §3 EXCEPTION, review round 1 F1) — silently dropped, never
+          // punished, never forwarded to transition() or used to zero the
+          // pending timer below.
           continue;
         }
         if (intent.type === 'advance' && pending) {
@@ -385,6 +430,15 @@ export function createGameController(options: GameControllerOptions): GameContro
       }
 
       state = transition(state, { kind: 'tick', dt });
+
+      // See this function's opening comment (F2): correct the net figure so
+      // exactly `dt` of logical time has passed since `elapsedBaseline`,
+      // undoing whatever multiple of `dt` the intent-processing calls above
+      // actually accumulated into `state.elapsed` via stateMachine.ts's
+      // `withElapsed`.
+      if (dt > 0) {
+        state = { ...state, elapsed: elapsedBaseline + dt };
+      }
     },
 
     applyIntent(intent: Intent): void {

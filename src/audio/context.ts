@@ -18,6 +18,8 @@ export interface MinimalAudioContext {
   createBufferSource(): AudioBufferSourceNode;
   createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBuffer;
   createWaveShaper(): WaveShaperNode;
+  /** F7 (review round 1): the gentle master limiter — see masterBus.ts. */
+  createDynamicsCompressor(): DynamicsCompressorNode;
   resume(): Promise<void>;
   suspend(): Promise<void>;
   close(): Promise<void>;

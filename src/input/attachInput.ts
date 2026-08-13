@@ -36,7 +36,7 @@ import {
   projectAlongAxis,
   withinGrabRadius,
 } from './geometry';
-import type { AttachInputOptions, InputHandle, IntentSink } from './types';
+import type { AttachInputOptions, EventTargetLike, InputHandle, IntentSink } from './types';
 
 type Axis = HandleInfo['axis'];
 
@@ -115,6 +115,34 @@ function closestActiveHandle(handles: HandleRegistry, x: number, y: number): Han
   return closest;
 }
 
+/**
+ * F5 (review round 1) palm-rejection tuning. A resting palm landing a
+ * fraction of a second before (or after) the real fingertip touch is a
+ * known failure mode of "first pointerdown wins": these thresholds decide
+ * when a *second* pointerdown looks enough like "the real touch, palm
+ * arrived first" to justify transferring the gesture slot, without ever
+ * weakening ordinary first-wins single-finger/multi-touch-safety behavior
+ * (see the module doc comment's "one gesture at a time" rule — this is a
+ * narrow, additive exception to it, not a replacement).
+ */
+const PALM_TRANSFER_WINDOW_MS = 150;
+/** How far (CSS px) the first (already-claimed) pointer may have moved since its own down and still be considered "a resting palm, not an intentional drag". */
+const PALM_STATIONARY_TOLERANCE = 6;
+/** `PointerEvent.width`/`height` (CSS px) above which a contact reads as a palm rather than a fingertip. Real fingertips are typically ~8-12px; a resting palm is much larger. Pointer types that never report width/height (most mice, some touch stacks) simply never qualify — see `isLargeContact`. */
+const PALM_CONTACT_SIZE = 30;
+
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+/** True only when `PointerEvent.width`/`height` are both present AND at least one exceeds the palm-contact threshold — absent fields (common: mouse, and some touch backends) never qualify, so environments/tests that don't set them see no behavior change at all. */
+function isLargeContact(pe: PointerEvent): boolean {
+  const w = pe.width;
+  const h = pe.height;
+  if (typeof w !== 'number' || typeof h !== 'number') return false;
+  return w > PALM_CONTACT_SIZE || h > PALM_CONTACT_SIZE;
+}
+
 function gestureKindForHandle(id: HandleId): ActiveGesture['kind'] | undefined {
   switch (id) {
     case 'sandGate':
@@ -140,8 +168,20 @@ function gestureKindForHandle(id: HandleId): ActiveGesture['kind'] | undefined {
  */
 export function attachInput(options: AttachInputOptions): InputHandle {
   const { root, handles, sink, getState } = options;
+  const viewport: EventTargetLike | undefined =
+    options.viewport ?? (typeof window !== 'undefined' ? window : undefined);
 
   let gesture: ActiveGesture | null = null;
+  /** F5: metadata about whoever currently holds `gesture`'s pointer slot, tracked alongside it purely to judge a later second pointerdown's palm-transfer eligibility — see `shouldTransferToNewPointer`. */
+  let firstMeta: {
+    pointerId: number;
+    downTimeMs: number;
+    downX: number;
+    downY: number;
+    lastX: number;
+    lastY: number;
+    large: boolean;
+  } | null = null;
 
   const gateCoalescer = createFrameCoalescer((open) => {
     sink.applyIntent({ type: 'gateSet', open });
@@ -192,10 +232,70 @@ export function attachInput(options: AttachInputOptions): InputHandle {
     }
   }
 
+  /**
+   * F5: whether an incoming pointerdown on a NEW pointer, while `gesture`
+   * already holds the slot for `firstMeta.pointerId`, looks like "a resting
+   * palm claimed the slot first, and this is the real touch arriving
+   * shortly after" — see the constants' own doc comment for the individual
+   * thresholds. ALL of these must hold, so any environment/test that never
+   * reports `width`/`height` (the overwhelming majority — see
+   * `isLargeContact`) never transfers, leaving ordinary first-wins
+   * multi-touch-safety behavior completely unchanged.
+   *
+   * Deliberately does NOT gate on `PointerEvent.isPrimary`: per the Pointer
+   * Events spec, `isPrimary` reflects touch ORDER (whichever pointer of a
+   * type became active first stays primary while others of that type are
+   * still down), not confidence-of-intent — in the exact palm-then-finger
+   * scenario this exists to fix, the palm touched down FIRST and so is the
+   * one left `isPrimary:true`, while the real finger arriving moments later
+   * is `isPrimary:false`. Requiring the incoming pointer to be primary
+   * would make this transfer path dead code in precisely the case it is
+   * meant to handle, so "prefer isPrimary touches" is honored at the
+   * policy level instead — the untouched default (this function returning
+   * `false`) already always prefers whichever pointer is currently primary
+   * (first-wins), and this is the one narrow, evidence-gated exception.
+   */
+  function shouldTransferToNewPointer(pe: PointerEvent): boolean {
+    if (!firstMeta || pe.pointerId === firstMeta.pointerId) return false;
+    if (now() - firstMeta.downTimeMs > PALM_TRANSFER_WINDOW_MS) return false;
+    if (distance(firstMeta.lastX, firstMeta.lastY, firstMeta.downX, firstMeta.downY) > PALM_STATIONARY_TOLERANCE) {
+      return false;
+    }
+    return firstMeta.large;
+  }
+
+  /** Ends whatever gesture is currently active exactly like `pointercancel` (never-punish release semantics — module doc). Shared by pointercancel/pointerleave, the F4 viewport-change handler, and the F5 palm-transfer path. */
+  function endGestureCleanly(pointerIdToRelease: number): void {
+    if (!gesture) return;
+    if (gesture.kind === 'sandGate') {
+      gateCoalescer.flushNow();
+      sink.applyIntent({ type: 'gateSet', open: 0 });
+    } else if (gesture.kind === 'wedge') {
+      wedgeCoalescer.flushNow();
+      sink.applyIntent({ type: 'wedgeRelease' });
+    }
+    releaseCapture(pointerIdToRelease);
+    gesture = null;
+    firstMeta = null;
+  }
+
   function onPointerDown(ev: Event): void {
-    if (gesture !== null) return; // one pointer at a time — first wins (multi-touch safety)
     const pe = ev as PointerEvent;
-    if (getState?.()?.paused) return;
+
+    if (gesture !== null) {
+      // Normally a second touch while one gesture is active is ignored
+      // entirely (multi-touch safety) — F5's narrow exception: a resting
+      // palm claiming the slot first, with the real fingertip landing
+      // shortly after, transfers the slot to the new pointer instead.
+      // Never transfers while paused either — same "no new grabs" rule as
+      // the first-ever claim below.
+      const heldByPointerId = gesture.pointerId;
+      if (getState?.()?.paused) return;
+      if (!shouldTransferToNewPointer(pe)) return;
+      endGestureCleanly(heldByPointerId);
+    } else if (getState?.()?.paused) {
+      return;
+    }
 
     const x = pe.clientX;
     const y = pe.clientY;
@@ -203,6 +303,16 @@ export function attachInput(options: AttachInputOptions): InputHandle {
 
     if (typeof pe.preventDefault === 'function') pe.preventDefault();
     tryCapture(pe.pointerId);
+
+    firstMeta = {
+      pointerId: pe.pointerId,
+      downTimeMs: now(),
+      downX: x,
+      downY: y,
+      lastX: x,
+      lastY: y,
+      large: isLargeContact(pe),
+    };
 
     if (!handle) {
       gesture = { kind: 'anywhereTap', pointerId: pe.pointerId, startX: x, startY: y };
@@ -218,6 +328,11 @@ export function attachInput(options: AttachInputOptions): InputHandle {
 
     const x = pe.clientX;
     const y = pe.clientY;
+
+    if (firstMeta?.pointerId === pe.pointerId) {
+      firstMeta.lastX = x;
+      firstMeta.lastY = y;
+    }
 
     switch (gesture.kind) {
       case 'sandGate': {
@@ -294,6 +409,7 @@ export function attachInput(options: AttachInputOptions): InputHandle {
 
     releaseCapture(pe.pointerId);
     gesture = null;
+    firstMeta = null;
   }
 
   /** pointercancel/pointerleave: clean release, never fires a gesture's *completion* — see module doc. */
@@ -301,18 +417,23 @@ export function attachInput(options: AttachInputOptions): InputHandle {
     if (!gesture) return;
     const pe = ev as PointerEvent;
     if (pe.pointerId !== gesture.pointerId) return;
-    const g = gesture;
+    endGestureCleanly(pe.pointerId);
+  }
 
-    if (g.kind === 'sandGate') {
-      gateCoalescer.flushNow();
-      sink.applyIntent({ type: 'gateSet', open: 0 });
-    } else if (g.kind === 'wedge') {
-      wedgeCoalescer.flushNow();
-      sink.applyIntent({ type: 'wedgeRelease' });
-    }
-
-    releaseCapture(pe.pointerId);
-    gesture = null;
+  /**
+   * F4: window resize/orientationchange mid-gesture — a handle's on-screen
+   * position (contracts/handles.ts's `HandleInfo`) is about to move out
+   * from under wherever the gesture's baseline/start coordinates were
+   * captured, so a subsequent `pointermove` would read as a spurious jump
+   * (a rotation can slam `gateOpen` to 0/1 or the wedge to a random
+   * progress in one frame). No pointerId to check here — a viewport change
+   * ends whatever gesture is active, unconditionally, exactly like
+   * `pointercancel`: never punished, gate eases back to released, wedge
+   * releases.
+   */
+  function onViewportChange(): void {
+    if (!gesture) return;
+    endGestureCleanly(gesture.pointerId);
   }
 
   const bound: [string, (ev: Event) => void][] = [
@@ -324,12 +445,24 @@ export function attachInput(options: AttachInputOptions): InputHandle {
   ];
   for (const [type, fn] of bound) root.addEventListener(type, fn);
 
+  const viewportBound: [string, (ev: Event) => void][] = [
+    ['resize', onViewportChange],
+    ['orientationchange', onViewportChange],
+  ];
+  if (viewport) {
+    for (const [type, fn] of viewportBound) viewport.addEventListener(type, fn);
+  }
+
   return {
     dispose(): void {
       for (const [type, fn] of bound) root.removeEventListener(type, fn);
+      if (viewport) {
+        for (const [type, fn] of viewportBound) viewport.removeEventListener(type, fn);
+      }
       gateCoalescer.cancel();
       wedgeCoalescer.cancel();
       gesture = null;
+      firstMeta = null;
     },
   };
 }

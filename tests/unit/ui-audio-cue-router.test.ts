@@ -97,17 +97,31 @@ describe('routeEvent (pure event -> audio cue routing)', () => {
 
   it('camera/UI-only events with no audio consequence route to null', () => {
     const noAudioEvents: GameEvent[] = [
-      { type: 'phaseChanged', phase: 'establish' },
+      { type: 'phaseChanged', phase: 'leg' },
+      { type: 'phaseChanged', phase: 'finalReveal' },
+      { type: 'phaseChanged', phase: 'complete' },
+      { type: 'phaseChanged', phase: 'boot' },
       { type: 'legPhaseChanged', leg: 0, legPhase: 'sand' },
       { type: 'magnifierShown', leg: 0, shown: true },
       { type: 'legLocked', leg: 0 },
       { type: 'allLegsLocked' },
-      { type: 'replayRequested' },
       { type: 'cameraCue', cue: { kind: 'establish' } },
     ];
     for (const e of noAudioEvents) {
       expect(routeEvent(e)).toBeNull();
     }
+  });
+
+  // F3 (review round 1): a sand loop / near-target resonance swell left
+  // running by the run a replay just reset must not keep sounding forever —
+  // see this module's own doc comment on the 'replayRequested'/'phaseChanged'
+  // cases for the full rationale.
+  it('replayRequested -> stopAllContinuous, so any leftover sand loop/resonance swell gets silenced on replay', () => {
+    expect(routeEvent({ type: 'replayRequested' })).toEqual({ kind: 'stopAllContinuous' });
+  });
+
+  it('phaseChanged to establish -> stopAllContinuous (belt-and-braces net alongside replayRequested)', () => {
+    expect(routeEvent({ type: 'phaseChanged', phase: 'establish' })).toEqual({ kind: 'stopAllContinuous' });
   });
 
   it('is pure: identical input always yields a deep-equal (freshly-allocated) output', () => {

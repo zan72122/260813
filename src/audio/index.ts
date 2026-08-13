@@ -31,7 +31,20 @@
  * Pause/resume: this module listens for the shared `pauseChanged` event on
  * the bus AND the page's own `visibilitychange` (tab hidden / app
  * backgrounded) to suspend audibility — the integrator does not need to
- * call anything extra for either case.
+ * call anything extra for either case. On `visibilitychange` to hidden
+ * this also fully `ctx.suspend()`s the underlying AudioContext (after the
+ * mute ramp finishes) and stops the ambient bed's background scheduling —
+ * not just muting the gain — so a backgrounded tab doesn't keep the audio
+ * thread (and its `setTimeout`-scheduled ambient clangs) running for
+ * nothing; both resume automatically on return to visibility, with an
+ * automatic fallback to the next real `pointerdown` if the browser refuses
+ * a gesture-less `resume()` (iOS Safari).
+ *
+ * Replay: this module also listens for `replayRequested` (and, as a second
+ * safety net, `phaseChanged` to `establish`) to stop any continuous voice
+ * (a leg's sand loop, a leg's near-target resonance swell) left running
+ * from the run that was just reset — the integrator does not need to call
+ * anything extra for this either.
  */
 export type { AudioEngineHandle as AudioHandle, AudioEngineOptions as CreateAudioOptions } from './engine';
 export { createAudioEngine as createAudio } from './engine';

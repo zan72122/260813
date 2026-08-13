@@ -56,10 +56,20 @@ interface FakePointerEvent {
   clientX: number;
   clientY: number;
   preventDefault(): void;
+  /** Optional; unused by attachInput.ts's palm-rejection logic (see its `shouldTransferToNewPointer` doc comment for why isPrimary is deliberately not part of that decision) — kept here only so F5 tests below can shape realistic pointer-order scenarios. */
+  isPrimary?: boolean;
+  /** Optional pointer contact size (CSS px) — omitted by every pre-existing test, exactly like most real pointer types (see attachInput.ts's `isLargeContact`). Only the F5 palm-rejection tests below set these. */
+  width?: number;
+  height?: number;
 }
 
-function makeEvent(pointerId: number, x: number, y: number): FakePointerEvent {
-  return { pointerId, clientX: x, clientY: y, preventDefault: () => undefined };
+function makeEvent(
+  pointerId: number,
+  x: number,
+  y: number,
+  overrides: Partial<Pick<FakePointerEvent, 'isPrimary' | 'width' | 'height'>> = {},
+): FakePointerEvent {
+  return { pointerId, clientX: x, clientY: y, preventDefault: () => undefined, ...overrides };
 }
 
 function recordingSink(): { sink: IntentSink; log: Intent[] } {
@@ -483,5 +493,160 @@ describe('attachInput — dispose', () => {
     target.dispatch('pointerdown', makeEvent(1, 100, 100));
     target.dispatch('pointerup', makeEvent(1, 100, 100));
     expect(log).toHaveLength(0);
+  });
+
+});
+
+describe('attachInput — F4: window resize/orientationchange mid-gesture', () => {
+  it('a resize mid-drag on the sand gate ends the gesture exactly like pointercancel (gateSet(0), never punished)', () => {
+    const target = new FakeTarget();
+    const viewport = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'sandGate', x: 50, y: 50, axis: 'vertical', range: 200 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink, viewport });
+
+    target.dispatch('pointerdown', makeEvent(1, 50, 50));
+    target.dispatch('pointermove', makeEvent(1, 50, 150)); // dy=100 -> open=0.5
+    viewport.dispatch('resize', makeEvent(1, 0, 0));
+
+    const gateSets = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets.at(-1)?.open).toBe(0);
+
+    // The gesture slot is free again — a fresh grab immediately works, so
+    // the player is never left stuck after a rotation.
+    target.dispatch('pointerdown', makeEvent(1, 50, 50));
+    target.dispatch('pointermove', makeEvent(1, 50, 100));
+    const gateSets2 = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets2.at(-1)?.open).toBeGreaterThan(0);
+  });
+
+  it('an orientationchange mid-drag on the wedge releases it (wedgeRelease), never leaving it stuck mid-progress', () => {
+    const target = new FakeTarget();
+    const viewport = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'wedge', x: 0, y: 0, axis: 'vertical', range: 100 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink, viewport });
+
+    target.dispatch('pointerdown', makeEvent(1, 0, 0));
+    target.dispatch('pointermove', makeEvent(1, 0, 60));
+    viewport.dispatch('orientationchange', makeEvent(1, 0, 0));
+
+    expect(log.at(-1)).toEqual({ type: 'wedgeRelease' });
+  });
+
+  it('a resize with no active gesture is a harmless no-op', () => {
+    const target = new FakeTarget();
+    const viewport = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink, viewport });
+
+    viewport.dispatch('resize', makeEvent(1, 0, 0));
+    expect(log).toHaveLength(0);
+  });
+
+  it('a resize mid-tap (hammer) fires no completion, matching pointercancel behavior for taps', () => {
+    const target = new FakeTarget();
+    const viewport = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'hammer', x: 100, y: 100, radius: 48 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink, viewport });
+
+    target.dispatch('pointerdown', makeEvent(1, 100, 100));
+    viewport.dispatch('resize', makeEvent(1, 0, 0));
+    target.dispatch('pointerup', makeEvent(1, 100, 100)); // stale pointerId, gesture already cleared -> no-op
+
+    expect(log).toHaveLength(0);
+  });
+});
+
+describe('attachInput — F5: palm rejection (second-pointer transfer)', () => {
+  function palmDown(pointerId: number, x: number, y: number): FakePointerEvent {
+    // Large contact (>30px) reads as a resting palm.
+    return makeEvent(pointerId, x, y, { width: 45, height: 45 });
+  }
+
+  it('a quick second pointerdown transfers the gesture away from a large, stationary first contact', () => {
+    const target = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'sandGate', x: 50, y: 50, axis: 'vertical', range: 200 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink });
+
+    // Pointer 1: a resting palm — large contact, lands first, never moves.
+    target.dispatch('pointerdown', palmDown(1, 50, 50));
+    // Pointer 2: the real fingertip, arriving moments later.
+    target.dispatch('pointerdown', makeEvent(2, 50, 50));
+
+    // The old gesture (pointer 1) was released cleanly first.
+    const gateSets = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets.at(-1)?.open).toBe(0);
+
+    // Pointer 2 now owns the slot — its moves drive the gate.
+    target.dispatch('pointermove', makeEvent(2, 50, 150)); // dy=100 -> open=0.5
+    const gateSets2 = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets2.at(-1)?.open).toBeCloseTo(0.5, 5);
+
+    // Pointer 1's stale events (already released) have no further effect.
+    target.dispatch('pointermove', makeEvent(1, 50, 190));
+    const gateSets3 = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets3.at(-1)?.open).toBeCloseTo(0.5, 5);
+  });
+
+  it('does NOT transfer when the first contact never reports a large width/height (ordinary finger, or any environment that omits it) — exact pre-existing multi-touch-safety behavior', () => {
+    const target = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'sandGate', x: 50, y: 50, axis: 'vertical', range: 200 }));
+    handles.set(handle({ id: 'hammer', x: 400, y: 400, radius: 48 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink });
+
+    target.dispatch('pointerdown', makeEvent(1, 50, 50)); // no width/height -> never reads as a palm
+    target.dispatch('pointerdown', makeEvent(2, 400, 400, { isPrimary: true }));
+    target.dispatch('pointerup', makeEvent(2, 400, 400, { isPrimary: true }));
+
+    expect(log.filter((i) => i.type === 'hammerTap')).toHaveLength(0); // second pointer ignored, as before
+
+    target.dispatch('pointermove', makeEvent(1, 50, 150));
+    const gateSets = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets.at(-1)?.open).toBeCloseTo(0.5, 5); // pointer 1 still owns the gesture
+  });
+
+  it('does NOT transfer once the large first contact has already moved past the stationary tolerance (a real drag, not a resting palm)', () => {
+    const target = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'sandGate', x: 50, y: 50, axis: 'vertical', range: 200 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink });
+
+    target.dispatch('pointerdown', palmDown(1, 50, 50));
+    target.dispatch('pointermove', makeEvent(1, 50, 80)); // moved 30px — well past the few-px stationary tolerance
+    target.dispatch('pointerdown', makeEvent(2, 50, 50, { isPrimary: true }));
+
+    // Still pointer 1's gesture — no release-to-0 was ever emitted for a transfer.
+    target.dispatch('pointermove', makeEvent(1, 50, 100));
+    const gateSets = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets.every((g) => g.open > 0)).toBe(true);
+  });
+
+  it('transfers even when the second pointer is isPrimary:false — a real touchscreen assigns isPrimary by arrival ORDER, so in the palm-first scenario this exists to fix, the palm (first) is the one left isPrimary:true and the real finger (second) is isPrimary:false; gating on isPrimary would make the whole feature dead code in exactly that case', () => {
+    const target = new FakeTarget();
+    const handles = new DefaultHandleRegistry();
+    handles.set(handle({ id: 'sandGate', x: 50, y: 50, axis: 'vertical', range: 200 }));
+    const { sink, log } = recordingSink();
+    attachInput({ root: target, handles, sink });
+
+    target.dispatch('pointerdown', palmDown(1, 50, 50)); // the palm: large, stationary, arrived first -> isPrimary:true in a real browser
+    target.dispatch('pointerdown', makeEvent(2, 50, 50, { isPrimary: false })); // the real finger: arrived second -> isPrimary:false
+
+    const gateSets = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets.at(-1)?.open).toBe(0); // pointer 1 (palm) was released cleanly
+
+    target.dispatch('pointermove', makeEvent(2, 50, 150)); // dy=100 -> open=0.5, driven by pointer 2 now
+    const gateSets2 = log.filter((i): i is Extract<Intent, { type: 'gateSet' }> => i.type === 'gateSet');
+    expect(gateSets2.at(-1)?.open).toBeCloseTo(0.5, 5);
   });
 });

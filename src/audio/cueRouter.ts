@@ -25,7 +25,8 @@ export type CueKind =
   | 'mute'
   | 'unmute'
   | 'suspendAmbient'
-  | 'resumeAmbient';
+  | 'resumeAmbient'
+  | 'stopAllContinuous';
 
 export interface CueDescriptor {
   kind: CueKind;
@@ -92,13 +93,28 @@ export function routeEvent(event: GameEvent): CueDescriptor | null {
     case 'pauseChanged':
       return { kind: event.paused ? 'suspendAmbient' : 'resumeAmbient' };
 
-    // No direct audio consequence — camera/phase/UI bookkeeping only.
+    // F3 (review round 1): a replay must silence any continuous voice left
+    // running from the run it just reset (a leg's sand loop, a leg's
+    // near-target resonance swell) — otherwise a replay mid-sand-phase (or
+    // mid-alignment) leaves that loop audibly playing forever, decoupled
+    // from any GameState it can still be attributed to. `replayRequested`
+    // is the direct signal; `phaseChanged` to `establish` is the
+    // belt-and-braces net for the one other way a run can land back at a
+    // fresh `establish` (nothing else does today, but this is cheap
+    // insurance against a future path doing so without going through
+    // `replayRequested`). Every other `phaseChanged` value has no direct
+    // audio consequence of its own, same as before.
+    case 'replayRequested':
+      return { kind: 'stopAllContinuous' };
+
     case 'phaseChanged':
+      return event.phase === 'establish' ? { kind: 'stopAllContinuous' } : null;
+
+    // No direct audio consequence — camera/phase/UI bookkeeping only.
     case 'legPhaseChanged':
     case 'magnifierShown':
     case 'legLocked':
     case 'allLegsLocked':
-    case 'replayRequested':
     case 'cameraCue':
       return null;
   }

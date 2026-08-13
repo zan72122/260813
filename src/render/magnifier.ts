@@ -50,11 +50,48 @@ export const MAGNIFIER_RT_SIZE = 512;
 /** Lens radius, CSS px. */
 export const MAGNIFIER_LENS_RADIUS = 92;
 
-/** Screen margin from the top-right corner, CSS px. */
+/** Screen margin from the anchor corner, CSS px. */
 export const MAGNIFIER_MARGIN = 28;
 
 /** Fade half-life (s) for smooth show/hide. */
 const FADE_HALF_LIFE_S = 0.12;
+
+/**
+ * F9 (review round 1): pure anchor-position math (CSS top-left-origin px)
+ * for the magnifier lens/ring center, split out from `resize()` so it is
+ * unit-testable without constructing any Three.js/WebGL/Canvas machinery —
+ * `MagnifierImpl`'s constructor needs `document` (for its procedural brass
+ * texture, `materials/textures.ts#createBrassRingFrameTexture`), which is
+ * unavailable under this repo's frozen `environment:'node'` vitest config
+ * (see tests/unit/render-magnifier-anchor.test.ts and
+ * tests/unit/game-input.test.ts's own doc comment on the same constraint).
+ *
+ * R1 root cause (fixed here): the lens was anchored top-right — the exact
+ * same corner `src/ui/hud.ts`'s sound toggle occupies
+ * (`.eiffel-corner-tr`, src/styles/base.css) — so the brass ring sat
+ * directly on top of it in every viewport (see the pre-fix
+ * artifacts/qa/*\/magnifier.png captures). Anchoring bottom-right instead
+ * clears every HUD element in all 4 supported viewports without any
+ * per-orientation branching:
+ *   - pause (top-left) / sound (top-right): both pinned to the top row —
+ *     `src/styles/base.css`'s `.eiffel-corner-tl`/`.eiffel-corner-tr`.
+ *   - leg-progress pictograms: bottom-center in portrait, top-center in
+ *     landscape (`src/styles/components.css`'s `.eiffel-leg-progress` +
+ *     its `orientation: landscape` override) — horizontally centered, so
+ *     a bottom-RIGHT anchor never overlaps it in either orientation.
+ * The magnified content itself (the real pin/ring junction) is framed by
+ * the `jackCloseup`/`alignment` camera cues near-center — see
+ * `render/camera/cameraPoses.ts` — so the lens never ends up sitting on
+ * top of the very thing it enlarges either.
+ */
+export function magnifierAnchorCss(viewportWidthCss: number, viewportHeightCss: number): { cx: number; cy: number } {
+  const w = Math.max(1, viewportWidthCss);
+  const h = Math.max(1, viewportHeightCss);
+  return {
+    cx: w - MAGNIFIER_MARGIN - MAGNIFIER_LENS_RADIUS,
+    cy: h - MAGNIFIER_MARGIN - MAGNIFIER_LENS_RADIUS,
+  };
+}
 
 export interface Magnifier {
   /** The loupe's own camera — render/index.ts points the main renderer at this into `renderTarget` each frame it's visible. */
@@ -175,10 +212,10 @@ class MagnifierImpl implements Magnifier {
     this.overlayCamera.bottom = -this.heightCss / 2;
     this.overlayCamera.updateProjectionMatrix();
 
-    // Desired anchor in CSS top-left-origin terms (screen's top-right
-    // corner), converted into the camera's centered Y-up world frame.
-    const cxCss = this.widthCss - MAGNIFIER_MARGIN - MAGNIFIER_LENS_RADIUS;
-    const cyCss = MAGNIFIER_MARGIN + MAGNIFIER_LENS_RADIUS;
+    // Desired anchor in CSS top-left-origin terms (screen's bottom-right
+    // corner — see `magnifierAnchorCss`'s doc comment, F9), converted into
+    // the camera's centered Y-up world frame.
+    const { cx: cxCss, cy: cyCss } = magnifierAnchorCss(this.widthCss, this.heightCss);
     const cx = cxCss - this.widthCss / 2;
     const cy = this.heightCss / 2 - cyCss;
     this.lensMesh.position.set(cx, cy, 0);
