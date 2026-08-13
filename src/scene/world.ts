@@ -5,6 +5,7 @@ import * as THREE from "three";
 import type { FoodKind, Quality, SpotKind, TimeOfDay, Vec3, WorldApi } from "../core/types";
 import { getSpot } from "../game/spots";
 import { createWindSystem, type WindSystem } from "./effects/leaves";
+import { createBackdrop } from "./environment/backdrop";
 import { createBanyan } from "./environment/banyan";
 import { createCart } from "./environment/cart";
 import { disposeObject3D } from "./environment/dispose";
@@ -58,6 +59,9 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
 
   const lighting: LightingRig = createLighting(scene, timeOfDay, quality);
   scene.add(lighting.group);
+
+  const backdrop = createBackdrop();
+  scene.add(backdrop.group);
 
   const terrain = createTerrain();
   scene.add(terrain);
@@ -254,6 +258,7 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
     }
     wind.clear();
     sandPit.disposeGeometries();
+    disposeObject3D(backdrop.group);
     disposeObject3D(terrain);
     disposeObject3D(stoneWall.group);
     disposeObject3D(banyan.group);

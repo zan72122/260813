@@ -1,10 +1,15 @@
-// 砂場: 中央がわずかに盛れる形状。盛り上げ/平らのstate切替APIを用意(morph本体はS3bが仕上げる)。
+// 砂場: 中央がわずかに盛れる形状+丸い木枠の縁で地面と明確に区別。盛り上げ/平らのstate切替APIを用意
+// (morph本体はS3bが仕上げる)。
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSpot } from "../../game/spots";
 import { paintVertexAO, seededRandom, standardMaterial } from "./proc";
 
-const SAND_COLOR = new THREE.Color("#cbb387"); // 湿り砂寄り(掘り返された場所として周囲より濃い)
+// 地面の砂(#e8d5a8)より明るく、粒が細かく見えるよう色ムラを控えめにした専用の砂色。
+const SAND_COLOR = new THREE.Color("#faf0d0");
+const RIM_COLOR = new THREE.Color("#8a6a44");
 const RADIUS = 1.7;
+const RIM_RADIUS = RADIUS + 0.16;
 
 export interface SandPit {
   readonly group: THREE.Group;
@@ -49,23 +54,50 @@ function buildMoundGeometry(rings: number, segments: number, moundHeight: number
   return geo;
 }
 
+// 丸い木枠(短い丸太を弧状に並べてmerge、1 draw call)。砂場の輪郭を地面から明確に切り離す。
+function buildRim(rng: () => number): THREE.Mesh {
+  const logs = 22;
+  const geoms: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < logs; i++) {
+    const theta = (i / logs) * Math.PI * 2;
+    const x = Math.cos(theta) * RIM_RADIUS;
+    const z = Math.sin(theta) * RIM_RADIUS;
+    const len = ((Math.PI * 2) / logs) * RIM_RADIUS * 1.15;
+    const geo = new THREE.CylinderGeometry(0.09, 0.1, len, 6);
+    geo.rotateZ(Math.PI / 2);
+    geo.rotateY(-theta);
+    paintVertexAO(geo, RIM_COLOR, rng, { aoStrength: 0.22, hueJitter: 0.1 });
+    geo.translate(x, 0.09, z);
+    geoms.push(geo);
+  }
+  const merged = mergeGeometries(geoms, false) as THREE.BufferGeometry;
+  geoms.forEach((g) => g.dispose());
+  const mesh = new THREE.Mesh(merged, standardMaterial({ color: 0xffffff, roughness: 0.9 }));
+  mesh.name = "sand-pit-rim";
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 export function createSandPit(): SandPit {
   const spot = getSpot("sand");
   const rng = seededRandom(6161);
   const group = new THREE.Group();
   group.name = "sand-pit";
 
-  const flatGeo = buildMoundGeometry(6, 28, 0.02);
-  paintVertexAO(flatGeo, SAND_COLOR, rng, { aoStrength: 0.15, hueJitter: 0.06 });
+  // 既定(未使用時)は僅かに中央が盛れた形状にして、地面のフラットな砂と見分けやすくする。
+  const flatGeo = buildMoundGeometry(6, 28, 0.1);
+  paintVertexAO(flatGeo, SAND_COLOR, rng, { aoStrength: 0.1, hueJitter: 0.04 });
   const moundGeo = buildMoundGeometry(6, 28, 0.32);
-  paintVertexAO(moundGeo, SAND_COLOR, rng, { aoStrength: 0.15, hueJitter: 0.06 });
+  paintVertexAO(moundGeo, SAND_COLOR, rng, { aoStrength: 0.1, hueJitter: 0.04 });
 
-  const material = standardMaterial({ color: 0xffffff, roughness: 1 });
+  const material = standardMaterial({ color: 0xffffff, roughness: 0.92 });
   const mesh = new THREE.Mesh(flatGeo, material);
   mesh.name = "sand-pit-surface";
   mesh.receiveShadow = true;
   mesh.position.y = 0.01;
   group.add(mesh);
+  group.add(buildRim(seededRandom(6262)));
 
   group.position.set(spot.position.x, 0, spot.position.z);
 

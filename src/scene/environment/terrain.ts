@@ -1,12 +1,13 @@
 // 放飼場の地面: 半径~14の楕円、明るい砂地、緩やかな起伏、外周の低い柵/岩、手前(+Z)の観察デッキ縁。
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { makeIrregularBlock, paintVertexAO, seededRandom, standardMaterial } from "./proc";
+import { makeIrregularBlock, paintVertexAO, paintVertexAOWorld, seededRandom, standardMaterial } from "./proc";
 
 const RADIUS_X = 14;
 const RADIUS_Z = 12;
 const SAND_COLOR = new THREE.Color("#e8d5a8");
 const ROCK_COLOR = new THREE.Color("#a89a86");
+const HEDGE_COLOR = new THREE.Color("#4f7a4a");
 const DECK_COLOR = new THREE.Color("#c9b28f");
 
 // 滑らかな多倍音サイン波の起伏(頂点間で連続、継ぎ目なし)。
@@ -69,20 +70,33 @@ function isDeckArc(theta: number): boolean {
   return deg > 65 && deg < 115;
 }
 
+// 外周の岩+生垣: 角度ステップをランダム化して等間隔の「点線」感を消し、岩と低い生垣を混ぜる。
 function buildPerimeterRocks(rng: () => number): THREE.Mesh {
   const geoms: THREE.BufferGeometry[] = [];
-  const segments = 40;
-  for (let s = 0; s < segments; s++) {
-    const theta = (s / segments) * Math.PI * 2;
-    if (isGateArc(theta) || isDeckArc(theta)) continue;
-    const t = 1.0 + rng() * 0.03;
-    const x = Math.cos(theta) * RADIUS_X * t;
-    const z = Math.sin(theta) * RADIUS_Z * t;
-    const size = new THREE.Vector3(0.5 + rng() * 0.5, 0.28 + rng() * 0.4, 0.4 + rng() * 0.45);
-    const block = makeIrregularBlock(size, ROCK_COLOR, rng, { aoStrength: 0.4, hueJitter: 0.16 });
-    block.rotateY(rng() * Math.PI);
-    block.translate(x, size.y * 0.5 + groundHeight(x, z), z);
-    geoms.push(block);
+  let theta = rng() * 0.2;
+  const twoPi = Math.PI * 2;
+  while (theta < twoPi) {
+    const stepDeg = 5 + rng() * 11; // 5〜16度の不揃いなステップ(固定segmentsをやめる)
+    if (!isGateArc(theta) && !isDeckArc(theta)) {
+      const t = 1.0 + rng() * 0.05;
+      const x = Math.cos(theta) * RADIUS_X * t;
+      const z = Math.sin(theta) * RADIUS_Z * t;
+      if (rng() < 0.3) {
+        // 低い生垣ブロック(緑、幅広・低め)。
+        const size = new THREE.Vector3(0.6 + rng() * 0.55, 0.22 + rng() * 0.2, 0.45 + rng() * 0.35);
+        const hedge = makeIrregularBlock(size, HEDGE_COLOR, rng, { aoStrength: 0.32, hueJitter: 0.2 });
+        hedge.rotateY(rng() * Math.PI);
+        hedge.translate(x, size.y * 0.5 + groundHeight(x, z), z);
+        geoms.push(hedge);
+      } else {
+        const size = new THREE.Vector3(0.32 + rng() * 0.75, 0.2 + rng() * 0.55, 0.28 + rng() * 0.62);
+        const block = makeIrregularBlock(size, ROCK_COLOR, rng, { aoStrength: 0.4, hueJitter: 0.16 });
+        block.rotateY(rng() * Math.PI);
+        block.translate(x, size.y * 0.5 + groundHeight(x, z), z);
+        geoms.push(block);
+      }
+    }
+    theta += THREE.MathUtils.degToRad(stepDeg);
   }
   const merged = mergeGeometries(geoms, false) as THREE.BufferGeometry;
   geoms.forEach((g) => g.dispose());
@@ -119,10 +133,12 @@ function buildDeckEdge(rng: () => number): THREE.Mesh {
 export function createTerrain(): THREE.Group {
   const group = new THREE.Group();
   group.name = "terrain";
-  const rng = seededRandom(4242);
 
   const groundGeo = buildGroundGeometry(9, 56);
-  paintVertexAO(groundGeo, SAND_COLOR, rng, { aoStrength: 0.22, hueJitter: 0.1 });
+  // 頂点index順(center-fanの放射トポロジ)に依存しないワールド座標value noiseで色ムラを付ける。
+  // 従来のpaintVertexAO(頂点ごと独立乱数)は中心付近の細い扇形三角形ごとにバラバラな色を線形補間するため、
+  // 中心から放射状のスジ/リング状アーティファクトとして見えていた。
+  paintVertexAOWorld(groundGeo, SAND_COLOR, 4242, { aoStrength: 0.18, hueJitter: 0.14, noiseScale: 0.09 });
   const ground = new THREE.Mesh(groundGeo, standardMaterial({ color: 0xffffff, roughness: 1 }));
   ground.name = "terrain-ground";
   ground.receiveShadow = true;
