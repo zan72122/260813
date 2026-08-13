@@ -1,0 +1,26 @@
+{
+  "name": "titanium-anodizing-game",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "python3 -m http.server 8734",
+    "test": "node test/playtest.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zan72122/260813.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zan72122/260813/issues"
+  },
+  "homepage": "https://github.com/zan72122/260813#readme",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "playwright-core": "^1.62.1"
+  },
+  "private": true,
+  "type": "module"
+}
