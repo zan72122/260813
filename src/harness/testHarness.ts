@@ -14,6 +14,7 @@ export interface GameHarness {
   readonly seed: number;
   readonly drawCalls: number;
   readonly shadowSlotsUsed: number;
+  readonly sparkleSpawnedCount: number;
   readonly debugCamera: { fov: number; aspect: number; position: number[]; shot: string };
   readonly muted: boolean;
   readonly reducedMotion: boolean;
@@ -48,6 +49,7 @@ export interface GameHarness {
   enterFreePlay: () => void;
   exitFreePlay: () => void;
   screenPositionOfToy: (id: string) => { x: number; y: number } | null;
+  toyRotationY: (id: string) => number | null;
   screenPositionOfBasket: (id: string) => { x: number; y: number } | null;
   screenPositionOfMat: (id: string) => { x: number; y: number } | null;
   screenPositionOfMatMarker: (id: string) => { x: number; y: number } | null;
@@ -71,6 +73,9 @@ export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: Au
     },
     get shadowSlotsUsed() {
       return sceneRoot.shadowSlotsUsed;
+    },
+    get sparkleSpawnedCount() {
+      return sceneRoot.sparkleSpawnedCount;
     },
     get debugCamera() {
       return sceneRoot.debugCamera;
@@ -138,6 +143,7 @@ export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: Au
     enterFreePlay: () => fsm.enterFreePlay(),
     exitFreePlay: () => fsm.exitFreePlay(),
     screenPositionOfToy: (id: string) => sceneRoot.screenPositionOfToy(id),
+    toyRotationY: (id: string) => sceneRoot.toyRotationY(id),
     screenPositionOfBasket: (id: string) => sceneRoot.screenPositionOfBasket(id),
     screenPositionOfMat: (id: string) => sceneRoot.screenPositionOfMat(id),
     screenPositionOfMatMarker: (id: string) => sceneRoot.screenPositionOfMatMarker(id),

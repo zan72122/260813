@@ -1049,8 +1049,11 @@ export class SceneRoot {
     });
   }
 
+  private sparkleSpawnCount = 0;
+
   private spawnSparkle(x: number, y: number, z: number): void {
     if (this.reducedMotion) return;
+    this.sparkleSpawnCount++;
     const sp = this.sparklePool[this.sparkleIndex % this.sparklePool.length]!;
     this.sparkleIndex++;
     sp.position.set(x, y, z);
@@ -1418,6 +1421,17 @@ export class SceneRoot {
     const t = this.toys.toys.get(id);
     if (!t) return null;
     return this.projectToScreen(t.group.position);
+  }
+
+  /** T3 diagnostic: a toy's mesh yaw, used to detect whether the idle wiggle hint fired (test mode only). */
+  toyRotationY(id: string): number | null {
+    const t = this.toys.toys.get(id);
+    return t ? t.mesh.rotation.y : null;
+  }
+
+  /** T3 diagnostic: count of sparkles actually spawned (reducedMotion suppresses this to 0). */
+  get sparkleSpawnedCount(): number {
+    return this.sparkleSpawnCount;
   }
 
   screenPositionOfBasket(id: string): { x: number; y: number } | null {
