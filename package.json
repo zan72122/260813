@@ -1,0 +1,19 @@
+{
+  "name": "neon-sign-craftsman",
+  "version": "1.0.0",
+  "description": "4歳向けモバイルWebゲーム「ネオンサイン職人」",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --format=iife --outfile=dist/app.js --target=es2019 --minify",
+    "build:dev": "esbuild src/main.js --bundle --format=iife --outfile=dist/app.js --target=es2019 --sourcemap",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "playwright-core": "^1.55.0"
+  }
+}

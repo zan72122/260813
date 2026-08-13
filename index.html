@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0812">
+<link rel="icon" href="data:,">
+<title>ネオンサイン職人</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0b0812; touch-action:none;
+    font-family:-apple-system, "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif;
+    -webkit-user-select:none; user-select:none; }
+  #gl { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+
+  /* ---------- title / shape select ---------- */
+  #title {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:4vmin;
+    pointer-events:auto; transition:opacity .6s;
+    background:radial-gradient(ellipse at 50% 60%, rgba(10,6,20,0) 30%, rgba(6,4,12,.55) 100%);
+  }
+  #title.hidden, .hidden { opacity:0 !important; pointer-events:none !important; }
+  #logo {
+    font-size:min(9vw, 7vh); font-weight:800; letter-spacing:.08em; color:#fff;
+    text-shadow: 0 0 6px #fff, 0 0 18px #ff4fd8, 0 0 40px #ff4fd8, 0 0 80px #b23bff;
+    animation:logoPulse 2.6s ease-in-out infinite;
+  }
+  @keyframes logoPulse { 0%,100%{opacity:1} 50%{opacity:.82} }
+  #shapes { display:flex; gap:min(4vmin,24px); flex-wrap:wrap; justify-content:center; padding:0 4vmin; }
+  .shapeBtn {
+    width:min(19vmin,110px); height:min(19vmin,110px); border-radius:26%;
+    border:2px solid rgba(255,255,255,.25); background:rgba(20,14,34,.72);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    box-shadow:0 6px 24px rgba(0,0,0,.5), inset 0 0 24px rgba(255,255,255,.05);
+    transition:transform .15s;
+  }
+  .shapeBtn:active { transform:scale(.92); }
+  .shapeBtn svg { width:72%; height:72%; overflow:visible; }
+  .shapeBtn svg path, .shapeBtn svg circle { fill:none; stroke-width:7; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- big hold buttons (moon / power / again) ---------- */
+  .bigBtn {
+    position:absolute; left:50%; bottom:max(6vh, env(safe-area-inset-bottom, 0px) + 4vh);
+    transform:translateX(-50%);
+    width:min(22vmin,120px); height:min(22vmin,120px); border-radius:50%;
+    border:none; background:rgba(18,12,30,.85); cursor:pointer; pointer-events:auto;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 8px 30px rgba(0,0,0,.6);
+    transition:opacity .5s, transform .15s;
+  }
+  .bigBtn:active { transform:translateX(-50%) scale(.94); }
+  .bigBtn svg.icon { width:56%; height:56%; position:relative; z-index:2; }
+  .bigBtn svg.ring { position:absolute; inset:-6%; width:112%; height:112%; z-index:1;
+    transform:rotate(-90deg); }
+  .bigBtn .ringBg { fill:none; stroke:rgba(255,255,255,.14); stroke-width:6; }
+  .bigBtn .ringFill { fill:none; stroke-width:6; stroke-linecap:round;
+    stroke-dasharray:302; stroke-dashoffset:302; }
+  #darkBtn { box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 34px rgba(140,170,255,.35); }
+  #darkBtn .ringFill { stroke:#9db4ff; }
+  #powerBtn { box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 40px rgba(255,60,90,.5);
+    animation:powerPulse 1.4s ease-in-out infinite; }
+  #powerBtn .ringFill { stroke:#ff5470; }
+  @keyframes powerPulse { 0%,100%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 30px rgba(255,60,90,.4);}
+    50%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 60px rgba(255,80,110,.75);} }
+  #againBtn { width:min(16vmin,88px); height:min(16vmin,88px);
+    left:auto; right:max(4vw, env(safe-area-inset-right,0px) + 2vw); transform:none;
+    bottom:max(5vh, env(safe-area-inset-bottom,0px) + 3vh); }
+  #againBtn:active { transform:scale(.94); }
+
+  /* ---------- hand hint ---------- */
+  #hand { position:absolute; width:15vmin; height:15vmin; max-width:84px; max-height:84px;
+    left:0; top:0; pointer-events:none; will-change:transform; z-index:5;
+    filter:drop-shadow(0 3px 8px rgba(0,0,0,.7)); transition:opacity .3s; }
+  #hand svg { width:100%; height:100%; overflow:visible; }
+  #hand .tapRing { transform-origin:24px 16px; opacity:0; }
+  #hand.press .tapRing { animation:tapRing 1.1s ease-out infinite; }
+  @keyframes tapRing { 0%{opacity:.9; transform:scale(.2);} 70%{opacity:0; transform:scale(1.5);} 100%{opacity:0;} }
+  #hand.press .handBody { animation:pressBob 1.1s ease-in-out infinite; }
+  @keyframes pressBob { 0%,100%{transform:translateY(0)} 35%{transform:translateY(5px)} }
+
+  #vignette { position:fixed; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) 58%, rgba(0,0,0,.42) 100%); }
+
+  #rotateNote { display:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="vignette"></div>
+<div id="ui">
+  <div id="title">
+    <div id="logo">ネオンサイン職人</div>
+    <div id="shapes">
+      <button class="shapeBtn" data-shape="star" aria-label="star">
+        <svg viewBox="0 0 100 100"><path style="stroke:#ffd54a; filter:drop-shadow(0 0 6px #ffd54a)"
+          d="M50 8 L61 38 L93 38 L67 57 L77 88 L50 69 L23 88 L33 57 L7 38 L39 38 Z"/></svg>
+      </button>
+      <button class="shapeBtn" data-shape="heart" aria-label="heart">
+        <svg viewBox="0 0 100 100"><path style="stroke:#ff4f88; filter:drop-shadow(0 0 6px #ff4f88)"
+          d="M50 86 C20 62 8 44 14 28 C19 15 36 12 50 28 C64 12 81 15 86 28 C92 44 80 62 50 86 Z"/></svg>
+      </button>
+      <button class="shapeBtn" data-shape="flower" aria-label="flower">
+        <svg viewBox="0 0 100 100"><path style="stroke:#e470ff; filter:drop-shadow(0 0 6px #e470ff)"
+          d="M50 50 C42 30 46 12 50 10 C54 12 58 30 50 50 C68 38 86 38 88 42 C88 47 70 55 50 50 C64 64 68 82 64 84 C60 86 48 70 50 50 C52 70 40 86 36 84 C32 82 36 64 50 50 C30 55 12 47 12 42 C14 38 32 38 50 50 Z"/></svg>
+      </button>
+      <button class="shapeBtn" data-shape="rainbow" aria-label="rainbow">
+        <svg viewBox="0 0 100 100">
+          <path style="stroke:#ff5555; filter:drop-shadow(0 0 5px #ff8888)" d="M12 78 A38 38 0 0 1 88 78"/>
+          <path style="stroke:#ffd24a" d="M26 78 A24 24 0 0 1 74 78"/>
+          <path style="stroke:#5ad7ff; filter:drop-shadow(0 0 5px #5ad7ff)" d="M40 78 A10 10 0 0 1 60 78"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <button id="darkBtn" class="bigBtn hidden" aria-label="lights off">
+    <svg class="ring" viewBox="0 0 100 100"><circle class="ringBg" cx="50" cy="50" r="48"/><circle class="ringFill" cx="50" cy="50" r="48"/></svg>
+    <svg class="icon" viewBox="0 0 100 100">
+      <path fill="#cdd9ff" style="filter:drop-shadow(0 0 8px #9db4ff)"
+        d="M62 12 C40 18 26 38 30 60 C34 80 52 92 70 90 C50 84 38 68 40 48 C42 32 50 20 62 12 Z"/>
+      <circle fill="#fff" cx="74" cy="26" r="3"/><circle fill="#fff" cx="84" cy="42" r="2.2"/><circle fill="#fff" cx="70" cy="46" r="1.8"/>
+    </svg>
+  </button>
+
+  <button id="powerBtn" class="bigBtn hidden" aria-label="power on">
+    <svg class="ring" viewBox="0 0 100 100"><circle class="ringBg" cx="50" cy="50" r="48"/><circle class="ringFill" cx="50" cy="50" r="48"/></svg>
+    <svg class="icon" viewBox="0 0 100 100">
+      <g style="filter:drop-shadow(0 0 8px #ff5470)">
+        <path fill="none" stroke="#ff8098" stroke-width="9" stroke-linecap="round"
+          d="M31 30 A34 34 0 1 0 69 30"/>
+        <line x1="50" y1="12" x2="50" y2="46" stroke="#ff8098" stroke-width="9" stroke-linecap="round"/>
+      </g>
+    </svg>
+  </button>
+
+  <button id="againBtn" class="bigBtn hidden" aria-label="again">
+    <svg class="icon" viewBox="0 0 100 100">
+      <path fill="none" stroke="#7ce8ff" stroke-width="9" stroke-linecap="round" style="filter:drop-shadow(0 0 7px #7ce8ff)"
+        d="M78 42 A32 32 0 1 0 82 60"/>
+      <path fill="#7ce8ff" d="M84 20 L86 44 L62 40 Z" style="filter:drop-shadow(0 0 7px #7ce8ff)"/>
+    </svg>
+  </button>
+
+  <div id="hand" class="hidden">
+    <svg viewBox="0 0 48 64">
+      <circle class="tapRing" cx="24" cy="16" r="13" fill="none" stroke="#fff" stroke-width="3"/>
+      <g class="handBody">
+        <path fill="#ffe3c8" stroke="#3a2a20" stroke-width="2.2" stroke-linejoin="round"
+          d="M20 10 C20 6.7 26 6.7 26 10 L26 30 L30 28 C30 24.5 36 24.5 36 28 L36 32 L39 31 C39 27.5 44 28 44 31.5 L44 42 C44 52 38 60 29 60 C21 60 16 56 12 48 L7 38 C5.4 34.6 10 31.8 12.4 34.6 L17 40 L17 13 C17 9.7 20 9.7 20 10 Z"/>
+      </g>
+    </svg>
+  </div>
+</div>
+<script src="dist/app.js"></script>
+</body>
+</html>
