@@ -1,0 +1,20 @@
+{
+  "name": "nijinowa-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "おして ひろがる にじのわ研究室 - Newton's rings mobile web game for 4-year-olds",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
