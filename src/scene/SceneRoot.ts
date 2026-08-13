@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AudioEngine } from '../audio/AudioEngine.ts';
-import { GameFsm } from '../game/fsm.ts';
+import { GameFsm, matMarkerPosition } from '../game/fsm.ts';
 import { PointerController } from '../input/PointerController.ts';
 import type { Phase } from '../game/types.ts';
 import { BasketSystem } from './baskets.ts';
@@ -74,6 +74,7 @@ export class SceneRoot {
   private stars!: StarsHandles;
   private shadows!: BlobShadowManager;
   private trayProxies: THREE.Mesh[] = [];
+  private trayReturned: boolean[] = [false, false, false, false];
   private wipeProxy!: THREE.Mesh;
   private guideArrow!: THREE.Sprite;
   private ghostSprite!: THREE.Sprite;
@@ -115,8 +116,13 @@ export class SceneRoot {
     this.reducedMotion = options.reducedMotion;
     this.testMode = options.testMode;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+    // MSAA is expensive on software/CPU rasterizers (headless test environments,
+    // low-end devices without a hardware GPU) — the diorama's rounded/beveled
+    // geometry already reads clean without it, so it stays off.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.35;
     this.quality = new AdaptiveQuality(window.devicePixelRatio || 1);
     this.renderer.setPixelRatio(this.quality.dpr);
 
@@ -252,6 +258,9 @@ export class SceneRoot {
     this.stars.setOpacity(0);
     for (const rig of this.childRigs) rig.group.visible = false;
     this.teacherRig.group.position.copy(NPC_TEACHER_HOME);
+    this.trayReturned = [false, false, false, false];
+    this.lunchCleanupAdvanceScheduled = false;
+    this.matCamHandedOff = false;
   }
 
   private onPhaseChange(phase: Phase): void {
@@ -448,14 +457,17 @@ export class SceneRoot {
       const lc = this.fsm.lunchCleanup;
       if (lc.traysReturned < 4) {
         this.trayProxies.forEach((proxy, i) => {
-          if (i < 4 - lc.traysReturned) {
+          if (!this.trayReturned[i]) {
             proxy.position.copy(this.furniture.seatWorldPosition(i));
             proxy.position.y = 0.44;
             list.push({ object: proxy, kind: 'tray', id: String(i) });
           }
         });
       }
-      if (lc.wipeProgress < 1) list.push({ object: this.wipeProxy, kind: 'wipe', id: 'table' });
+      // Wipe only becomes pickable once trays are clear — the wipe proxy spans the
+      // whole table top and would otherwise overlap/steal raycasts from tray proxies
+      // sitting on that same surface.
+      if (lc.wipeProgress < 1 && lc.traysReturned >= 4) list.push({ object: this.wipeProxy, kind: 'wipe', id: 'table' });
       if (lc.wipeProgress >= 1 && !lc.tableStored) list.push({ object: this.furniture.tableProxy, kind: 'tableStore', id: 'table' });
     } else if (phase === 'NAP_SETUP') {
       const ns = this.fsm.napSetup;
@@ -619,16 +631,29 @@ export class SceneRoot {
         const marker = this.mats.markerWorldPosition(drag.id);
         const isRollback = this.fsm.phase === 'WAKE_RESTORE';
         const dx = world.x - marker.x;
-        const progress = THREE.MathUtils.clamp(dx / 0.62, 0, 1);
+        const rawProgress = THREE.MathUtils.clamp(dx / 0.62, 0, 1);
         const prev = this.fsm.napSetup.unrollProgress[drag.id] ?? (isRollback ? 1 : 0);
-        this.mats.setUnrollProgress(drag.id, progress);
-        this.fsm.setMatUnrollProgress(drag.id, progress);
-        if (Math.abs(progress - prev) > 0.02) {
-          this.audio.playMatWhooshTick(Math.abs(progress - prev) * 4);
+        this.mats.setUnrollProgress(drag.id, rawProgress);
+        this.fsm.setMatUnrollProgress(drag.id, rawProgress);
+        // Read back the FSM's stored value rather than reusing the raw local
+        // one — the FSM reducer snaps "close enough" progress (>0.97) up to
+        // exactly 1, so comparing against the un-snapped raw value here could
+        // miss the completion transition the FSM already recorded.
+        const progress = this.fsm.napSetup.unrollProgress[drag.id] ?? rawProgress;
+        if (Math.abs(rawProgress - prev) > 0.02) {
+          this.audio.playMatWhooshTick(Math.abs(rawProgress - prev) * 4);
         }
         if (progress >= 1 && prev < 1) {
           this.mats.showBedding(drag.id);
           this.audio.playToySound('fabric');
+          if (this.fsm.phase === 'NAP_SETUP') {
+            // Bedding snaps into place visually the moment the mat is fully
+            // unrolled — record it in FSM state too, otherwise
+            // isNapFurnitureReady() (which requires beddingPlaced >= total)
+            // could never become true through real play.
+            this.fsm.placeBeddingItem();
+            this.checkAllMatsUnrolled();
+          }
         }
         break;
       }
@@ -654,6 +679,7 @@ export class SceneRoot {
             this.fsm.addWipeProgress(1 / total);
             this.audio.playWipeSqueak();
             this.spawnSparkle(world.x, 0.45, world.z);
+            this.checkLunchCleanupComplete();
           }
         }
         break;
@@ -712,8 +738,10 @@ export class SceneRoot {
         const cartPos = this.furniture.cart.position;
         const success = this.fsm.attemptReturnTray({ x: world.x, z: world.z }, { x: cartPos.x, z: cartPos.z }, 0.32);
         if (success) {
+          this.trayReturned[drag.index] = true;
           this.furniture.returnTray(drag.index, world.x, world.z);
           this.audio.playToySound('plastic');
+          this.checkLunchCleanupComplete();
         }
         break;
       }
@@ -794,10 +822,22 @@ export class SceneRoot {
         () => {
           this.furniture.stackChair(i, () => this.audio.playChairTick());
           this.fsm.stackChairBack();
+          if (i === 3) this.checkLunchCleanupComplete();
         },
         i * CHAIR_STAGGER_S * 1000,
       );
     }
+  }
+
+  private lunchCleanupAdvanceScheduled = false;
+
+  private checkLunchCleanupComplete(): void {
+    if (this.lunchCleanupAdvanceScheduled) return;
+    if (!this.fsm.isLunchCleanupComplete()) return;
+    this.lunchCleanupAdvanceScheduled = true;
+    window.setTimeout(() => {
+      if (this.fsm.phase === 'LUNCH_CLEANUP') this.fsm.advance();
+    }, 500);
   }
 
   private placeTraysSequence(): void {
@@ -810,6 +850,19 @@ export class SceneRoot {
         },
         i * 180,
       );
+    }
+  }
+
+  private matCamHandedOff = false;
+
+  /** Once every mat is unrolled (but before the curtain step), pull the camera back
+   * from the low mat-cam to the wider napReveal framing — the curtain sits high on
+   * the back wall and was never meant to be grabbed from the low floor-level shot. */
+  private checkAllMatsUnrolled(): void {
+    if (this.matCamHandedOff) return;
+    if (this.fsm.napSetup.matsUnrolled >= 4 && this.fsm.napSetup.matsPlaced >= 4) {
+      this.matCamHandedOff = true;
+      this.cameraDirector.tweenTo('napReveal', 1.1);
     }
   }
 
@@ -904,8 +957,8 @@ export class SceneRoot {
     } else if (phase === 'LUNCH_CLEANUP') {
       const lc = this.fsm.lunchCleanup;
       if (lc.traysReturned < 4) {
-        const i = lc.traysReturned;
-        return { from: this.furniture.seatWorldPosition(i), to: this.furniture.cart.position.clone(), kind: 'drag' };
+        const i = this.trayReturned.findIndex((done) => !done);
+        if (i >= 0) return { from: this.furniture.seatWorldPosition(i), to: this.furniture.cart.position.clone(), kind: 'drag' };
       }
       if (lc.wipeProgress < 1) return { from: this.wipeProxy.position.clone(), to: this.wipeProxy.position.clone(), kind: 'swipe' };
       if (!lc.tableStored) return { from: this.furniture.tableProxy.position.clone(), to: this.furniture.tableProxy.position.clone(), kind: 'tap' };
@@ -1073,5 +1126,157 @@ export class SceneRoot {
       if (!basket) continue;
       this.fsm.attemptStoreToy(toy.id, basket.position);
     }
+  }
+
+  /**
+   * Test-only fast-forward that finishes whatever is left of the CURRENT
+   * phase's objective through the same FSM setters + visual update paths a
+   * real gesture uses (unlike the harness's raw completeCurrentObjective(),
+   * this keeps furniture/mat/curtain visuals in sync) — used by e2e specs to
+   * demonstrate each signature gesture once for real and then skip repeating
+   * it 4-7x, since headless software-rendered WebGL makes every synthesized
+   * pointer round-trip far more expensive than on a real device.
+   */
+  forceCompleteCurrentPhaseVisuals(): void {
+    const phase = this.fsm.phase;
+    if (phase === 'PLAY_CLEANUP') {
+      this.simulateStoreAllToys();
+    } else if (phase === 'LUNCH_SETUP') {
+      if (!this.fsm.lunchSetup.tableOut) {
+        this.furniture.setTableProgress(1);
+        this.fsm.dragTableOut();
+      }
+      for (let i = this.fsm.lunchSetup.chairsOut; i < 4; i++) {
+        this.furniture.popChair(i, () => this.audio.playChairTick());
+        this.fsm.popChairOut();
+      }
+      if (this.fsm.lunchSetup.traysPlaced < 4) {
+        this.furniture.setCartProgress(1);
+        for (let i = this.fsm.lunchSetup.traysPlaced; i < 4; i++) {
+          this.furniture.placeTray(i, () => this.audio.playToySound('plastic'));
+          this.fsm.placeTrayOnTable();
+        }
+      }
+      this.checkLunchFurnitureReady();
+    } else if (phase === 'LUNCH_CLEANUP') {
+      const cartPos = this.furniture.cart.position.clone();
+      for (let i = 0; i < 4; i++) {
+        if (this.trayReturned[i]) continue;
+        this.trayReturned[i] = true;
+        this.furniture.returnTray(i, cartPos.x, cartPos.z);
+        this.fsm.attemptReturnTray({ x: cartPos.x, z: cartPos.z }, { x: cartPos.x, z: cartPos.z }, 0.5);
+      }
+      if (this.fsm.lunchCleanup.wipeProgress < 1) this.fsm.addWipeProgress(1);
+      if (!this.fsm.lunchCleanup.tableStored) {
+        this.furniture.setTableProgress(0);
+        this.fsm.tapTableToStore();
+        for (let i = 0; i < 4; i++) {
+          this.furniture.stackChair(i, () => this.audio.playChairTick());
+          this.fsm.stackChairBack();
+        }
+      }
+      this.checkLunchCleanupComplete();
+    } else if (phase === 'NAP_SETUP') {
+      for (const mat of this.fsm.seedConfig.mats) {
+        const v = this.mats.mats.get(mat.id)!;
+        if (!v.placed) {
+          this.mats.setStateInstant(mat.id, true, 1, true);
+          this.fsm.attemptPlaceMat(mat.id, matMarkerPosition(mat.markerIndex));
+          this.fsm.setMatUnrollProgress(mat.id, 1);
+          this.fsm.placeBeddingItem();
+        } else if ((this.fsm.napSetup.unrollProgress[mat.id] ?? 0) < 1) {
+          this.mats.setUnrollProgress(mat.id, 1);
+          this.fsm.setMatUnrollProgress(mat.id, 1);
+          this.mats.showBedding(mat.id);
+          this.fsm.placeBeddingItem();
+        }
+      }
+      if (!this.fsm.napSetup.curtainClosed) {
+        this.curtain.setProgress(1);
+        this.fsm.closeCurtainNap();
+        this.matCamHandedOff = true;
+      }
+      this.checkNapFurnitureReady();
+    } else if (phase === 'WAKE_RESTORE') {
+      if (!this.fsm.wakeRestore.curtainOpened) {
+        this.curtain.setProgress(0);
+        this.fsm.openCurtainWake();
+      }
+      for (const mat of this.fsm.seedConfig.mats) {
+        const v = this.mats.mats.get(mat.id)!;
+        if (!v.placed) continue;
+        const idx = v.index;
+        this.mats.hopToShelf(mat.id, idx);
+        this.fsm.rollMatBack();
+        this.fsm.shelveMatBack();
+      }
+      this.checkWakeRestoreComplete();
+    }
+  }
+
+  /** Projects a world-space point to CSS client coordinates — lets e2e tests target real pointer gestures precisely. */
+  projectToScreen(worldPos: THREE.Vector3): { x: number; y: number } {
+    const v = worldPos.clone().project(this.cameraDirector.camera);
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (v.x * 0.5 + 0.5) * rect.width + rect.left,
+      y: (1 - (v.y * 0.5 + 0.5)) * rect.height + rect.top,
+    };
+  }
+
+  screenPositionOfToy(id: string): { x: number; y: number } | null {
+    const t = this.toys.toys.get(id);
+    if (!t) return null;
+    return this.projectToScreen(t.group.position);
+  }
+
+  screenPositionOfBasket(id: string): { x: number; y: number } | null {
+    const b = this.baskets.baskets.get(id);
+    if (!b) return null;
+    return this.projectToScreen(b.group.position);
+  }
+
+  screenPositionOfMat(id: string): { x: number; y: number } | null {
+    const v = this.mats.mats.get(id);
+    if (!v) return null;
+    return this.projectToScreen(v.proxy.position);
+  }
+
+  /** The anchor a carried mat must be dropped near to snap into place (matches the FSM capture-radius check). */
+  screenPositionOfMatMarker(id: string): { x: number; y: number } | null {
+    const v = this.mats.mats.get(id);
+    if (!v) return null;
+    return this.projectToScreen(v.marker);
+  }
+
+  /** Where the far/unrolled edge of a placed mat ends up — useful as the aim point for the unroll swipe. */
+  screenPositionOfMatUnrollTarget(id: string): { x: number; y: number } | null {
+    const v = this.mats.mats.get(id);
+    if (!v) return null;
+    const target = v.marker.clone();
+    target.x += 0.62;
+    return this.projectToScreen(target);
+  }
+
+  screenPositionOfHandle(kind: 'table' | 'cart' | 'chairStack' | 'curtain' | 'wipe'): { x: number; y: number } {
+    const map: Record<typeof kind, THREE.Object3D> = {
+      table: this.furniture.tableProxy,
+      cart: this.furniture.cartProxy,
+      chairStack: this.furniture.chairStackProxy,
+      curtain: this.curtain.proxy,
+      wipe: this.wipeProxy,
+    };
+    return this.projectToScreen(map[kind].position);
+  }
+
+  screenPositionOfTray(index: number): { x: number; y: number } {
+    const proxy = this.trayProxies[index]!;
+    const pos = this.furniture.seatWorldPosition(index);
+    pos.y = 0.44;
+    return this.projectToScreen(proxy.visible ? proxy.position : pos);
+  }
+
+  debugPickables(): { kind: string; id: string; screen: { x: number; y: number } }[] {
+    return this.getPickables().map((p) => ({ kind: p.kind, id: p.id, screen: this.projectToScreen(p.object.position) }));
   }
 }

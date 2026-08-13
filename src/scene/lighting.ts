@@ -71,6 +71,7 @@ export class LightingRig {
     this.fill = new THREE.PointLight(0xfff4e0, MORNING.fillIntensity, 6, 2);
     this.fill.position.set(-1.2, 1.4, 1.4);
     this.group.add(this.key, this.hemi, this.fill);
+    scene.add(this.group);
     scene.background = MORNING.background.clone();
     scene.fog = new THREE.Fog(MORNING.background.getHex(), 6, 14);
   }

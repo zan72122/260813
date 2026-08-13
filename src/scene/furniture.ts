@@ -4,11 +4,11 @@ import { createWoodGrainTexture } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
 import { Easing, TweenManager } from './tween.ts';
 
-export const TABLE_STORED = new THREE.Vector3(0.35, 0, -1.28);
-export const TABLE_OUT = new THREE.Vector3(0.15, 0, -0.1);
-export const CART_STORED = new THREE.Vector3(1.35, 0, -1.28);
-export const CART_OUT = new THREE.Vector3(0.85, 0, -0.05);
-export const CHAIR_STACK_POS = new THREE.Vector3(-1.55, 0, -0.55);
+export const TABLE_STORED = new THREE.Vector3(0.3, 0, -1.2);
+export const TABLE_OUT = new THREE.Vector3(0.1, 0, -0.1);
+export const CART_STORED = new THREE.Vector3(1.1, 0, -1.15);
+export const CART_OUT = new THREE.Vector3(0.72, 0, -0.05);
+export const CHAIR_STACK_POS = new THREE.Vector3(-1.25, 0, -0.5);
 
 export const SEAT_OFFSETS: THREE.Vector3[] = [
   new THREE.Vector3(-0.34, 0, 0.36),

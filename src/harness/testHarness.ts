@@ -45,6 +45,15 @@ export interface GameHarness {
   replayShuffle: () => number;
   enterFreePlay: () => void;
   exitFreePlay: () => void;
+  screenPositionOfToy: (id: string) => { x: number; y: number } | null;
+  screenPositionOfBasket: (id: string) => { x: number; y: number } | null;
+  screenPositionOfMat: (id: string) => { x: number; y: number } | null;
+  screenPositionOfMatMarker: (id: string) => { x: number; y: number } | null;
+  screenPositionOfMatUnrollTarget: (id: string) => { x: number; y: number } | null;
+  screenPositionOfHandle: (kind: 'table' | 'cart' | 'chairStack' | 'curtain' | 'wipe') => { x: number; y: number };
+  screenPositionOfTray: (index: number) => { x: number; y: number };
+  debugPickables: () => { kind: string; id: string; screen: { x: number; y: number } }[];
+  forceCompleteCurrentPhaseVisuals: () => void;
 }
 
 export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: AudioEngine): void {
@@ -120,6 +129,15 @@ export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: Au
     replayShuffle: () => fsm.replayShuffle(),
     enterFreePlay: () => fsm.enterFreePlay(),
     exitFreePlay: () => fsm.exitFreePlay(),
+    screenPositionOfToy: (id: string) => sceneRoot.screenPositionOfToy(id),
+    screenPositionOfBasket: (id: string) => sceneRoot.screenPositionOfBasket(id),
+    screenPositionOfMat: (id: string) => sceneRoot.screenPositionOfMat(id),
+    screenPositionOfMatMarker: (id: string) => sceneRoot.screenPositionOfMatMarker(id),
+    screenPositionOfMatUnrollTarget: (id: string) => sceneRoot.screenPositionOfMatUnrollTarget(id),
+    screenPositionOfHandle: (kind) => sceneRoot.screenPositionOfHandle(kind),
+    screenPositionOfTray: (index: number) => sceneRoot.screenPositionOfTray(index),
+    debugPickables: () => sceneRoot.debugPickables(),
+    forceCompleteCurrentPhaseVisuals: () => sceneRoot.forceCompleteCurrentPhaseVisuals(),
   };
 
   (window as unknown as { __game: GameHarness }).__game = harness;

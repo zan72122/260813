@@ -48,7 +48,7 @@ export class Overlay {
     // Title
     this.titleLayer = el('div', 'title-layer');
     const titleButton = document.createElement('button');
-    titleButton.className = 'title-button interactive';
+    titleButton.className = 'title-button';
     titleButton.setAttribute('aria-label', 'play');
     titleButton.innerHTML = ICONS.play;
     titleButton.addEventListener('pointerdown', (e) => {
@@ -60,7 +60,7 @@ export class Overlay {
     // Top controls
     const topControls = el('div', 'top-controls');
     this.muteBtn = document.createElement('button');
-    this.muteBtn.className = 'icon-btn interactive';
+    this.muteBtn.className = 'icon-btn';
     this.muteBtn.setAttribute('aria-label', 'mute');
     this.muteBtn.innerHTML = ICONS.speakerOn;
     this.muteBtn.addEventListener('pointerdown', (e) => {
@@ -68,7 +68,7 @@ export class Overlay {
       this.callbacks.onToggleMute();
     });
     this.motionBtn = document.createElement('button');
-    this.motionBtn.className = 'icon-btn interactive';
+    this.motionBtn.className = 'icon-btn';
     this.motionBtn.setAttribute('aria-label', 'reduced motion');
     this.motionBtn.innerHTML = ICONS.sparkle;
     this.motionBtn.addEventListener('pointerdown', (e) => {
@@ -89,7 +89,7 @@ export class Overlay {
     // Replay cards
     this.replayLayer = el('div', 'replay-layer');
     const sameDayCard = document.createElement('button');
-    sameDayCard.className = 'replay-card interactive';
+    sameDayCard.className = 'replay-card';
     sameDayCard.setAttribute('aria-label', 'replay same day');
     sameDayCard.innerHTML = ICONS.replaySameDay;
     sameDayCard.addEventListener('pointerdown', (e) => {
@@ -97,7 +97,7 @@ export class Overlay {
       this.callbacks.onReplaySame();
     });
     const shuffleCard = document.createElement('button');
-    shuffleCard.className = 'replay-card interactive';
+    shuffleCard.className = 'replay-card';
     shuffleCard.setAttribute('aria-label', 'shuffle');
     shuffleCard.innerHTML = ICONS.shuffle;
     shuffleCard.addEventListener('pointerdown', (e) => {
@@ -105,7 +105,7 @@ export class Overlay {
       this.callbacks.onReplayShuffle();
     });
     const freePlayCard = document.createElement('button');
-    freePlayCard.className = 'replay-card interactive';
+    freePlayCard.className = 'replay-card';
     freePlayCard.setAttribute('aria-label', 'free play');
     freePlayCard.innerHTML = ICONS.house;
     freePlayCard.addEventListener('pointerdown', (e) => {
@@ -119,7 +119,7 @@ export class Overlay {
     // Free play controls
     this.freeplayLayer = el('div', 'freeplay-layer');
     const playroomBtn = document.createElement('button');
-    playroomBtn.className = 'freeplay-btn interactive';
+    playroomBtn.className = 'freeplay-btn';
     playroomBtn.setAttribute('aria-label', 'playroom');
     playroomBtn.innerHTML = ICONS.toybox;
     playroomBtn.addEventListener('pointerdown', (e) => {
@@ -127,7 +127,7 @@ export class Overlay {
       this.callbacks.onFreePlayMode('playroom');
     });
     const lunchBtn = document.createElement('button');
-    lunchBtn.className = 'freeplay-btn interactive';
+    lunchBtn.className = 'freeplay-btn';
     lunchBtn.setAttribute('aria-label', 'lunch room');
     lunchBtn.innerHTML = ICONS.bowl;
     lunchBtn.addEventListener('pointerdown', (e) => {
@@ -135,7 +135,7 @@ export class Overlay {
       this.callbacks.onFreePlayMode('lunch');
     });
     const napBtn = document.createElement('button');
-    napBtn.className = 'freeplay-btn interactive';
+    napBtn.className = 'freeplay-btn';
     napBtn.setAttribute('aria-label', 'nap room');
     napBtn.innerHTML = ICONS.moon;
     napBtn.addEventListener('pointerdown', (e) => {
@@ -143,7 +143,7 @@ export class Overlay {
       this.callbacks.onFreePlayMode('nap');
     });
     const exitBtn = document.createElement('button');
-    exitBtn.className = 'freeplay-btn exit interactive';
+    exitBtn.className = 'freeplay-btn exit';
     exitBtn.setAttribute('aria-label', 'back');
     exitBtn.innerHTML = ICONS.back;
     exitBtn.addEventListener('pointerdown', (e) => {

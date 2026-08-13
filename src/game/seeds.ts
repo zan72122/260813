@@ -17,9 +17,9 @@ import {
 
 /** Fixed basket floor slots (normalized room-local space); symbol assignment is seeded. */
 const BASKET_SLOTS: { id: string; position: { x: number; z: number }; radius: number }[] = [
-  { id: 'basket-left', position: { x: -0.62, z: 0.55 }, radius: 0.16 },
-  { id: 'basket-center', position: { x: 0, z: 0.62 }, radius: 0.16 },
-  { id: 'basket-right', position: { x: 0.62, z: 0.55 }, radius: 0.16 },
+  { id: 'basket-left', position: { x: -0.48, z: 0.5 }, radius: 0.16 },
+  { id: 'basket-center', position: { x: 0, z: 0.58 }, radius: 0.16 },
+  { id: 'basket-right', position: { x: 0.48, z: 0.5 }, radius: 0.16 },
 ];
 
 /** Floor markers where nap mats are laid, in a tidy row. */

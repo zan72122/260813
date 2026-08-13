@@ -23,7 +23,7 @@ export const Easing = {
   sineInOut: (t: number): number => -(Math.cos(Math.PI * t) - 1) / 2,
 };
 
-interface ActiveTween {
+export interface ActiveTweenHandle {
   elapsed: number;
   duration: number;
   easing: Easing;
@@ -31,6 +31,8 @@ interface ActiveTween {
   onComplete?: () => void;
   alive: boolean;
 }
+
+type ActiveTween = ActiveTweenHandle;
 
 export class TweenManager {
   private tweens: ActiveTween[] = [];

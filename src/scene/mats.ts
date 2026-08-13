@@ -7,7 +7,7 @@ import { createFabricWeaveTexture } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
 import { Easing, TweenManager } from './tween.ts';
 
-export const MAT_STACK_POS = new THREE.Vector3(1.5, 0, 0.9);
+export const MAT_STACK_POS = new THREE.Vector3(0, 0, -1.0);
 const ROLL_RADIUS = 0.045;
 const MAT_WIDTH = 0.4;
 const MAT_MAX_LEN = 0.62;
@@ -77,7 +77,7 @@ export class MatSystem {
   private buildMat(def: MatDef, index: number, total: number): MatVisual {
     const marker = vec2ToWorld(matMarkerPosition(def.markerIndex));
     const stackPos = MAT_STACK_POS.clone();
-    stackPos.z += (index - (total - 1) / 2) * 0.16;
+    stackPos.z += (index - (total - 1) / 2) * 0.34;
     const color = new THREE.Color(PALETTE.matColorways[def.colorway % PALETTE.matColorways.length]!);
 
     this.rollMesh.setColorAt(index, color);
@@ -88,7 +88,7 @@ export class MatSystem {
     this.updateFlatMatrix(index, stackPos, 0);
     this.updateBeddingMatrix(index, marker, 0);
 
-    const proxy = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial());
+    const proxy = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), new THREE.MeshBasicMaterial());
     proxy.visible = false;
     proxy.position.copy(stackPos);
     proxy.position.y = 0.05;

@@ -53,9 +53,14 @@ canvas#scene {
   z-index: 10;
 }
 
-#ui-root .interactive {
-  pointer-events: auto;
-}
+/* NOTE: pointer-events is intentionally NOT forced to auto here on a blanket
+   ".interactive" selector — that would leak clicks through hidden layers
+   (title/replay/free-play), since pointer-events is inherited and a
+   descendant's own value always wins over an ancestor's "none". Instead each
+   layer's own visible/hidden state toggles pointer-events for its whole
+   subtree (see .title-layer / .replay-layer / .freeplay-layer below), and
+   buttons inside those layers simply inherit it. Only truly always-on
+   controls (.icon-btn, outside any hidden layer) set pointer-events themselves. */
 
 /* ---------- Top corner controls (mute / reduced motion) ---------- */
 
@@ -65,6 +70,7 @@ canvas#scene {
   right: calc(env(safe-area-inset-right, 0px) + 14px);
   display: flex;
   gap: 10px;
+  pointer-events: auto;
 }
 
 .icon-btn {
@@ -116,6 +122,15 @@ canvas#scene {
 
 /* ---------- Title screen ---------- */
 
+/* The layer itself spans the full screen (so its button can be centered) but
+   must stay pointer-events:none — otherwise its empty "dead space" would
+   intercept clicks meant for sibling UI (top-corner mute/motion buttons)
+   that visually overlaps it. Only the button opts back into pointer-events.
+   Visibility (not just opacity) gates real hit-testing: a descendant's own
+   pointer-events can't override an ancestor's pointer-events:none, but it
+   also can't be clicked while the ancestor is visibility:hidden — that's
+   what actually prevents clicks leaking through while off-phase, since the
+   button never sets its own visibility and simply inherits the layer's. */
 .title-layer {
   position: absolute;
   inset: 0;
@@ -123,12 +138,18 @@ canvas#scene {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  transition: opacity 0.4s ease;
+  visibility: visible;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0s;
 }
 
 .title-layer.hidden {
   opacity: 0;
-  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0.4s;
 }
 
 .title-button {
@@ -178,14 +199,21 @@ body.reduced-motion .title-button {
   align-items: center;
   justify-content: center;
   gap: 5vw;
+  /* pointer-events stays none on the container itself — see .title-layer comment above. */
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.4s ease;
+  visibility: hidden;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0.4s;
 }
 
 .replay-layer.visible {
   opacity: 1;
-  pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0s;
 }
 
 .replay-card {
@@ -197,7 +225,10 @@ body.reduced-motion .title-button {
   border: none;
   background: var(--cream);
   box-shadow: 0 8px 22px rgba(90, 65, 40, 0.25);
-  padding: 18%;
+  /* Fixed px, not a percentage — percentage padding resolves against the
+     containing block's (flex parent's) width, not this element's own box,
+     so a %-based inset here would consume far more than intended. */
+  padding: 22px;
   cursor: pointer;
   pointer-events: auto;
   transition: transform 0.15s ease;
@@ -225,12 +256,18 @@ body.reduced-motion .title-button {
   gap: 3vw;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.4s ease;
+  visibility: hidden;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0.4s;
 }
 
 .freeplay-layer.visible {
   opacity: 1;
-  pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s linear 0s;
 }
 
 .freeplay-btn {

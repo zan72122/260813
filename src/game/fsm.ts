@@ -412,7 +412,7 @@ export class GameFsm {
 
 export function matMarkerPosition(index: number): Vec2 {
   // 4 markers in a tidy row, matches scene-layer layout constants.
-  const spacing = 0.5;
+  const spacing = 0.34;
   const startX = -((TOTAL_MATS - 1) * spacing) / 2;
   return { x: startX + index * spacing, z: -0.15 };
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Easing, TweenManager } from './tween.ts';
+import { Easing, TweenManager, type ActiveTweenHandle } from './tween.ts';
 
 export type ShotName = 'overview' | 'cleanup' | 'transform' | 'mat' | 'napReveal';
 export type Orientation = 'portrait' | 'landscape';
@@ -18,24 +18,24 @@ function shot(px: number, py: number, pz: number, tx: number, ty: number, tz: nu
 
 const SHOTS: ShotTable = {
   overview: {
-    portrait: shot(0, 3.3, 4.35, 0, 0.55, -0.1, 32),
-    landscape: shot(0, 2.85, 3.55, 0, 0.6, -0.1, 34),
+    portrait: shot(0, 3.3, 4.35, 0, 0.55, -0.1, 46),
+    landscape: shot(0, 2.85, 3.55, 0, 0.6, -0.1, 40),
   },
   cleanup: {
-    portrait: shot(0.05, 3.0, 2.55, 0.05, 0.15, -0.15, 36),
-    landscape: shot(0.05, 2.55, 2.9, 0.05, 0.15, -0.2, 36),
+    portrait: shot(0.05, 3.35, 2.7, 0.05, 0.15, -0.15, 56),
+    landscape: shot(0.05, 2.55, 2.9, 0.05, 0.15, -0.2, 44),
   },
   transform: {
-    portrait: shot(1.85, 2.05, 1.55, -0.05, 0.55, -0.25, 33),
-    landscape: shot(2.35, 1.85, 1.95, -0.05, 0.55, -0.3, 33),
+    portrait: shot(-0.08, 3.6, 3.5, -0.08, 0.4, -0.55, 58),
+    landscape: shot(-0.08, 3.0, 3.15, -0.08, 0.4, -0.55, 42),
   },
   mat: {
-    portrait: shot(0.05, 1.35, 2.05, 0.05, 0.25, -0.35, 38),
-    landscape: shot(0.05, 1.2, 2.55, 0.05, 0.28, -0.35, 36),
+    portrait: shot(0, 2.05, 2.7, 0, 0.2, -0.55, 58),
+    landscape: shot(0, 1.7, 2.95, 0, 0.22, -0.55, 44),
   },
   napReveal: {
-    portrait: shot(0, 2.55, 3.65, 0, 0.7, -0.2, 30),
-    landscape: shot(0, 2.35, 3.2, 0, 0.72, -0.2, 32),
+    portrait: shot(0, 2.55, 3.65, 0, 0.7, -0.2, 40),
+    landscape: shot(0, 2.35, 3.2, 0, 0.72, -0.2, 36),
   },
 };
 
@@ -47,6 +47,7 @@ export class CameraDirector {
   private locked = false;
   private target = new THREE.Vector3(0, 0.55, -0.1);
   private pendingTarget = new THREE.Vector3();
+  private activeTween: ActiveTweenHandle | null = null;
 
   constructor(aspect: number, tweens: TweenManager) {
     this.camera = new THREE.PerspectiveCamera(34, aspect, 0.1, 30);
@@ -60,6 +61,13 @@ export class CameraDirector {
 
   setLocked(locked: boolean): void {
     this.locked = locked;
+    if (locked && this.activeTween) {
+      // Interaction spec: camera is locked during any drag/trace — moves only
+      // between interactions. A shot transition that was still animating when
+      // the drag started must freeze in place immediately, not keep tweening.
+      this.tweens.cancel(this.activeTween);
+      this.activeTween = null;
+    }
   }
 
   get isLocked(): boolean {
@@ -102,13 +110,20 @@ export class CameraDirector {
     const fromFov = this.camera.fov;
     const p = this.presetFor(name);
     this.pendingTarget.copy(p.target);
-    this.tweens.add(durationSeconds, Easing.cubicInOut, (t) => {
-      this.camera.position.lerpVectors(from, p.position, t);
-      this.target.lerpVectors(fromTarget, this.pendingTarget, t);
-      this.camera.fov = THREE.MathUtils.lerp(fromFov, p.fov, t);
-      this.camera.updateProjectionMatrix();
-      this.camera.lookAt(this.target);
-    });
+    this.activeTween = this.tweens.add(
+      durationSeconds,
+      Easing.cubicInOut,
+      (t) => {
+        this.camera.position.lerpVectors(from, p.position, t);
+        this.target.lerpVectors(fromTarget, this.pendingTarget, t);
+        this.camera.fov = THREE.MathUtils.lerp(fromFov, p.fov, t);
+        this.camera.updateProjectionMatrix();
+        this.camera.lookAt(this.target);
+      },
+      () => {
+        this.activeTween = null;
+      },
+    );
   }
 
   /** Small idle sway for TITLE / overview shots (disabled under reduced motion). */

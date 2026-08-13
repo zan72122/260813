@@ -79,7 +79,11 @@ export function returnTray(p: LunchCleanupProgress, totalTrays = TOTAL_TRAYS): L
 }
 
 export function addWipeProgress(p: LunchCleanupProgress, delta: number): LunchCleanupProgress {
-  return { ...p, wipeProgress: Math.min(1, Math.max(0, p.wipeProgress + delta)) };
+  const next = Math.max(0, p.wipeProgress + delta);
+  // Snap values extremely close to 1 up to exactly 1 — repeated fractional deltas
+  // (e.g. summing 1/15 fifteen times) can land a hair under 1 due to float
+  // rounding, which would otherwise permanently block the ">= 1" completion gate.
+  return { ...p, wipeProgress: next > 0.999 ? 1 : Math.min(1, next) };
 }
 
 export function storeTable(p: LunchCleanupProgress): LunchCleanupProgress {
@@ -127,7 +131,11 @@ export function placeMat(p: NapSetupProgress, totalMats = TOTAL_MATS): NapSetupP
 
 /** Sets absolute unroll progress for a mat (driven directly by swipe distance — scrubbing). */
 export function setMatUnrollProgress(p: NapSetupProgress, matId: string, progress: number): NapSetupProgress {
-  const clamped = Math.min(1, Math.max(0, progress));
+  // Generous "close enough" snap to fully-unrolled — matches the game's forgiving
+  // intent-inference philosophy (and avoids a swipe landing at e.g. 0.997 due to
+  // pixel/projection rounding permanently failing the ">= 1" completion gate).
+  const raw = Math.min(1, Math.max(0, progress));
+  const clamped = raw > 0.97 ? 1 : raw;
   const prevUnrolled = (p.unrollProgress[matId] ?? 0) >= 1;
   const nowUnrolled = clamped >= 1;
   const nextMap = { ...p.unrollProgress, [matId]: clamped };
