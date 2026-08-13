@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { down, makeHarness, swipe, tap, tick, up } from './harness';
+import { down, makeHarness, move, swipe, tap, tick, up } from './harness';
 
 function anchors(h: ReturnType<typeof makeHarness>): void {
   h.anchors.set({ id: 'forge', x: 50, y: 50, r: 20, active: true });
@@ -45,6 +45,54 @@ describe('rivetCarry', () => {
     const h = makeHarness(1, { startPhase: 'rivetCarry' });
     anchors(h);
     expect(() => swipe(h, 'left')).not.toThrow();
+    expect(h.store.get().rivet.station).toBe(0);
+    expect(h.store.get().phase).toBe('rivetCarry');
+  });
+
+  // G2: a slow, deliberate rightward drag never qualifies as a fast swipe
+  // (src/input/gestures.ts would classify it as 'drag', not 'swipe'), so the
+  // phase itself must accumulate cumulative rightward displacement from raw
+  // down/move/up intents and hand off once it crosses the threshold — a
+  // careful 4-year-old must never be stuck just for not flicking.
+  it('a slow rightward drag past the handoff threshold advances the station, with no swipe intent involved', () => {
+    const h = makeHarness(1, { startPhase: 'rivetCarry' });
+    anchors(h);
+    down(h, 100, 100);
+    // Ten 7px steps = 70px net rightward — well under any swipe
+    // velocity/window threshold, but past the 60px drag-handoff threshold.
+    for (let i = 1; i <= 10; i += 1) move(h, 100 + i * 7, 100, 7, 0);
+    expect(h.store.get().rivet.station).toBe(1);
+    up(h, 170, 100);
+  });
+
+  it('a single continuous slow drag can chain both handoffs without lifting the finger', () => {
+    const h = makeHarness(1, { startPhase: 'rivetCarry' });
+    anchors(h);
+    down(h, 0, 100);
+    // 130px of continuous rightward drag in small steps: crosses the 60px
+    // threshold twice (station 0->1->2), advancing straight to rivetInsert.
+    for (let i = 1; i <= 26; i += 1) move(h, i * 5, 100, 5, 0);
+    expect(h.store.get().rivet.station).toBe(2);
+    expect(h.store.get().phase).toBe('rivetInsert');
+  });
+
+  it('a slow drag under the threshold does not advance the station', () => {
+    const h = makeHarness(1, { startPhase: 'rivetCarry' });
+    anchors(h);
+    down(h, 100, 100);
+    // Five 7px steps = 35px net rightward — stays under the 60px threshold.
+    for (let i = 1; i <= 5; i += 1) move(h, 100 + i * 7, 100, 7, 0);
+    expect(h.store.get().rivet.station).toBe(0);
+    expect(h.store.get().phase).toBe('rivetCarry');
+  });
+
+  it('a slow leftward drag is absorbed harmlessly: no state change, no crash', () => {
+    const h = makeHarness(1, { startPhase: 'rivetCarry' });
+    anchors(h);
+    down(h, 200, 100);
+    expect(() => {
+      for (let i = 1; i <= 10; i += 1) move(h, 200 - i * 7, 100, -7, 0);
+    }).not.toThrow();
     expect(h.store.get().rivet.station).toBe(0);
     expect(h.store.get().phase).toBe('rivetCarry');
   });
@@ -131,5 +179,18 @@ describe('playRivet free-play loop', () => {
     down(h, 50, 50);
     tick(h, 2000);
     expect(h.store.get().rivet.temp).toBe(1);
+  });
+
+  it('carry sub-phase also accepts a slow rightward drag (G2), not just a swipe', () => {
+    const h = makeHarness(1, { startPhase: 'playRivet' });
+    anchors(h);
+    down(h, 50, 50);
+    tick(h, 2000); // heat
+    up(h, 50, 50);
+
+    down(h, 0, 100);
+    for (let i = 1; i <= 26; i += 1) move(h, i * 5, 100, 5, 0); // 130px slow drag
+    expect(h.store.get().rivet.station).toBe(2);
+    expect(h.store.get().phase).toBe('playRivet'); // sub-phase advanced, GamePhase unchanged
   });
 });

@@ -180,3 +180,94 @@ synthesizes `GameIntent`s (`down/move/up/cancel/tap/swipe`) plus a fixed-step
    without any teardown-related failures; no `setInterval`/`setTimeout` is
    used anywhere in gameplay (all timing is driven by the externally-supplied
    `update(dtMs)` tick), so there is nothing else to leak.
+
+## Wave 6 audit fixes
+
+Two independent findings, both in the `rivetCarry` handoff gesture.
+
+### G1 [HIGH, child-ux] — swipe classification no longer averages velocity over the whole gesture
+
+**Problem:** `src/input/gestures.ts`'s `classifyGesture` used to take a
+single `{ durationMs, distPx, vx, vy }` summary computed as
+`(endX - downX) / (endT - downT)` — one average velocity over the *entire*
+down→up gesture. A correctly-aimed, decisive fast swipe-right could get
+diluted below the swipe threshold if the gesture also contained a slow start,
+a pause, or (per the finding) a stretch where events arrived in a burst after
+a stall — the average speed over the whole gesture no longer reflected the
+real, fast motion that happened within it.
+
+**Fix:** `classifyGesture` now takes the full down→up pointer-event history
+(`GesturePoint[]`, `{x, y, t}` with `t` = real `PointerEvent.timeStamp`) and
+delegates swipe detection to `detectWindowedSwipe`, which does an O(n)
+two-pointer sliding-window scan: for every sample `j`, compare it against the
+oldest sample still within `SWIPE_WINDOW_MS` (600ms) of it; if the dominant-
+axis displacement over that window reaches `SWIPE_WINDOW_MIN_DISPLACEMENT_PX`
+(40px), it's a swipe in that direction — evaluated immediately at that
+sample, independent of whatever happens before or after in the rest of the
+gesture. Because the timestamps are the browser's real per-event
+`PointerEvent.timeStamp` (captured at input time, not at JS-callback or
+render-frame time), this is immune to a rAF/main-thread hitch: a hitch delays
+*when the game renders*, never *when the browser timestamped the input*, so
+a genuinely fast 40px/600ms flick is always found regardless of how choppy
+playback was around it. `src/input/index.ts` now accumulates that history
+(pushed on down/move/up, cleared on pointerup/cancel) instead of just
+down/up; it still separately computes the whole-gesture average `vx`/`vy` for
+the swipe intent's payload only (unchanged — `hoist.ts`'s sway physics reads
+`intent.vy` for feel, that's a magnitude-of-force input, not a
+classification decision).
+
+Old `SWIPE_MIN_VELOCITY_PX_MS` (0.15px/ms average) is retired; the new
+windowed threshold (40px/600ms ≈ 0.067px/ms in the worst case, and far more
+lenient for short bursts) is at least as forgiving in every case that used
+to qualify, so no previously-working swipe regresses.
+
+Unit tests: `src/input/__tests__/gestures.test.ts` — rewrote the whole file
+for the new history-based API, and added a `detectWindowedSwipe — hitchy
+frame timing (G1)` block: a decisive 45px/80ms burst sandwiched between two
+large dt gaps (400ms, 420ms) still registers `right`; a 40px/400ms window at
+the tail of a 2200ms jank-spread gesture (whole-gesture average ≈0.02px/ms)
+still registers `right`; small jitter that never crosses the threshold in
+any window correctly stays `null`.
+
+### G2 [ROBUSTNESS, product-director] — slow deliberate drag also completes the handoff
+
+**Problem:** `rivetCarry` (and `playRivet`'s `carry` sub-phase) only reacted
+to `kind: 'swipe'` intents. A 4-year-old who drags carefully and slowly
+instead of flicking never produces a `swipe` intent at all (input classifies
+it as `drag`, which — by design — has no dedicated `GameIntent`), so the
+handoff could never fire no matter how far they dragged.
+
+**Fix:** both `createRivetCarryController` and the `carry` case inside
+`createPlayRivetController` now also track raw `down`/`move`/`up`/`cancel`
+intents directly (shared via a new local `createCarryDragTracker` helper in
+`src/game/phases/rivet.ts`): it remembers the x position where the finger
+went down and, on every `move`, checks cumulative rightward displacement
+from that baseline. Crossing `RIVET_CARRY_DRAG_HANDOFF_PX` (60px, new
+constant in `src/game/constants.ts`, unscaled — it models real finger
+travel like the existing tap/swipe pixel constants) fires the same handoff
+path as a swipe (`doCarryHandoff`, also newly extracted and shared between
+the two controllers). The baseline resets after each handoff fires, so one
+continuous ~120px drag without lifting the finger can chain both handoffs
+(station 0→1→2) straight through to `rivetInsert`. A leftward (or any
+non-rightward) drag simply never crosses the positive threshold — harmlessly
+absorbed, same spirit as a wrong-direction swipe, with no state change and no
+`assist:breathe` spam from every move sample.
+
+Unit tests, `src/game/__tests__/rivet.test.ts`:
+- slow 70px rightward drag (ten 7px steps) advances station 0→1, no swipe
+  intent involved;
+- one continuous 130px drag chains both handoffs straight to `rivetInsert`;
+- a 35px drag (under threshold) leaves station at 0;
+- a slow leftward drag is absorbed harmlessly (no throw, no state change);
+- `playRivet`'s `carry` sub-phase gets the same 130px-drag test, confirming
+  the free-play loop is exactly as forgiving as the story flow.
+
+### Regression check
+
+Full `npx vitest run`: 30 files / 221 tests, all green (existing
+`rivetCarry` swipe tests — including the wrong-direction-swipe-is-absorbed
+test — pass unmodified; `fullLoop.test.ts`'s no-dead-end-×12-phases and
+determinism tests pass unmodified). `npx tsc --noEmit` and
+`npx eslint src/game src/input` both clean. `npx playwright test full-loop
+--project=phone-portrait` (real synthesized pointer gestures end-to-end,
+including a real swipe through `rivetCarry`): 2/2 passed.

@@ -137,6 +137,23 @@
   }
 }
 
+/* U2: plays on every tap a `.hit-area` button receives, independent of
+   whether the tap's guarded action actually fires (see
+   src/ui/interaction.ts) — so a tap is never visually indistinguishable
+   from a dead button, even during the brief cooldown that guards against
+   accidental double-activation. */
+@keyframes tap-pulse-anim {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 @keyframes lever-glow-pulse {
   0%,
   100% {

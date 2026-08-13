@@ -30,6 +30,11 @@ export const RIVET_HAMMER_DEBOUNCE_MS = 250; // physical tap timing — not scal
 export const RIVET_FORGE_PAD = 36;
 export const RIVET_INSERT_PAD = 36;
 export const RIVET_HAMMER_PAD = 36;
+// A slow, deliberate rightward drag that never gets fast enough to classify
+// as a swipe still hands the rivet off once cumulative rightward movement
+// crosses this — a careful 4-year-old must never be stuck. Not scaled: it
+// models a real finger's travel, same as the tap/swipe pixel constants above.
+export const RIVET_CARRY_DRAG_HANDOFF_PX = 60;
 
 export const SLING_SLACK_MS = 500;
 export const SLING_CLASP_PAD = 36;

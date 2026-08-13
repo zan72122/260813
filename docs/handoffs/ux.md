@@ -333,3 +333,215 @@ entirely from my own paths:
   was touched this round (CSS-only), so no anchors() re-check was needed
   beyond what this E2E run already exercises.
 ```
+
+## Wave 6 audit fixes
+
+Five independent audit findings (U1–U5), all in my exclusive paths
+(`src/ui/**`, `src/styles/**`; U5 also `src/ui/**`). No other owner's files
+touched.
+
+### U1 [CRITICAL, blind-visual] — complete screen was a full-screen card-grid dashboard
+
+`VISUAL_ACCEPTANCE.md` explicitly bans full-screen card-grid dashboards
+("カード羅列は不合格"), and `.complete-menu` was exactly that: `position:
+absolute; inset: 0` with an opaque top-to-bottom iron gradient, hiding the
+finished tower/crane diorama completely — the single worst blind-visual
+failure mode named in the doc.
+
+Fix, entirely in `src/styles/components.css` + `src/styles/layout.css` +
+`src/ui/index.ts`:
+
+- `.complete-menu` is now a transparent, click-through full-viewport layer
+  (`#ui > .complete-menu { pointer-events: none; }`, same override pattern
+  already used for `.hint-layer`/`.success-flash-layer`) that only
+  positions its one child at the bottom of the frame
+  (`align-items: flex-end`).
+- The four replay buttons now live inside a new `.complete-board` — a
+  weathered-timber signboard rail (gradient wood background, dark bolted
+  frame, drop-shadow) that is the *only* opaque, pointer-events:auto part
+  of the screen. `board.append(...)` replaces the old `grid.append(...)`
+  in `src/ui/index.ts`; the four buttons keep their existing
+  `data-testid`s (`replay-same`, `replay-new`, `play-rivet`, `play-climb`)
+  and `.menu-button hit-area` sizing (still ≥72px, unchanged brass-bordered
+  iron-plate look already used for pause/back/sound controls elsewhere) —
+  reachable in ≤1 tap each from `complete`.
+- Layout: portrait keeps the board narrow (`max-width: 280px`) so the four
+  plates wrap into the same 2x2 arrangement as before; landscape widens it
+  (`max-width: min(90vw, 560px)`, `640px` on ≥700px-wide tablets) into a
+  single row, per `docs/PRODUCT_SPEC.md`'s "bottom or side band appropriate
+  to orientation" guidance — both keep the tower/crane visible above and
+  around the board rather than covered by it. The stale `.menu-grid`
+  landscape/short-landscape overrides were removed/retargeted at
+  `.complete-board`; `.menu-button`'s own colors/shape are unchanged from
+  before this round (still a dark iron+brass plate, not restyled to brass,
+  since brass would have killed the `currentColor`-based icon contrast for
+  the beam/crane pictograms).
+- Verified with a throwaway Playwright script at `390×844` and `1180×820`
+  (`?test=1&seed=42`, `window.__game.setPhase('complete')`, waiting for the
+  staggered `plate-appear` entrance animation to finish before
+  screenshotting): the tower, crane, workers and Paris skyline are all
+  clearly visible above/around the board in both screenshots; all four
+  plates render at full size and legibility inside the board; sound/pause
+  corner controls remain reachable (they sit outside `.complete-board`,
+  at the pre-existing `--z-pause` layer above `--z-menu`).
+
+### U2 [HIGH, code-perf] — complete-menu buttons could silently swallow a tap
+
+Root cause: every button's click handler was wrapped in an inline
+cooldown-gated guard (`debounced()`, local to `createUi()`, never
+extracted or unit-tested) that, when a tap landed inside its cooldown
+window (500ms for most buttons), did *nothing at all* — no state change,
+no visual response. To a 4-year-old that reads as a dead, unresponsive
+button, not "you already did that" — exactly the failure the finding
+describes ("a click can be eaten leaving the player stranded on
+'complete'").
+
+Fix: extracted the guard into a new pure, unit-tested module,
+`src/ui/interaction.ts`:
+
+- `createClickGuard(cooldownMs)` — the same time-gated latch as before,
+  now standalone and testable with an injected clock.
+- `guardedHandler(fn, { cooldownMs, onTap, now })` — wraps `fn` so `onTap`
+  fires on **every** invocation, unconditionally, *before* the guard is
+  even consulted; only the guarded action itself (`fn`) can be gated. This
+  is the actual fix: a tap can no longer be indistinguishable from a dead
+  button, because it always produces immediate feedback.
+- `debounce(fn, waitMs)` — a separate plain trailing debounce, unrelated to
+  the click guard, added for U5 (see below).
+
+`src/ui/index.ts` now wires every `hit-area` button (title-start,
+sound-toggle, pause-toggle, resume, back-to-complete, and all four
+complete-menu plates) through a small `tapHandler(el, fn, cooldownMs)`
+helper that calls `guardedHandler` with `onTap: () => pulse(el)` — `pulse`
+adds (with a forced reflow so repeats restart it) a new `.tap-pulse` class
+that plays a quick scale-down/up animation (`tap-pulse-anim` in
+`src/styles/animations.css`, using `var(--dur-fast)` so it respects
+`reduced-motion`/`test-fast` like every other animation in the game).
+Every physical tap on every button now visibly pulses, whether or not the
+guarded action fires.
+
+The buttons' actions themselves were already effectively idempotent (they
+all call `advance()`, which the frozen state machine already no-ops for an
+invalid/already-left phase), so no gameplay-affecting logic changed —
+only the guard's honesty about giving feedback.
+
+New tests: `src/ui/__tests__/interaction.test.ts` (10 tests) — cover
+`createClickGuard`'s first-call/gate/re-arm behavior, `guardedHandler`'s
+"onTap always fires, fn only fires outside cooldown" contract (the direct
+regression test for this finding), and `debounce`'s coalescing + `cancel()`.
+
+### U3 [CRITICAL, child-ux] — rivetCarry assist hint never showed
+
+Root cause confirmed by reading both sides of the anchor contract:
+`src/scene/index.ts`'s `activePhaseSet` publishes **only** `'tongs'` as
+active during `rivetCarry` (`rivetCarry: new Set(['tongs'])`), and
+Gameplay's own `targetAnchor()` for this step (`src/game/phases/rivet.ts`)
+also returns `'tongs'` — but `src/ui/hints.ts`'s `hintForPhase('rivetCarry',
+...)` targeted `workerAnchorForStation(state.rivet.station)` (a
+`worker0..3` anchor), which the renderer never marks active during this
+phase. The hint layer's old logic (`if (anchor && anchor.active) show else
+hide`) then hid the hint permanently for the entire carry step — a child
+with no reading ability and no prior knowledge of "swipe right" had zero
+guidance, forever, exactly as reported.
+
+Fix, `src/ui/hints.ts`:
+
+- `hintForPhase('rivetCarry', ...)` and the `playRivet` free-play
+  sub-state helper (`hintForRivetSubState`, the `station < 3` branch) now
+  both target `'tongs'` directly, consistent with gameplay/renderer. The
+  now-unused `workerAnchorForStation`/`WORKER_ANCHORS` helpers were
+  removed (dead code).
+- **General fallback**, per the finding's explicit ask ("add a general
+  fallback in the hint layer... nearest active anchor... rather than
+  hiding it"): a new pure function, `resolveHintAnchor(targetId,
+  allAnchors)`. If the target anchor is active, it's used as-is. If it's
+  inactive (or was never published at all), it falls back to the nearest
+  *active* anchor by squared screen distance to the target's last known
+  position — the renderer publishes a position for anchors even when it
+  marks them inactive, so "nearest" is meaningful for any anchor that has
+  ever been seen. If the target has never been published (no position to
+  measure against), it falls back to the first active anchor. Only when
+  *nothing* is active does it return `null`.
+- A new `safeHintPosition(viewport, size)` covers the `null` case: an
+  absolute on-screen fallback (horizontally centered, vertically clear of
+  both the top corner controls and the bottom thumb strip) so the hint
+  layer literally never has a "nothing to render" state once a phase has
+  declared it wants a hint.
+- `src/ui/index.ts`'s `tickHint()` now calls `resolveHintAnchor` every
+  frame instead of a raw `anchors.get(...).active` check, and always adds
+  `.visible` (there is no more "else hide" branch) — the hint layer can no
+  longer silently go dark for a live phase.
+
+Tests: `src/ui/__tests__/hints.test.ts` — the existing "follows the relay
+station for rivetCarry across all four workers" test was **retargeted**
+(not deleted) to assert `anchor: 'tongs'` at every station, with a comment
+explaining why; the `playRivet` sub-state test's carry-step expectation
+was updated the same way. Four new tests cover `resolveHintAnchor`
+(active-passthrough, nearest-active-fallback, first-active-when-no-position,
+null-when-nothing-active) and two cover `safeHintPosition`.
+
+### U4 [LOW, blind-visual] — hint pictogram could sit in the bottom thumb-rest strip
+
+`placeHintNearAnchor` already flipped above/below to avoid covering the
+anchor, but its viewport clamp only kept an 8px margin from the screen
+edges — an anchor near the bottom of the frame (a very plausible spot,
+e.g. `climbLever`/`hammerSpot` on a short viewport) could still push the
+hint's bottom edge to within a few px of the physical screen edge, right
+where a child's resting thumb or the phone's home-indicator lives.
+
+Fix, `src/ui/hints.ts`'s `placeHintNearAnchor`: replaced the flat 8px edge
+margin (vertically) with a "safe strip" of `size.h / 2 + 76` px reserved at
+both the top (clear of the sound/pause corner buttons) and bottom (clear of
+the thumb-rest strip), degrading gracefully to half the viewport height on
+very short screens so it never locks up (`minY <= maxY` always holds). The
+horizontal margin was bumped from 8px to 12px for consistency. New test:
+"keeps clear of the bottom thumb-rest strip even when the anchor sits at
+the very bottom edge". All four pre-existing `placeHintNearAnchor` tests
+still pass unchanged (verified the new margins don't shift their
+assertions).
+
+### U5 [LOW, code-perf] — orientation-class listener wasn't debounced
+
+`docs/ARCHITECTURE_CONTRACT.md`: "resize/orientationchange は debounce
+200ms". `applyOrientationClass` was wired directly to both `resize` and
+`orientationchange` with no debounce, re-classifying (and writing two
+DOM classList operations) on every single event during a drag-resize or a
+device rotation's intermediate frames.
+
+Fix: `src/ui/interaction.ts`'s new `debounce(fn, waitMs)` (plain trailing
+debounce, `cancel()`-able) wraps `applyOrientationClass` at
+`ORIENTATION_DEBOUNCE_MS = 200`. The *initial* classification at `createUi()`
+startup still runs synchronously/immediately (there's no "rapid repeat" to
+coalesce on first layout — debouncing it would only add a needless 200ms
+of wrong-orientation-class flash). `dispose()` now also calls
+`.cancel()` on the debounced listener so a pending 200ms timer can't fire
+into a torn-down UI. Tests: `debounce`'s two tests in
+`src/ui/__tests__/interaction.test.ts` (coalesces rapid calls; `cancel()`
+prevents a pending call).
+
+### Verification run for this round
+
+- `npx tsc --noEmit` — clean.
+- `npx eslint src/ui src/audio` (and `npx eslint src` for the whole repo,
+  as an extra check since this round touched shared-ish patterns) — clean.
+- `npx vitest run` — 227/227 passing project-wide (31 files), including
+  the new `src/ui/__tests__/interaction.test.ts` (10 tests) and the
+  retargeted/expanded `src/ui/__tests__/hints.test.ts` (16 tests, up from
+  9).
+- `npx vite build` + `vite preview --port 4402` + throwaway Playwright
+  scripts (`--use-angle=swiftshader --enable-unsafe-swiftshader`) against
+  `?test=1&seed=42`, driving `window.__game.setPhase(...)`, screenshotting
+  at `390×844` and `1180×820` for `complete` (U1: tower/crane/Paris
+  skyline visible around the bottom board in both orientations, all four
+  plates legible) and `rivetCarry` (U3: hint pictogram now visible, swipe-
+  right hand+arrow rendered near the tongs/forge area) — all reviewed with
+  the Read tool. Also re-shot `title` at both viewports to confirm no
+  regression from the prior visual-repair round.
+- `npx playwright test full-loop --project=phone-portrait` — 2/2 passing
+  (title → opening → … → complete real-gesture loop, and the replay-same/
+  replay-new/playRivet/playClimb loop from complete — all four exercised
+  through the new `.complete-board` markup), zero console errors.
+- `npx playwright test resilience --project=phone-portrait` — 5/5 passing
+  (not in the required checklist, but run anyway since (a) exercises an
+  orientation change mid-loop, directly touching the U5 debounce path, and
+  it passed with no stalls).

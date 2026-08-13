@@ -8,6 +8,7 @@
 import { anchorAllows } from '../anchorUtil';
 import { clamp } from '../math';
 import {
+  RIVET_CARRY_DRAG_HANDOFF_PX,
   RIVET_COOL_DURATION_MS,
   RIVET_FORGE_PAD,
   RIVET_HAMMER_DEBOUNCE_MS,
@@ -17,6 +18,7 @@ import {
   RIVET_INSERT_PAD,
 } from '../constants';
 import type { AnchorId, GamePhase } from '../../contracts/types';
+import type { GameIntent } from '../intents';
 import type { PhaseCtx, PhaseController } from '../phaseCtx';
 
 // ---- rivetHeat --------------------------------------------------------------
@@ -72,32 +74,88 @@ export function createRivetHeatController(
 }
 
 // ---- rivetCarry ---------------------------------------------------------------
+//
+// Two independent ways to hand the rivet off (either one advances the
+// station): a fast swipe-right (classified upstream in src/input/gestures.ts
+// from real pointer-event timestamps, robust to render hitches — G1), or a
+// slow, deliberate rightward drag that never gets fast enough to classify as
+// a swipe at all (G2). A 4-year-old dragging carefully must not be ignored
+// just because they didn't flick. Wrong-direction motion of either kind is
+// harmlessly absorbed: it never counts against the child, it just doesn't
+// progress the handoff.
+
+/** Shared by the real rivetCarry phase and playRivet's carry sub-loop: does
+ *  one station handoff (0->1->2) and reports whether the station is now
+ *  ready to move on to insertion. */
+function doCarryHandoff(ctx: PhaseCtx): { station: 0 | 1 | 2 | 3; ready: boolean } {
+  const state = ctx.store.get();
+  const station = Math.min(state.rivet.station + 1, 2) as 0 | 1 | 2 | 3;
+  ctx.store.update((s) => ({ rivet: { ...s.rivet, station } }));
+  ctx.bus.emit('rivet:handoff', { station });
+  return { station, ready: station >= 2 };
+}
+
+/** Tracks a drag's cumulative rightward displacement from where the finger
+ *  went down and fires `onHandoff` every time it crosses
+ *  RIVET_CARRY_DRAG_HANDOFF_PX, resetting the baseline so a single long,
+ *  continuous drag can chain multiple handoffs without lifting the finger. */
+function createCarryDragTracker(onHandoff: () => void): {
+  onIntent(intent: GameIntent): void;
+} {
+  let dragBaseX: number | null = null;
+  return {
+    onIntent(intent): void {
+      if (intent.kind === 'down') {
+        dragBaseX = intent.x;
+        return;
+      }
+      if (intent.kind === 'up' || intent.kind === 'cancel') {
+        dragBaseX = null;
+        return;
+      }
+      if (intent.kind === 'move' && dragBaseX !== null) {
+        const rightward = intent.x - dragBaseX;
+        if (rightward >= RIVET_CARRY_DRAG_HANDOFF_PX) {
+          dragBaseX = intent.x;
+          onHandoff();
+        }
+      }
+    },
+  };
+}
 
 export function createRivetCarryController(
   ctx: PhaseCtx,
   advance: (to: GamePhase) => void,
 ): PhaseController {
   let advanced = false;
+
+  function handoff(): void {
+    if (advanced) return;
+    const { ready } = doCarryHandoff(ctx);
+    if (ready) {
+      advanced = true;
+      advance('rivetInsert');
+    }
+  }
+
+  const dragTracker = createCarryDragTracker(handoff);
+
   return {
     enter(): void {
       advanced = false;
     },
     onIntent(intent): void {
-      if (advanced || intent.kind !== 'swipe') return;
+      if (advanced) return;
+      dragTracker.onIntent(intent);
+      if (intent.kind !== 'swipe') return;
       if (intent.dir !== 'right') {
         // Wrong-direction swipe: harmlessly absorbed — worker shakes head,
         // we nudge the assist highlight so the child sees where to swipe.
         ctx.bus.emit('assist:breathe', { anchor: 'tongs' });
         return;
       }
-      const state = ctx.store.get();
-      const station = Math.min(state.rivet.station + 1, 2) as 0 | 1 | 2 | 3;
-      ctx.store.update((s) => ({ rivet: { ...s.rivet, station } }));
-      ctx.bus.emit('rivet:handoff', { station });
-      if (station >= 2) {
-        advanced = true;
-        advance('rivetInsert');
-      }
+      handoff();
     },
     update(): void {
       // Purely input-driven — no passive behavior.
@@ -239,6 +297,15 @@ export function createPlayRivetController(ctx: PhaseCtx): PhaseController {
     }
   }
 
+  // Same fast-swipe-or-slow-drag handoff as rivetCarry (G1/G2) — free play
+  // must be exactly as forgiving as the story flow.
+  function carryHandoff(): void {
+    if (sub !== 'carry') return;
+    const { ready } = doCarryHandoff(ctx);
+    if (ready) sub = 'insert';
+  }
+  const dragTracker = createCarryDragTracker(carryHandoff);
+
   return {
     enter(): void {
       resetCycle();
@@ -253,16 +320,13 @@ export function createPlayRivetController(ctx: PhaseCtx): PhaseController {
           break;
         }
         case 'carry': {
+          dragTracker.onIntent(intent);
           if (intent.kind !== 'swipe') break;
           if (intent.dir !== 'right') {
             ctx.bus.emit('assist:breathe', { anchor: 'tongs' });
             break;
           }
-          const state = ctx.store.get();
-          const station = Math.min(state.rivet.station + 1, 2) as 0 | 1 | 2 | 3;
-          ctx.store.update((s) => ({ rivet: { ...s.rivet, station } }));
-          ctx.bus.emit('rivet:handoff', { station });
-          if (station >= 2) sub = 'insert';
+          carryHandoff();
           break;
         }
         case 'insert': {

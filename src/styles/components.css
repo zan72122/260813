@@ -18,6 +18,13 @@ button {
   justify-content: center;
 }
 
+/* U2: see src/ui/interaction.ts's guardedHandler — every tap plays this
+   regardless of whether the guarded action fires, so a button is never
+   visually indistinguishable from a dead one. */
+.tap-pulse {
+  animation: tap-pulse-anim var(--dur-fast) var(--ease-out);
+}
+
 :focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
@@ -215,9 +222,12 @@ button {
   align-items: center;
   justify-content: center;
   /* Integrator (Wave 4) fix: sound-toggle/pause-toggle previously had no
-   * z-index, so .complete-menu's opaque z-index:40 layer fully covered and
+   * z-index, so .complete-menu's z-index:40 layer fully covered and
    * pointer-blocked them on the replay screen (sound-toggle is meant to be
-   * reachable in every phase, per its render() logic never hiding it).
+   * reachable in every phase, per its render() logic never hiding it). Still
+   * needed after the U1 rework made .complete-menu click-through/mostly
+   * transparent (only its .complete-board is opaque+interactive) — these
+   * corner controls sit outside the board and must keep winning regardless.
    * Sits below --z-pause (60) so the pause overlay still wins over these
    * while paused, matching the documented pause contract. */
   z-index: var(--z-pause);
@@ -462,34 +472,60 @@ button {
   opacity: 0.18;
 }
 
-/* ---------- complete menu -------------------------------------------------- */
+/* ---------- complete menu ---------------------------------------------------
+   VISUAL_ACCEPTANCE bans full-screen card-grid dashboards ("カード羅列は不合
+   格"). The finished tower/crane diorama must stay fully visible behind the
+   replay choices — same "transparent center" language as the title screen
+   (see the .screen-title comment above). `.complete-menu` itself is a
+   click-through full-viewport layer (background: none, pointer-events:
+   none); only `.complete-board` — a wooden signboard rail bolted along the
+   bottom of the frame — paints anything or accepts taps. The tower stays
+   visible above, beside, and (mostly) through the board's own translucency. */
+
+#ui > .complete-menu {
+  /* Outranks base.css's `#ui > * { pointer-events: auto }` (an ID-selector
+     rule) the same way the hint-layer/success-flash overrides above do. */
+  pointer-events: none;
+}
 
 .complete-menu {
   position: absolute;
   inset: 0;
   z-index: var(--z-menu);
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  gap: clamp(1rem, 4vh, 2rem);
-  background: linear-gradient(180deg, var(--iron-900), var(--bg-scene));
-  padding: max(1.25rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))
-    max(1.25rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }
 
 .complete-menu[hidden] {
   display: none;
 }
 
-.menu-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 160px));
+.complete-board {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-end;
+  justify-content: center;
   gap: var(--gap-min);
+  max-width: min(94vw, 400px);
+  padding: 0.85rem;
+  border-radius: var(--radius-plate);
+  /* Weathered timber plank, not a UI panel: warm wood gradient, a dark
+     bolted frame, and a bottom "drop shadow" edge so it reads as an object
+     mounted at the base of the tower rather than a dashboard laid over it. */
+  background: linear-gradient(180deg, var(--timber-500), var(--timber-700));
+  border: 3px solid var(--iron-950);
+  box-shadow:
+    0 8px 0 rgba(0, 0, 0, 0.35),
+    0 16px 28px var(--shadow-deep),
+    inset 0 2px 0 rgba(255, 255, 255, 0.08);
 }
 
 .menu-button {
-  width: 100%;
+  width: min(26vw, 120px);
   aspect-ratio: 1;
   min-width: var(--hit-min);
   min-height: var(--hit-min);
@@ -530,12 +566,9 @@ button {
 }
 
 /* ---------- orientation-aware layouts ------------------------------------ */
-
-@media (orientation: landscape) and (min-aspect-ratio: 4/3) {
-  .menu-grid {
-    grid-template-columns: repeat(4, minmax(96px, 140px));
-  }
-}
+/* .complete-board's own flex-wrap + max-width (src/styles/layout.css) already
+   widens to a single row in landscape, so no separate grid-columns override
+   is needed here the way the old `.menu-grid` required. */
 
 @media (max-height: 420px) {
   .title-plate,

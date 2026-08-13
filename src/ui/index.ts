@@ -1,17 +1,18 @@
 // src/ui/index.ts — UX module (owner: UX, src/ui/**).
 // DOM overlay: loading gauge, title plate, hint layer, success flashes,
 // complete menu, pause overlay, sound toggle. Pure logic lives in
-// hints.ts/pictograms.ts/storage.ts/layout.ts (unit-tested); this file wires
-// it to the DOM/store/bus and is intentionally thin at the DOM-plumbing
-// level per docs/ARCHITECTURE_CONTRACT.md's testability split.
+// hints.ts/pictograms.ts/storage.ts/layout.ts/interaction.ts (unit-tested);
+// this file wires it to the DOM/store/bus and is intentionally thin at the
+// DOM-plumbing level per docs/ARCHITECTURE_CONTRACT.md's testability split.
 
 import { advance, beamShapeFor, mulberry32 } from '../contracts/machine';
 import type { AnchorRegistry } from '../contracts/anchors';
 import type { EventBus } from '../contracts/bus';
 import type { GameStore } from '../contracts/store';
 import type { AnchorId, GamePhase, GameState } from '../contracts/types';
-import { placeHintNearAnchor, hintForPhase } from './hints';
+import { placeHintNearAnchor, hintForPhase, resolveHintAnchor, safeHintPosition } from './hints';
 import type { HintTarget } from './hints';
+import { debounce, guardedHandler } from './interaction';
 import { orientationClassName, selectOrientation } from './layout';
 import {
   backArrowIcon,
@@ -34,6 +35,7 @@ export interface UiHandle {
 
 const HINT_SIZE = { w: 88, h: 88 };
 const CLICK_COOLDOWN_MS = 500;
+const ORIENTATION_DEBOUNCE_MS = 200;
 
 /** Bus events that deserve a same-frame success ripple, and where to anchor it
  * (undefined => a full-screen warm wash instead of a localized ring). */
@@ -67,17 +69,24 @@ export function createUi(o: {
     timers.add(id);
   }
 
-  function debounced(fn: () => void, cooldownMs = CLICK_COOLDOWN_MS): () => void {
-    // -Infinity (not 0) so the very first call is never swallowed — a click
-    // arriving within `cooldownMs` of navigation start would otherwise look
-    // "too soon after time zero" against performance.now().
-    let last = -Infinity;
-    return () => {
-      const now = performance.now();
-      if (now - last < cooldownMs) return;
-      last = now;
-      fn();
-    };
+  // U2 fix: a bare cooldown-gated handler used to swallow a tap completely
+  // (no state change, no visual response) whenever it landed inside the
+  // cooldown window — indistinguishable, to a 4-year-old, from a dead
+  // button. `tapHandler` guarantees the button always pulses immediately on
+  // every tap (see `.tap-pulse` in components.css) via `guardedHandler`'s
+  // unconditional `onTap`, while the guard itself (see src/ui/interaction.ts,
+  // unit-tested) only ever gates the *action* against accidental duplicate
+  // activation — never the feedback.
+  function pulse(el: HTMLElement): void {
+    el.classList.remove('tap-pulse');
+    // Force a reflow so re-adding the class restarts the animation even if
+    // a previous pulse is still finishing.
+    void el.offsetWidth;
+    el.classList.add('tap-pulse');
+  }
+
+  function tapHandler(el: HTMLElement, fn: () => void, cooldownMs = CLICK_COOLDOWN_MS): () => void {
+    return guardedHandler(fn, { cooldownMs, onTap: () => pulse(el) });
   }
 
   // ------------------------------------------------------------------ loading
@@ -109,7 +118,7 @@ export function createUi(o: {
   title.appendChild(startButton);
   root.appendChild(title);
 
-  const onStartClick = debounced(() => {
+  const onStartClick = tapHandler(startButton, () => {
     advance(store, bus, 'opening');
   });
   startButton.addEventListener('click', onStartClick);
@@ -138,7 +147,7 @@ export function createUi(o: {
   }
   renderSoundToggle(store.get().audio.muted);
 
-  const onSoundToggle = debounced(() => {
+  const onSoundToggle = tapHandler(soundToggle, () => {
     const audio = store.get().audio;
     const muted = !audio.muted;
     store.set({ audio: { ...audio, muted } });
@@ -192,9 +201,9 @@ export function createUi(o: {
     (window as unknown as { __uiPaused?: boolean }).__uiPaused = paused;
   }
 
-  const onPauseToggle = debounced(() => setPaused(!paused), 300);
+  const onPauseToggle = tapHandler(pauseToggle, () => setPaused(!paused), 300);
   pauseToggle.addEventListener('click', onPauseToggle);
-  const onResume = debounced(() => setPaused(false), 300);
+  const onResume = tapHandler(resumeButton, () => setPaused(false), 300);
   resumeButton.addEventListener('click', onResume);
 
   const HIDE_PAUSE_ON: ReadonlySet<GamePhase> = new Set(['loading', 'title', 'complete']);
@@ -209,7 +218,7 @@ export function createUi(o: {
   backButton.innerHTML = backArrowIcon();
   root.appendChild(backButton);
 
-  const onBack = debounced(() => {
+  const onBack = tapHandler(backButton, () => {
     advance(store, bus, 'complete');
   });
   backButton.addEventListener('click', onBack);
@@ -231,19 +240,21 @@ export function createUi(o: {
   function tickHint(): void {
     hintRaf = 0;
     if (!currentHintTarget) return;
-    const anchor = anchors.get(currentHintTarget.anchor);
-    if (anchor && anchor.active) {
-      const viewport = { w: root.clientWidth || window.innerWidth, h: root.clientHeight || window.innerHeight };
-      const pos = placeHintNearAnchor(anchor, viewport, HINT_SIZE);
-      if (pos.x !== lastHintX || pos.y !== lastHintY) {
-        hintPictogram.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
-        lastHintX = pos.x;
-        lastHintY = pos.y;
-      }
-      hintPictogram.classList.add('visible');
-    } else {
-      hintPictogram.classList.remove('visible');
+    const viewport = { w: root.clientWidth || window.innerWidth, h: root.clientHeight || window.innerHeight };
+    // U3 general fallback: the hint's declared target anchor may be inactive
+    // or never published (e.g. a phase/anchor mismatch like the rivetCarry
+    // bug this round fixed at the source, or simply a frame where the
+    // renderer hasn't published yet) — resolveHintAnchor finds the nearest
+    // active anchor instead of leaving the child with zero guidance, and
+    // safeHintPosition covers the case where nothing at all is active yet.
+    const resolved = resolveHintAnchor(currentHintTarget.anchor, anchors.all());
+    const pos = resolved ? placeHintNearAnchor(resolved, viewport, HINT_SIZE) : safeHintPosition(viewport, HINT_SIZE);
+    if (pos.x !== lastHintX || pos.y !== lastHintY) {
+      hintPictogram.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+      lastHintX = pos.x;
+      lastHintY = pos.y;
     }
+    hintPictogram.classList.add('visible');
     hintRaf = window.requestAnimationFrame(tickHint);
   }
 
@@ -328,6 +339,14 @@ export function createUi(o: {
 
   // ------------------------------------------------------------------ complete menu
 
+  // U1 fix: VISUAL_ACCEPTANCE bans full-screen card-grid dashboards. The
+  // completed tower diorama must stay visible behind the replay choices, so
+  // `.complete-menu` is a transparent, click-through overlay (see
+  // components.css) and only its inner `.complete-board` — a bottom-anchored
+  // wooden signboard rail carrying the four brass plates — actually
+  // intercepts taps. The board sits in a bottom band on every orientation
+  // (portrait: 2x2 wrap; landscape: single row — see layout.css), leaving
+  // the tower/crane fully visible above and around it.
   const completeMenu = document.createElement('div');
   completeMenu.className = 'complete-menu';
   completeMenu.hidden = true;
@@ -342,14 +361,14 @@ export function createUi(o: {
     return button;
   }
 
-  const grid = document.createElement('div');
-  grid.className = 'menu-grid';
+  const board = document.createElement('div');
+  board.className = 'complete-board';
   const replaySameBtn = menuButton('replay-same', 'replay same beam', sameBeamIcon());
   const replayNewBtn = menuButton('replay-new', 'replay new beam', differentBeamIcon());
   const playRivetBtn = menuButton('play-rivet', 'play rivet', glowingRivetIcon());
   const playClimbBtn = menuButton('play-climb', 'play climb', climbingCraneIcon());
-  grid.append(replaySameBtn, replayNewBtn, playRivetBtn, playClimbBtn);
-  completeMenu.appendChild(grid);
+  board.append(replaySameBtn, replayNewBtn, playRivetBtn, playClimbBtn);
+  completeMenu.appendChild(board);
   root.appendChild(completeMenu);
 
   // Deterministic "new seed" generator: reseeded from the session's initial
@@ -357,19 +376,19 @@ export function createUi(o: {
   // replay-new presses.
   const seedRand = mulberry32(store.get().seed ^ 0x51ed5eed);
 
-  const onReplaySame = debounced(() => {
+  const onReplaySame = tapHandler(replaySameBtn, () => {
     advance(store, bus, 'opening');
   });
-  const onReplayNew = debounced(() => {
+  const onReplayNew = tapHandler(replayNewBtn, () => {
     const nextSeed = Math.floor(seedRand() * 1_000_000);
     const { towerLevel } = store.get();
     store.set({ seed: nextSeed, beamShape: beamShapeFor(nextSeed, towerLevel) });
     advance(store, bus, 'opening');
   });
-  const onPlayRivet = debounced(() => {
+  const onPlayRivet = tapHandler(playRivetBtn, () => {
     advance(store, bus, 'playRivet');
   });
-  const onPlayClimb = debounced(() => {
+  const onPlayClimb = tapHandler(playClimbBtn, () => {
     advance(store, bus, 'playClimb');
   });
   replaySameBtn.addEventListener('click', onReplaySame);
@@ -384,9 +403,14 @@ export function createUi(o: {
     root.classList.remove('orientation-portrait', 'orientation-landscape');
     root.classList.add(orientationClassName(orientation));
   }
+  // U5: docs/ARCHITECTURE_CONTRACT.md requires resize/orientationchange to be
+  // debounced 200ms. The initial classification runs immediately (there is
+  // no "rapid repeat" to coalesce on first layout); only the event listeners
+  // are debounced.
   applyOrientationClass();
-  window.addEventListener('resize', applyOrientationClass);
-  window.addEventListener('orientationchange', applyOrientationClass);
+  const applyOrientationClassDebounced = debounce(applyOrientationClass, ORIENTATION_DEBOUNCE_MS);
+  window.addEventListener('resize', applyOrientationClassDebounced);
+  window.addEventListener('orientationchange', applyOrientationClassDebounced);
 
   // ------------------------------------------------------------------ phase-driven render
 
@@ -420,8 +444,9 @@ export function createUi(o: {
     timers.clear();
     if (hintRaf) window.cancelAnimationFrame(hintRaf);
 
-    window.removeEventListener('resize', applyOrientationClass);
-    window.removeEventListener('orientationchange', applyOrientationClass);
+    applyOrientationClassDebounced.cancel();
+    window.removeEventListener('resize', applyOrientationClassDebounced);
+    window.removeEventListener('orientationchange', applyOrientationClassDebounced);
 
     startButton.removeEventListener('click', onStartClick);
     soundToggle.removeEventListener('click', onSoundToggle);

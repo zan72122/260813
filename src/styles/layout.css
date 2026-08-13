@@ -3,7 +3,9 @@
    concerns (widget look vs. screen layout) don't tangle. */
 
 /* Portrait phones: keep the pause/sound corner controls and the back button
-   from crowding the safe-area on very narrow screens. */
+   from crowding the safe-area on very narrow screens. The replay board sits
+   in a bottom band (see components.css); on narrow screens its four plates
+   wrap into 2x2, matching the width budget used previously. */
 @media (orientation: portrait) {
   .sound-toggle {
     right: max(0.75rem, env(safe-area-inset-right));
@@ -13,15 +15,14 @@
     left: max(0.75rem, env(safe-area-inset-left));
   }
 
-  .menu-grid {
-    grid-template-columns: repeat(2, minmax(110px, 1fr));
-    max-width: 420px;
+  .complete-board {
+    max-width: 280px;
   }
 }
 
-/* Landscape: corner controls sit inline with the safe-area, and the complete
-   menu spreads into a single row so nothing competes with the crane view
-   which stays visible through the scene canvas. */
+/* Landscape: corner controls sit inline with the safe-area, and the replay
+   board widens into a single row along the bottom so nothing competes with
+   the crane view, which stays visible through the rest of the frame. */
 @media (orientation: landscape) {
   .screen-title {
     padding-left: max(2rem, env(safe-area-inset-left));
@@ -32,25 +33,31 @@
     padding-top: max(0.75rem, env(safe-area-inset-top));
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
+
+  .complete-board {
+    max-width: min(90vw, 560px);
+  }
 }
 
-/* Very short landscape (phones on their side): shrink vertical rhythm so the
-   4-up menu and title plate never get clipped. */
+/* Very short landscape (phones on their side): shrink the board's padding
+   and gap so the row of four plates never gets clipped against the top of
+   the frame. */
 @media (orientation: landscape) and (max-height: 400px) {
-  .complete-menu {
-    gap: 0.75rem;
+  .complete-board {
+    padding: 0.5rem;
+    gap: 0.6rem;
   }
 
-  .menu-grid {
-    grid-template-columns: repeat(4, minmax(84px, 120px));
-    gap: 0.75rem;
+  .menu-button {
+    width: min(18vw, 92px);
   }
 }
 
 /* Tablet-sized canvases: give the brass plate and menu tiles a bit more
    breathing room since --hit-min stays the same physical size. */
 @media (min-width: 700px) {
-  .menu-grid {
-    gap: 1.5rem;
+  .complete-board {
+    gap: 1.25rem;
+    max-width: min(90vw, 640px);
   }
 }

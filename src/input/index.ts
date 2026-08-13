@@ -6,6 +6,7 @@
 // ignored entirely (no multi-touch effects, no double-fire).
 
 import { classifyGesture } from './gestures';
+import type { GesturePoint } from './gestures';
 import type { GameIntent } from '../game/intents';
 
 export interface PointerInputHandle {
@@ -24,6 +25,10 @@ export function createPointerInput(o: {
   let downT = 0;
   let lastX = 0;
   let lastY = 0;
+  // Full down->up sample history (real event timestamps) so swipe
+  // classification can scan a sliding window instead of averaging velocity
+  // over the whole gesture — see gestures.ts for why that matters.
+  let history: GesturePoint[] = [];
 
   function onPointerDown(e: PointerEvent): void {
     if (activePointerId !== null || !e.isPrimary) return;
@@ -31,6 +36,7 @@ export function createPointerInput(o: {
     downX = lastX = e.clientX;
     downY = lastY = e.clientY;
     downT = e.timeStamp;
+    history = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
     onIntent({ kind: 'down', x: e.clientX, y: e.clientY, t: e.timeStamp });
   }
 
@@ -41,6 +47,7 @@ export function createPointerInput(o: {
     lastX = e.clientX;
     lastY = e.clientY;
     if (dx === 0 && dy === 0) return;
+    history.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
     onIntent({ kind: 'move', x: e.clientX, y: e.clientY, dx, dy, t: e.timeStamp });
   }
 
@@ -49,17 +56,23 @@ export function createPointerInput(o: {
     activePointerId = null;
 
     if (cancelled) {
+      history = [];
       onIntent({ kind: 'cancel', t: e.timeStamp });
       return;
     }
 
     onIntent({ kind: 'up', x: e.clientX, y: e.clientY, t: e.timeStamp });
 
+    history.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
     const durationMs = e.timeStamp - downT;
-    const distPx = Math.hypot(e.clientX - downX, e.clientY - downY);
+    // Whole-gesture average velocity: kept only for the swipe payload (e.g.
+    // hoist's sway physics wants a feel-based px/ms), never for deciding
+    // swipe-vs-not — that decision now belongs to classifyGesture's windowed
+    // scan over `history`.
     const vx = durationMs > 0 ? (e.clientX - downX) / durationMs : 0;
     const vy = durationMs > 0 ? (e.clientY - downY) / durationMs : 0;
-    const gesture = classifyGesture({ durationMs, distPx, vx, vy });
+    const gesture = classifyGesture(history);
+    history = [];
 
     if (gesture.kind === 'tap') {
       onIntent({ kind: 'tap', x: e.clientX, y: e.clientY, t: e.timeStamp });
