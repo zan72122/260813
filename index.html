@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+<meta name="theme-color" content="#8fb4dd">
+<meta name="description" content="きりに じぶんの かげを だして、あたまに にじの わを つける あそび。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>かげに にじの おうかん</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23ffb7d0' stroke-width='3'/><circle cx='16' cy='16' r='7' fill='none' stroke='%2390d8ff' stroke-width='3'/></svg>">
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="ui">
+  <!-- growth beads: one lights up for each ring that appears -->
+  <div id="beads" class="beads hidden">
+    <span class="bead"></span><span class="bead"></span>
+    <span class="bead"></span><span class="bead"></span>
+  </div>
+
+  <div id="hint" class="hint hidden">
+    <div class="hand" id="hand"><span class="finger"></span></div>
+    <p id="hintText"></p>
+  </div>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <div id="title" class="screen">
+    <div class="titleCard">
+      <h1>かげに<br><em>にじの おうかん</em></h1>
+      <p class="lead">きりに じぶんの かげを だして<br>あたまに にじの わを つけよう</p>
+      <p class="pick">だれで あそぶ？</p>
+      <div id="picker" class="picker"></div>
+    </div>
+  </div>
+
+  <div id="finale" class="screen finale hidden">
+    <div class="finaleCard">
+      <h2>わあ！ きれい！</h2>
+      <p>じぶんの かげに にじの おうかん</p>
+      <button id="again" class="big">もういちど</button>
+      <button id="others" class="ghost">べつの こ</button>
+    </div>
+  </div>
+
+  <button id="sound" class="chip" aria-label="おと">♪</button>
+
+  <div id="oops" class="screen hidden">
+    <div class="titleCard">
+      <h1>ごめんね</h1>
+      <p class="lead">この ブラウザでは あそべません<br>(WebGL2 が ひつよう です)</p>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

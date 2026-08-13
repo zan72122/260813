@@ -1,0 +1,200 @@
+:root{
+  --ink:#2c2a44;
+  --paper:rgba(255,255,255,.86);
+  --pink:#ff9fc0;
+  --sky:#8fd6ff;
+  --violet:#b9a6ff;
+  --gold:#ffd489;
+  --pad: max(14px, env(safe-area-inset-top));
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+
+html,body{
+  height:100%; width:100%; overflow:hidden; position:fixed; overscroll-behavior:none;
+  background:#7fa8d4;
+  font-family:"Hiragino Maru Gothic ProN","ヒラギノ丸ゴ ProN","Yu Gothic","YuGothic",
+              "Rounded Mplus 1c",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:var(--ink);
+  -webkit-text-size-adjust:100%;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+}
+
+#stage{ position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+
+/* Only the things a finger should actually hit take pointer events, so the
+   canvas keeps receiving drags everywhere else. */
+#ui{ position:fixed; inset:0; pointer-events:none; }
+#ui .titleCard, #ui .finaleCard, #ui .chip, #title{ pointer-events:auto; }
+.hidden{ display:none !important; }
+
+/* ---------------------------------------------------------------- hint --- */
+.hint{
+  position:absolute; left:50%; transform:translateX(-50%);
+  bottom:calc(env(safe-area-inset-bottom) + 3.2vmin);
+  display:flex; align-items:center; gap:2.4vmin;
+  padding:1.8vmin 4vmin; border-radius:99px;
+  background:var(--paper); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  box-shadow:0 .8vmin 3vmin rgba(40,40,90,.22);
+  pointer-events:none; max-width:92vw;
+  animation:pop .45s cubic-bezier(.2,1.4,.5,1) both;
+}
+.hint p{
+  font-size:clamp(17px, 4.4vmin, 34px); font-weight:800; letter-spacing:.02em;
+  white-space:nowrap;
+}
+
+/* animated finger cue */
+.hand{ position:relative; width:7vmin; height:7vmin; min-width:30px; min-height:30px; flex:none; }
+.finger{
+  position:absolute; inset:0; border-radius:50%;
+  background:linear-gradient(160deg,#fff,#ffd9e6);
+  box-shadow:0 0 0 .6vmin rgba(255,159,192,.45), 0 .4vmin 1vmin rgba(0,0,0,.15);
+}
+.hand.drag .finger{ animation:swing 1.9s ease-in-out infinite; }
+.hand.swipe .finger{ animation:slide 1.7s ease-in-out infinite; }
+.hand.press .finger{ animation:press 1.5s ease-in-out infinite; }
+
+@keyframes swing{
+  0%,100%{ transform:translate(-24%, 12%) }
+  35%{ transform:translate(26%, -14%) }
+  70%{ transform:translate(10%, 18%) }
+}
+@keyframes slide{
+  0%,100%{ transform:translateX(-32%) }
+  50%{ transform:translateX(32%) }
+}
+@keyframes press{
+  0%,100%{ transform:scale(1); box-shadow:0 0 0 .6vmin rgba(255,159,192,.45) }
+  50%{ transform:scale(.82); box-shadow:0 0 0 2.4vmin rgba(255,159,192,.22) }
+}
+@keyframes pop{ from{ opacity:0; transform:translateX(-50%) translateY(1.6vmin) scale(.92) } }
+
+/* --------------------------------------------------------------- beads --- */
+.beads{
+  position:absolute; top:calc(var(--pad) + 1vmin); left:50%; transform:translateX(-50%);
+  display:flex; gap:1.6vmin; pointer-events:none;
+}
+.bead{
+  width:2.6vmin; height:2.6vmin; min-width:12px; min-height:12px; border-radius:50%;
+  background:rgba(255,255,255,.30); box-shadow:inset 0 0 0 .35vmin rgba(255,255,255,.5);
+  transition:background .5s ease, transform .5s cubic-bezier(.2,1.6,.4,1), box-shadow .5s;
+}
+.bead.on{ transform:scale(1.32); box-shadow:0 0 2.4vmin rgba(255,255,255,.9); }
+.bead:nth-child(1).on{ background:var(--sky); }
+.bead:nth-child(2).on{ background:var(--violet); }
+.bead:nth-child(3).on{ background:var(--pink); }
+.bead:nth-child(4).on{ background:var(--gold); }
+
+/* -------------------------------------------------------------- banner --- */
+.banner{
+  position:absolute; left:50%; top:26%; transform:translate(-50%,-50%);
+  font-size:clamp(24px, 7vmin, 62px); font-weight:900; color:#fff;
+  text-shadow:0 .4vmin 2vmin rgba(60,40,90,.55), 0 0 6vmin rgba(255,220,255,.8);
+  pointer-events:none; white-space:nowrap;
+  animation:bannerIn 2.6s ease-out both;
+}
+@keyframes bannerIn{
+  0%{ opacity:0; transform:translate(-50%,-50%) scale(.7) }
+  16%{ opacity:1; transform:translate(-50%,-50%) scale(1.06) }
+  28%{ transform:translate(-50%,-50%) scale(1) }
+  78%{ opacity:1 }
+  100%{ opacity:0 }
+}
+
+/* -------------------------------------------------------------- screens --- */
+.screen{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:calc(var(--pad) + 2vmin) 4vmin;
+  background:radial-gradient(120% 90% at 50% 40%, rgba(30,34,70,.18), rgba(30,34,70,.42));
+  animation:fadeIn .5s ease both;
+}
+@keyframes fadeIn{ from{ opacity:0 } }
+
+.titleCard,.finaleCard{
+  background:var(--paper); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+  border-radius:5vmin; padding:3.6vmin 4vmin;
+  box-shadow:0 2vmin 6vmin rgba(30,30,80,.3);
+  text-align:center; max-width:min(470px, 90vw);
+}
+h1{
+  font-size:clamp(24px, 7.4vmin, 52px); line-height:1.25; font-weight:900;
+}
+h1 em{
+  font-style:normal;
+  background:linear-gradient(90deg,#7fc9ff,#b9a6ff,#ff9fc0,#ffd489);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+h2{ font-size:clamp(22px, 6.6vmin, 46px); font-weight:900; }
+.lead{ margin-top:2vmin; font-size:clamp(14px, 3.6vmin, 24px); line-height:1.6; font-weight:700; opacity:.85; }
+.pick{ margin-top:3.4vmin; font-size:clamp(15px, 4vmin, 26px); font-weight:800; }
+.finaleCard p{ margin-top:1.6vmin; font-size:clamp(14px, 3.8vmin, 24px); font-weight:700; opacity:.85; }
+
+.picker{ margin-top:1.6vmin; display:flex; gap:1vmin; justify-content:center; flex-wrap:nowrap; }
+.pickBtn{
+  flex:1 1 0; min-width:0; max-width:104px; border:0; background:transparent; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; gap:.4vmin;
+  border-radius:3vmin; padding:1vmin .4vmin; transition:transform .18s ease, background .18s;
+}
+.pickBtn:hover,.pickBtn:focus-visible{ background:rgba(255,255,255,.7); transform:translateY(-.6vmin); }
+.pickBtn:active{ transform:scale(.94); }
+.pickBtn canvas{
+  width:100%; aspect-ratio:2/3; object-fit:contain;
+  filter:drop-shadow(0 .6vmin 1vmin rgba(60,50,110,.28));
+}
+.pickBtn span{ font-size:clamp(11px, 2.6vmin, 17px); font-weight:800; }
+
+.big{
+  margin-top:3.4vmin; border:0; cursor:pointer;
+  font:inherit; font-weight:900; font-size:clamp(18px, 5vmin, 32px);
+  color:#3a2a4a; padding:2.4vmin 7vmin; border-radius:99px;
+  background:linear-gradient(100deg,#ffe6f1,#e8f3ff 45%,#fff3d6);
+  box-shadow:0 1.2vmin 0 rgba(160,140,200,.35), 0 2vmin 4vmin rgba(40,30,90,.28);
+  transition:transform .14s ease, box-shadow .14s ease;
+}
+.big:active{ transform:translateY(.8vmin); box-shadow:0 .4vmin 0 rgba(160,140,200,.35); }
+
+.ghost{
+  display:block; margin:1.6vmin auto 0; border:0; background:transparent; cursor:pointer;
+  font:inherit; font-weight:800; font-size:clamp(12px, 3vmin, 19px);
+  color:#6b6390; opacity:.8; padding:1vmin 2vmin; border-radius:99px;
+}
+.ghost:active{ transform:scale(.94); }
+
+.chip{
+  position:absolute; top:var(--pad); right:max(14px, env(safe-area-inset-right));
+  width:11vmin; height:11vmin; min-width:44px; min-height:44px; max-width:64px; max-height:64px;
+  border:0; border-radius:50%; cursor:pointer;
+  background:rgba(255,255,255,.55); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  color:var(--ink); font-size:clamp(16px, 4.4vmin, 26px); font-weight:900;
+  box-shadow:0 .6vmin 2vmin rgba(40,40,90,.2);
+}
+.chip.off{ opacity:.45; text-decoration:line-through; }
+
+.finale{ background:none; align-items:flex-end; padding-bottom:calc(env(safe-area-inset-bottom) + 4vmin); }
+.finaleCard{ padding:3.6vmin 5vmin; }
+
+/* Landscape: the child stands low and centre, so the finale card moves aside
+   instead of sitting on top of them. */
+@media (orientation:landscape){
+  .finale{
+    align-items:center; justify-content:flex-end;
+    padding:2vmin max(2vmin, env(safe-area-inset-right)) 2vmin 2vmin;
+  }
+  .finaleCard{ max-width:min(380px, 44vw); }
+}
+
+/* Landscape phones: keep the card compact so the picture stays visible. */
+@media (orientation:landscape) and (max-height:520px){
+  .titleCard,.finaleCard{ padding:3vmin 4vmin; border-radius:4vmin; }
+  .picker{ gap:1.4vmin; }
+  .pickBtn{ width:min(16vmin, 92px); }
+  .lead{ margin-top:1.2vmin; }
+  .pick{ margin-top:1.8vmin; }
+  .big{ margin-top:2vmin; padding:1.8vmin 6vmin; }
+  .hint{ bottom:calc(env(safe-area-inset-bottom) + 2vmin); padding:1.4vmin 3.4vmin; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .finger,.banner,.hint,.screen{ animation:none !important; }
+}
