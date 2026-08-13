@@ -7,11 +7,12 @@ import {
   SafeArea,
   computeCardRect,
   isInsideCard,
+  isLandscape,
   pointToCardUv,
   rectBottom,
   rectTop,
 } from '../core/layout';
-import { clamp, damp, lerp } from '../core/math';
+import { clamp, damp, easeOutBack, lerp } from '../core/math';
 import { TiltController, deviceTiltSupported, mapDragToTilt } from '../core/tilt';
 import { Renderer } from '../gl/renderer';
 import {
@@ -92,6 +93,7 @@ export class Game {
   private embossTarget = 0;
   private punch = 0;
   private reveal = 0;
+  private entrance = 1;
   private spin = 0;
   private spinTarget = 0;
   private clock = 0;
@@ -304,6 +306,10 @@ export class Game {
   startRun(): void {
     sfx.unlock();
     sfx.tap();
+    // iOS only grants motion access from inside a user gesture. Asking here,
+    // on a deliberate button press, means physical tilt is already working by
+    // the time the finished card appears - no small button to hunt for.
+    if (!this.tilt.deviceEnabled) void this.enableDeviceTilt();
     this.build = emptyBuild();
     this.renderer.clearFoil();
     this.coverage = 0;
@@ -422,6 +428,7 @@ export class Game {
   private enterFinish(): void {
     this.setPhase('finish');
     this.reveal = 0;
+    this.entrance = 0;
     this.spin = -0.85;
     this.spinTarget = 0;
     sfx.fanfare();
@@ -446,12 +453,13 @@ export class Game {
     }, 1700) as unknown as number;
   }
 
+  /** Ask for motion access. Safe to call more than once; a refusal just leaves
+   *  the finger-drag tilt in charge, which works everywhere. */
   async enableDeviceTilt(): Promise<void> {
     const ok = await this.tilt.enableDeviceTilt();
     if (ok && this.tiltBtn) {
       this.tiltBtn.textContent = '✅';
       this.tiltBtn.disabled = true;
-      sfx.sparkle(3, 4);
     }
   }
 
@@ -550,7 +558,10 @@ export class Game {
   layout(): void {
     this.vw = globalThis.innerWidth || 375;
     this.vh = globalThis.innerHeight || 667;
-    const titleish = this.phase === 'title';
+    const landscape = isLandscape(this.vw, this.vh);
+    // The title screen needs a headline above the card, but only in portrait -
+    // in landscape the headline sits in the side column and costs no height.
+    const titleish = this.phase === 'title' && !landscape;
     this.rect = computeCardRect(this.vw, this.vh, this.safe, {
       top: titleish ? Math.max(70, this.vh * 0.13) : 0,
       bottom: titleish ? Math.max(10, this.vh * 0.02) : 0,
@@ -558,14 +569,39 @@ export class Game {
     });
     this.renderer.resize(this.vw, this.vh, FAST ? 1 : 2);
 
-    // Bands hug the card instead of using fixed offsets, so nothing ever
+    // Bands hug the card rather than using fixed offsets, so nothing ever
     // overlaps it regardless of orientation or notch size.
-    const top = rectTop(this.rect);
-    const bottom = rectBottom(this.rect);
-    const aboveGap = `${Math.max(6, this.vh - top + 10)}px`;
-    for (const a of this.aboveEls) a.style.bottom = aboveGap;
-    for (const b of this.belowEls) {
-      b.style.top = `${Math.min(this.vh - 78, bottom + 14)}px`;
+    for (const a of this.aboveEls) this.placeBand(a, 'above', landscape);
+    for (const b of this.belowEls) this.placeBand(b, 'below', landscape);
+  }
+
+  private placeBand(band: HTMLElement, side: 'above' | 'below', landscape: boolean): void {
+    const s = band.style;
+    band.classList.toggle('is-column', landscape);
+
+    if (landscape) {
+      const cardLeft = this.rect.x - this.rect.w / 2;
+      const cardRight = this.rect.x + this.rect.w / 2;
+      s.top = '0px';
+      s.bottom = '0px';
+      if (side === 'above') {
+        s.left = `${this.safe.left + 6}px`;
+        s.right = `${Math.max(8, this.vw - cardLeft + 14)}px`;
+      } else {
+        s.left = `${Math.min(this.vw - 8, cardRight + 14)}px`;
+        s.right = `${this.safe.right + 6}px`;
+      }
+      return;
+    }
+
+    s.left = '0px';
+    s.right = '0px';
+    if (side === 'above') {
+      s.top = 'auto';
+      s.bottom = `${Math.max(6, this.vh - rectTop(this.rect) + 10)}px`;
+    } else {
+      s.bottom = 'auto';
+      s.top = `${Math.min(this.vh - 78, rectBottom(this.rect) + 14)}px`;
     }
   }
 
@@ -582,6 +618,7 @@ export class Game {
     this.punch = damp(this.punch, 0, 9, dt);
     this.reveal = damp(this.reveal, this.phase === 'finish' ? 1 : 0, 3, dt);
     this.spin = damp(this.spin, this.spinTarget, 4.5, dt);
+    this.entrance = clamp(this.entrance + dt / 0.7, 0, 1);
 
     if (this.phase === 'foil' && !this.busy) {
       this.coverTimer += dt;
@@ -597,13 +634,16 @@ export class Game {
       return;
     }
 
+    // Squash on each press; a springy pop when the finished card appears.
     const squash = 1 - this.punch * 0.07;
+    const pop = lerp(0.78, 1, easeOutBack(this.entrance));
+    const scale = squash * pop;
     this.renderer.render({
       rect: {
         x: this.rect.x,
         y: this.rect.y + this.punch * this.rect.h * 0.012,
-        w: this.rect.w * squash,
-        h: this.rect.h * squash,
+        w: this.rect.w * scale,
+        h: this.rect.h * scale,
       },
       tilt,
       emboss: this.emboss,

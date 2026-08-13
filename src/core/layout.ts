@@ -40,11 +40,17 @@ export function reserveFor(vw: number, vh: number, safe: SafeArea = NO_SAFE_AREA
       side: Math.max(safe.left, safe.right) + Math.max(16, vw * 0.06),
     };
   }
+  // Landscape puts the UI in columns beside the card rather than bands above
+  // and below it, so almost the whole height is the card's to use.
   return {
-    top: safe.top + Math.max(52, vh * 0.13),
-    bottom: safe.bottom + Math.max(60, vh * 0.16),
-    side: Math.max(safe.left, safe.right) + Math.max(16, vw * 0.04),
+    top: safe.top + Math.max(20, vh * 0.05),
+    bottom: safe.bottom + Math.max(20, vh * 0.05),
+    side: Math.max(safe.left, safe.right) + Math.max(110, vw * 0.22),
   };
+}
+
+export function isLandscape(vw: number, vh: number): boolean {
+  return vw > vh;
 }
 
 /** Per-phase adjustments, e.g. the title screen needs more room above the card. */

@@ -122,6 +122,39 @@ body {
   pointer-events: none;
 }
 
+/* Landscape: the band becomes a column beside the card instead of a strip
+   above or below it, so the card keeps the full height. A column is much
+   narrower than a full-width strip, so its contents have to size down. */
+.band.is-column {
+  flex-direction: column;
+  gap: 2.4vmin;
+}
+
+.band.is-column > * {
+  max-width: 100%;
+}
+
+.band.is-column .hint {
+  flex-direction: column;
+  gap: 1.4vmin;
+  padding: 2vmin 3vmin;
+  font-size: clamp(15px, 3vmin, 24px);
+}
+
+.band.is-column .big-btn {
+  font-size: clamp(18px, 3.6vmin, 30px);
+  padding: 2vmin 3.4vmin;
+}
+
+.band.is-column .finish-banner {
+  font-size: clamp(20px, 4.6vmin, 38px);
+  text-align: center;
+}
+
+.band.is-column .title-mark {
+  font-size: clamp(22px, 6vmin, 44px);
+}
+
 .screen.is-passthrough.is-active > .band > * {
   pointer-events: auto;
 }

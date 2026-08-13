@@ -13,6 +13,14 @@ export function damp(current: number, target: number, rate: number, dt: number):
   return lerp(current, target, 1 - Math.exp(-rate * dt));
 }
 
+/** Overshoots past 1 before settling - the "ta-da" curve. */
+export function easeOutBack(x: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  const t = x - 1;
+  return 1 + c3 * t * t * t + c1 * t * t;
+}
+
 export function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
