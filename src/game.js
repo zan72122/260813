@@ -446,7 +446,7 @@ export class Game {
   }
 
   updSpin(dt) {
-    this.gain = M.approach(this.gain, 0.85, 1.5, dt);
+    this.gain = M.approach(this.gain, 0.95, 1.5, dt);
     const a = M.smoothstep(0.45, 0.95, this.align);
     this.camTTarget = 1.0 + a * 1.0;
     this.hud.setProgress(a);
@@ -571,7 +571,7 @@ export class Game {
     // 虹の輪が画面の外へ広がっていく
     // 同心円の数を減らすと、輪がどんどん外へ広がっていく
     const spread = M.smoothstep(0.2, 3.2, t);
-    this.burstScale = M.mix(1.0, 0.26, spread) + M.smoothstep(3.2, 5.4, t) * 0.34;
+    this.burstScale = M.mix(1.0, 0.26, spread) + M.smoothstep(3.2, 8.0, t) * 0.74;
     this.burst = spread * 0.8;
     this.patBoost = M.mix(1.0, 0.86, Math.sin(M.clamp(t / 3.4, 0, 1) * Math.PI));
     this.gain = 1.0 + 0.16 * Math.sin(M.clamp(t / 2.6, 0, 1) * Math.PI);
@@ -595,10 +595,10 @@ export class Game {
 
   updRest(dt) {
     this.camTTarget = 1.25;
-    this.gain = M.approach(this.gain, 1.0, 1.0, dt);
+    this.gain = M.approach(this.gain, 0.78, 1.0, dt);
     this.exposure = M.approach(this.exposure, 1.0, 1.0, dt);
-    this.burst = M.approach(this.burst, 0.8, 0.5, dt);
-    this.burstScale = M.approach(this.burstScale, 0.62, 0.5, dt);
+    this.burst = M.approach(this.burst, 0.35, 0.5, dt);
+    this.burstScale = M.approach(this.burstScale, 1.0, 0.5, dt);
     this.patBoost = M.approach(this.patBoost, 1.0, 1.0, dt);
     this.open = 1;
     this.eyeAlpha = 0;
@@ -606,8 +606,11 @@ export class Game {
     this.stageAlpha = 1;
     this.light = 1;
     this.flash = 0;
-    // ゆっくり回り続けて、まだ生きている感じを残す
-    this.spin += dt * 0.10 * this.def.spinDir;
+    // 合った角度のまわりでゆっくり揺れ続ける。
+    // 石の中に虹の目がいるのが、そのまま見えている状態。
+    const t = this.time * this.def.spinDir;
+    this.spin = M.approach(this.spin, this.best.spin + Math.sin(t * 0.30) * 0.085, 1.5, dt);
+    this.tilt = M.approach(this.tilt, this.best.tilt + Math.cos(t * 0.23) * 0.045, 1.5, dt);
   }
 
   updWipe(dt) {

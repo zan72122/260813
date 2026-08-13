@@ -294,7 +294,7 @@ void main(){
   } else {
     // 背面：結晶の中に見える干渉像
     float transmit = 0.60 + 0.40 * (1.0 - fres);
-    col += inner * transmit * 1.75;
+    col += inner * transmit * 1.40;
     col += sheen * transmit * 0.34 * uGlass * (0.25 + 0.75 * uGain);
     col += vec3(0.030, 0.050, 0.090) * transmit * uGlass * 0.7;
   }
