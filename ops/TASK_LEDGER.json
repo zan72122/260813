@@ -322,7 +322,7 @@
     {
       "id": "R2",
       "title": "独立レビュー: 4歳児UX/画面/ゲーム性（読み取り専用）",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "ops/reviews/R2.md"
@@ -334,7 +334,12 @@
       "reportPath": "ops/reviews/R2.md",
       "commit": "",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "artifacts/screenshots/ 01-10・dev-*全件をReadで目視",
+        "vite preview(port 4175)+Playwright実ポインタ操作でtitle→intro→hide(実drag)→gate(実swipe)→seek→album→もういちどを一周(390x844, timeScale=4)、console/pageerror 0件",
+        "hide画面で6秒無操作ヒント発火テスト実施",
+        "docs/PRODUCT_SPEC.mdと照合し、発見6件(major2/minor3/info1)・良い点9件を ops/reviews/R2.md に記録"
+      ]
     },
     {
       "id": "S7",
