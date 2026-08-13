@@ -10,6 +10,36 @@
  * so render/index.ts's main frame loop can draw it as a second, un-cleared
  * pass after the primary render — see that module's render() for the
  * exact call sequence this expects.
+ *
+ * ## R1 root cause (fixed here)
+ * The overlay previously never appeared in the composited frame despite
+ * every other signal looking correct (opacity ramped, mesh visible/in
+ * frustum, draw calls issued, no GL errors, RTT source content verified).
+ * Root cause, confirmed with a synchronous `gl.readPixels` taken inside the
+ * same call stack as the overlay's `renderer.render()` call (avoiding the
+ * classic `preserveDrawingBuffer:false` "read-after-the-fact" trap): the
+ * overlay camera was an `OrthographicCamera(0, widthCss, 0, heightCss, ...)`
+ * — i.e. `top=0 < bottom=heightCss`, an inverted pair chosen so CSS
+ * top-left-origin coordinates could be handed straight to `left/right/top/
+ * bottom`. That inversion makes the projection matrix's Y-scale term
+ * negative, which is mathematically a single-axis mirror — and a
+ * single-axis mirror flips every triangle's on-screen winding order.
+ * `MeshBasicMaterial` defaults to `side: FrontSide`, i.e. backface culling
+ * ON, so both the lens disc and the ring frame were being rasterized with
+ * flipped winding, classified as back-facing, and silently discarded before
+ * ever reaching a fragment — draw calls fire, zero pixels change, no error
+ * anywhere in the pipeline to catch it. (Independently reproduced: an
+ * unconditional fully-opaque test quad added to this scene was *also*
+ * invisible, and `gl.getParameter(gl.CULL_FACE)` read back `true` right
+ * after the draw — conclusive.)
+ *
+ * Fixed two ways, deliberately redundant: the camera now uses a standard
+ * right-handed `top > bottom` frustum (CSS→world Y conversion happens once,
+ * in `resize()`, instead of being smuggled into the camera's axis
+ * convention), AND both overlay materials are `side: THREE.DoubleSide` —
+ * these are flat, always-facing-the-viewer HUD quads with no "back" a
+ * player could ever see, so culling buys nothing and disabling it removes
+ * an entire class of future sign-error regressions here.
  */
 import * as THREE from 'three';
 import { createBrassRingFrameTexture } from './materials/textures';
@@ -69,15 +99,27 @@ class MagnifierImpl implements Magnifier {
     });
 
     this.overlayScene = new THREE.Scene();
-    this.overlayCamera = new THREE.OrthographicCamera(0, 1, 0, 1, -10, 10);
+    // Standard right-handed, Y-UP orthographic frustum (top > bottom) — see
+    // this module's "R1 root cause" doc comment below for why this matters:
+    // an inverted top/bottom pair silently flips on-screen winding and gets
+    // every overlay draw backface-culled into invisibility. `resize()`
+    // converts CSS top-left-origin coordinates into this Y-up frame at the
+    // one call site that needs it, instead of fighting the camera's axes.
+    this.overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -10, 10);
     this.overlayCamera.position.z = 1;
 
+    // `side: DoubleSide` is deliberate belt-and-suspenders: these are flat,
+    // always-camera-facing HUD quads with no "back" a player could ever see,
+    // so there is no visual cost to disabling the FrontSide culling test —
+    // and it means a future sign mistake in the frame math above degrades to
+    // "still visible" instead of silently culling the whole magnifier again.
     this.lensMaterial = new THREE.MeshBasicMaterial({
       map: this.renderTarget.texture,
       transparent: true,
       opacity: 0,
       depthTest: false,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
     this.lensMesh = new THREE.Mesh(new THREE.CircleGeometry(MAGNIFIER_LENS_RADIUS, 40), this.lensMaterial);
     this.lensMesh.renderOrder = 1000;
@@ -90,6 +132,7 @@ class MagnifierImpl implements Magnifier {
       opacity: 0,
       depthTest: false,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
     this.ringMesh = new THREE.Mesh(new THREE.PlaneGeometry(MAGNIFIER_LENS_RADIUS * 2.22, MAGNIFIER_LENS_RADIUS * 2.22), this.ringMaterial);
     this.ringMesh.renderOrder = 1001;
@@ -123,14 +166,21 @@ class MagnifierImpl implements Magnifier {
   resize(viewportWidthCss: number, viewportHeightCss: number): void {
     this.widthCss = Math.max(1, viewportWidthCss);
     this.heightCss = Math.max(1, viewportHeightCss);
-    this.overlayCamera.left = 0;
-    this.overlayCamera.right = this.widthCss;
-    this.overlayCamera.top = 0;
-    this.overlayCamera.bottom = this.heightCss;
+    // Standard, non-inverted Y-up frustum centered on the viewport — see
+    // this module's "R1 root cause" doc comment for why top/bottom must
+    // stay in this order (top > bottom).
+    this.overlayCamera.left = -this.widthCss / 2;
+    this.overlayCamera.right = this.widthCss / 2;
+    this.overlayCamera.top = this.heightCss / 2;
+    this.overlayCamera.bottom = -this.heightCss / 2;
     this.overlayCamera.updateProjectionMatrix();
 
-    const cx = this.widthCss - MAGNIFIER_MARGIN - MAGNIFIER_LENS_RADIUS;
-    const cy = MAGNIFIER_MARGIN + MAGNIFIER_LENS_RADIUS;
+    // Desired anchor in CSS top-left-origin terms (screen's top-right
+    // corner), converted into the camera's centered Y-up world frame.
+    const cxCss = this.widthCss - MAGNIFIER_MARGIN - MAGNIFIER_LENS_RADIUS;
+    const cyCss = MAGNIFIER_MARGIN + MAGNIFIER_LENS_RADIUS;
+    const cx = cxCss - this.widthCss / 2;
+    const cy = this.heightCss / 2 - cyCss;
     this.lensMesh.position.set(cx, cy, 0);
     this.ringMesh.position.set(cx, cy, 0.01);
   }

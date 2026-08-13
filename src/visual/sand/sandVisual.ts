@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import type { LegId } from '../../contracts/types';
 import type { HeroMaterials } from '../../render/materials';
+import { SANDBOX_HEIGHT } from '../../scene/layout';
 import {
   grainCountForLevel,
   pileHeightForLevel,
@@ -24,7 +25,14 @@ export const HEIGHTFIELD_MAX_SEGMENTS = 40;
 const SURFACE_NOISE_AMPLITUDE = 0.035;
 const MAX_PILE_HEIGHT = 0.55;
 const MAX_PILE_RADIUS = 0.6;
-const STREAM_LENGTH = 1.6;
+// R6 (director defect list): sized/positioned for the new hero-scale
+// sandbox (scene/layout.ts SANDBOX_HEIGHT) and the close-up sandboxCutaway
+// framing that now actually shows the box (R2) — the stream must visibly
+// fall through the box's open interior air, not hang mostly underground.
+/** Where the stream's top (the "pour point") sits, as a fraction of SANDBOX_HEIGHT — high enough to read as falling from near the rim, low enough to stay inside the box's own silhouette. */
+const STREAM_TOP_FRACTION = 0.86;
+/** How far the stream falls (world units) — reaches close to the floor at any sand level, so it stays visible through the whole drain, not just while full. */
+const STREAM_LENGTH = SANDBOX_HEIGHT * 0.8;
 
 function seededNoise(seed: number): () => number {
   let a = seed >>> 0;
@@ -128,7 +136,10 @@ export function buildLegSandVisual(
 ): LegSandVisual {
   const group = new THREE.Group();
 
-  const fullY = footprint.depth * 0.32; // sand piled a bit above the floor when full
+  // R6: a full box should visibly LOOK full — tied to the sandbox's actual
+  // interior HEIGHT now (SANDBOX_HEIGHT), not its depth, leaving just a
+  // small headroom rim below the walls' top edge.
+  const fullY = SANDBOX_HEIGHT * 0.74;
   const floorY = 0.01;
 
   const grains = buildGrainField(materials.sand, footprint.width, footprint.depth, particleMax, 0x9e17 + leg * 7919);
@@ -138,7 +149,10 @@ export function buildLegSandVisual(
   group.add(surface);
 
   const stream = buildStream(materials.sandStream);
-  stream.position.set(0, 0, 0);
+  // Falls from near the box's rim down through the open interior air —
+  // reaches near the floor at any sand level so it stays visible through
+  // the whole drain (see STREAM_LENGTH/STREAM_TOP_FRACTION doc comment).
+  stream.position.set(0, SANDBOX_HEIGHT * STREAM_TOP_FRACTION, 0);
   group.add(stream);
 
   const pile = buildPile(materials.sand);

@@ -29,6 +29,7 @@ function stubMaterials(): HeroMaterials {
   return {
     sand: std(),
     iron: std(),
+    girder: std(),
     ironRivet: std(),
     jackCylinder: std(),
     jackPiston: std(),

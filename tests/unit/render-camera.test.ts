@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { cueToPose } from '../../src/render/camera/cameraPoses';
 import {
@@ -9,9 +10,25 @@ import {
   REDUCED_MOTION_DURATION_MS,
 } from '../../src/render/camera/cameraDirector';
 import type { LegId } from '../../src/contracts/types';
-import { GIRDER_RING_Y } from '../../src/scene/layout';
+import { GIRDER_RING_Y, GROUND_Y, jackAnchorXZ, legBaseXZ, sandboxAnchorXZ } from '../../src/scene/layout';
 
 const LEGS: LegId[] = [0, 1, 2, 3];
+
+/** Real viewport aspect ratios from playwright.config.ts's QA projects — the exact shapes VISUAL_ACCEPTANCE's shots are judged at. */
+const PHONE_PORTRAIT_ASPECT = 390 / 844;
+const TABLET_LANDSCAPE_ASPECT = 1180 / 820;
+
+/** True iff world point `p` is inside the view frustum of a real THREE.PerspectiveCamera built from `pose` at `aspect` — the "subjects actually land inside the frustum" ground truth this suite's earlier (pre-R2) framing bugs would have failed. */
+function poseContainsPoint(pose: ReturnType<typeof cueToPose>, aspect: number, p: readonly [number, number, number]): boolean {
+  const camera = new THREE.PerspectiveCamera(pose.fov, aspect, 0.5, 400);
+  camera.position.set(...pose.position);
+  camera.lookAt(...pose.target);
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+  const frustum = new THREE.Frustum();
+  frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  return frustum.containsPoint(new THREE.Vector3(...p));
+}
 
 describe('cueToPose (pure cue -> camera pose mapping)', () => {
   it('is a pure function: identical cue+seed always yields byte-identical pose', () => {
@@ -61,6 +78,58 @@ describe('cueToPose (pure cue -> camera pose mapping)', () => {
     const [tx, ty, tz] = sand.target;
     const dist = Math.hypot(px - tx, py - ty, pz - tz);
     expect(dist).toBeGreaterThan(1);
+  });
+
+  // R2 (director defect list): sandboxCutaway/jackCloseup previously computed
+  // camera *position* independently of the sandbox/jack anchor (pivoting
+  // around the tower center at the leg's own angle, with `distance` close to
+  // the leg's own base radius) — the camera routinely ended up planted
+  // almost inside the leg's own truss, staring at a point pulled back
+  // toward the tower axis. These tests pin down the real, ground-truth fix:
+  // a genuine THREE.PerspectiveCamera built from the pose must actually
+  // contain the required subject points in its frustum, at the real QA
+  // viewport aspects, for every leg — not just "some point far from target".
+  describe('R2: sandboxCutaway/jackCloseup frame the REAL prop anchors, not a leg-angle-pivoted guess', () => {
+    for (const aspect of [PHONE_PORTRAIT_ASPECT, TABLET_LANDSCAPE_ASPECT]) {
+      const aspectLabel = aspect < 1 ? 'phone-portrait' : 'tablet-landscape';
+
+      it(`sandboxCutaway (${aspectLabel}): the sandbox anchor AND the leg's own base are both inside the frustum, every leg`, () => {
+        for (const leg of LEGS) {
+          const pose = cueToPose({ kind: 'sandboxCutaway', leg }, 42, aspect);
+          const anchor = sandboxAnchorXZ(leg);
+          const base = legBaseXZ(leg);
+          expect(poseContainsPoint(pose, aspect, [anchor.x, GROUND_Y + 1, anchor.z])).toBe(true);
+          expect(poseContainsPoint(pose, aspect, [base.x, GROUND_Y + 1, base.z])).toBe(true);
+        }
+      });
+
+      it(`jackCloseup (${aspectLabel}): the jack anchor AND the leg's own base are both inside the frustum, every leg`, () => {
+        for (const leg of LEGS) {
+          const pose = cueToPose({ kind: 'jackCloseup', leg }, 42, aspect);
+          const anchor = jackAnchorXZ(leg);
+          const base = legBaseXZ(leg);
+          expect(poseContainsPoint(pose, aspect, [anchor.x, GROUND_Y + 1, anchor.z])).toBe(true);
+          expect(poseContainsPoint(pose, aspect, [base.x, GROUND_Y + 1, base.z])).toBe(true);
+        }
+      });
+    }
+
+    it('sandboxCutaway camera sits BEYOND the sandbox anchor (radially outward), never planted near the tower axis like the pre-fix bug', () => {
+      for (const leg of LEGS) {
+        const pose = cueToPose({ kind: 'sandboxCutaway', leg }, 7, TABLET_LANDSCAPE_ASPECT);
+        const anchor = sandboxAnchorXZ(leg);
+        const [px, , pz] = pose.position;
+        const camRadius = Math.hypot(px, pz);
+        const anchorRadius = Math.hypot(anchor.x, anchor.z);
+        expect(camRadius).toBeGreaterThan(anchorRadius);
+      }
+    });
+
+    it('portrait framing reaches meaningfully higher (toward the pin/ring) than landscape, per the "portrait: subjects stacked vertically" rule', () => {
+      const portrait = cueToPose({ kind: 'sandboxCutaway', leg: 0 }, 3, PHONE_PORTRAIT_ASPECT);
+      const landscape = cueToPose({ kind: 'sandboxCutaway', leg: 0 }, 3, TABLET_LANDSCAPE_ASPECT);
+      expect(portrait.target[1]).toBeGreaterThan(landscape.target[1]);
+    });
   });
 
   it('orbitToNext takes the short way around the tower between two legs', () => {

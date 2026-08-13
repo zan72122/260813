@@ -95,8 +95,33 @@ export function legTangentUnit(leg: LegId): Vec2 {
  * (world-space, used for camera framing) AND `scene/props/legGroundRig.ts`
  * (which re-derives the same offset in the rig's LOCAL frame) so the two
  * never drift apart.
+ *
+ * Sized to clear `props/scaffoldMath.ts`'s `SCAFFOLD_RADIUS` (a full ring of
+ * poles around the leg's base at every angle, including tangential) with a
+ * margin, so the now hero-scaled sandbox/jack (R3: "interactive heroes, not
+ * scenery" — see legGroundRig.ts) never poke through the falsework scaffold
+ * poles: offset − sandboxHalfWidth must clear SCAFFOLD_RADIUS. This constant
+ * intentionally duplicates that arithmetic as a literal (rather than
+ * importing scaffoldMath.ts, which itself imports this module) — see the
+ * unit test asserting the clearance holds.
  */
-export const GROUND_PROP_LATERAL_OFFSET = LEG_CHORD_HALF_WIDTH_BASE + 3.5;
+export const GROUND_PROP_LATERAL_OFFSET = LEG_CHORD_HALF_WIDTH_BASE + 5.2;
+
+/**
+ * Ground-prop hero dimensions (world units) — pure numeric truth shared by
+ * `props/legGroundRig.ts` (the actual geometry builder) and
+ * `render/camera/cameraPoses.ts` (which sizes sandboxCutaway/jackCloseup
+ * framing boxes from these same numbers), so the two can never drift apart.
+ * R3 (director defect list): these were tiny ground-clutter props; sized up
+ * to genuine hero machinery — SANDBOX_HEIGHT alone is ~3.6x
+ * `props/worker.ts`'s WORKER_TARGET_HEIGHT.
+ */
+export const SANDBOX_WIDTH = 5.6;
+export const SANDBOX_DEPTH = 4.8;
+export const SANDBOX_HEIGHT = 3.8;
+export const SANDBOX_WALL_THICKNESS = 0.22;
+export const JACK_CYLINDER_RADIUS = 1.05;
+export const JACK_CYLINDER_HEIGHT = 4.6;
 
 /** Ground-level anchor point for a leg's sandbox: outboard of the leg's own footprint, on its tangential side. */
 export function sandboxAnchorXZ(leg: LegId): Vec2 {

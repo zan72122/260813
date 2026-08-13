@@ -187,7 +187,15 @@ export function createRenderSystem(options: RenderSystemOptions): RenderSystem {
 
   const camera = new THREE.PerspectiveCamera(46, 1, 0.5, 400);
 
-  const cameraDirector: CameraDirector = createCameraDirector(initialState.seed, initialState.reducedMotion);
+  // Seeds the aspect-aware ground-prop framing (cameraPoses.ts's R2 rework)
+  // with the REAL initial viewport, not a generic default — doResize()
+  // (below) keeps it current via cameraDirector.setAspect() on every resize.
+  const initialViewport = readViewportCss(canvas);
+  const cameraDirector: CameraDirector = createCameraDirector(
+    initialState.seed,
+    initialState.reducedMotion,
+    initialViewport.width / initialViewport.height,
+  );
   const magnifier: Magnifier = createMagnifier();
   const liveSignals: LiveSignals = createLiveSignals(bus);
 
@@ -210,6 +218,7 @@ export function createRenderSystem(options: RenderSystemOptions): RenderSystem {
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     magnifier.resize(width, height);
+    cameraDirector.setAspect(width / height);
   }
 
   const resizeWatcher: ResizeWatcher = createResizeWatcher({ onResize: doResize });

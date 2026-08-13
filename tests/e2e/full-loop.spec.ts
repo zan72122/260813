@@ -497,20 +497,32 @@ test.describe.serial('QA screenshots (VISUAL_ACCEPTANCE.md shot list)', () => {
     expect(locked.legs.every((leg) => leg.locked)).toBe(true);
     expect(locked.phase).toBe('finalReveal');
 
-    const complete = await skipUntil(page, (s: GameState) => s.phase === 'complete', {
-      maxSkips: 10,
-      label: 'finalReveal beats -> complete (QA capture)',
-    });
-    expect(complete.phase).toBe('complete');
-    await expect(page.locator('.eiffel-completion')).toBeVisible();
-
-    // `settled()` (src/render/index.ts) is exactly this app's own
-    // documented "safe point for a screenshot" signal: camera at rest, no
-    // in-flight pump/hammer/snap/reveal pulse — precisely the topReveal +
-    // pullback + unified-tower moment VISUAL_ACCEPTANCE describes.
-    await renderSyncUntilSettled(page);
-    const settled = await page.evaluate(() => window.__eiffel.settled());
-    expect(settled).toBe(true);
+    // R5 (director defect list): capture the topReveal REWARD moment
+    // itself — near-top-down, junction glow — BEFORE the completion menu
+    // ever appears, instead of skipping straight through to `complete`
+    // (the previous behavior here, which only ever screenshotted the menu
+    // covering a distant tower).
+    //
+    // Game-logic timeline from finalReveal entry (game/controller.ts):
+    // revealBeat 0..3 fire at 600ms intervals (last at 2400ms) → `settled`
+    // event fires 400ms later (2800ms) → `pullback` camera cue starts
+    // easing in right then. Crucially, `settled` is ALSO exactly what
+    // src/ui/completionMenu.ts un-hides the completion overlay on
+    // (`bus.on('settled', () => { container.hidden = false })`) — NOT
+    // `phase === 'complete'` (that only arrives later, at 4000ms, after a
+    // 1200ms pullback hold). So the menu and the girder/pin "settle" sink
+    // both start at the SAME instant (2800ms): there is no frame where the
+    // sink is visible AND the menu is hidden. Capturing at 150 REAL frames
+    // (2500ms at FIXED_DT=1/60, via `renderSync` — a real, paired
+    // logic+render step per frame, unlike the fast-forward-only helpers
+    // used above) lands solidly after every beat has fired (last one only
+    // 100ms ago — still near-peak glow) and the topReveal camera transition
+    // has long since settled (its own 1600ms finished at 1600ms), with a
+    // comfortable 300ms margin before `settled`/the menu.
+    await renderSync(page, 150);
+    const duringReveal = await getState(page);
+    expect(duringReveal.phase).toBe('finalReveal');
+    await expect(page.locator('.eiffel-completion')).not.toBeVisible();
 
     await captureQaShot(page, testInfo.project.name, 'final-reveal.png');
   });

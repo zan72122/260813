@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { legOffsetToWorldY, LEG_OFFSET_WORLD_SCALE } from '../../src/scene/mapping';
 import {
   GIRDER_RING_Y,
+  GROUND_PROP_LATERAL_OFFSET,
   GROUND_Y,
   LEG_BASE_RADIUS,
   LEG_TOP_RADIUS,
+  SANDBOX_WIDTH,
   jackAnchorXZ,
   legAngleRad,
   legBaseXZ,
@@ -14,6 +16,7 @@ import {
   legTopXZ,
   sandboxAnchorXZ,
 } from '../../src/scene/layout';
+import { SCAFFOLD_RADIUS } from '../../src/scene/props/scaffoldMath';
 import { INITIAL_OFFSET_MAX, INITIAL_OFFSET_MIN, SAND_UNDERSHOOT_MAX, SAND_UNDERSHOOT_MIN } from '../../src/contracts/constants';
 import type { LegId } from '../../src/contracts/types';
 
@@ -117,6 +120,18 @@ describe('scene/layout: tower geometry (pure)', () => {
       expect(midX).toBeCloseTo(base.x, 6);
       expect(midZ).toBeCloseTo(base.z, 6);
     }
+  });
+
+  // R3 (director defect list): the sandbox/jack were scaled up to hero
+  // machinery (scene/layout.ts SANDBOX_WIDTH). GROUND_PROP_LATERAL_OFFSET
+  // was widened to compensate, specifically so the now-bigger sandbox never
+  // pokes into props/scaffoldMath.ts's falsework scaffold ring (a full
+  // 360° ring of poles around the leg's base, so ANY direction within
+  // SCAFFOLD_RADIUS is at risk, not just the sandbox's own tangential
+  // direction) — this pins that clearance down as a regression guard.
+  it('the sandbox never overlaps the falsework scaffold ring (GROUND_PROP_LATERAL_OFFSET clears SCAFFOLD_RADIUS + sandbox half-width)', () => {
+    const sandboxInnerEdgeRadius = GROUND_PROP_LATERAL_OFFSET - SANDBOX_WIDTH / 2;
+    expect(sandboxInnerEdgeRadius).toBeGreaterThan(SCAFFOLD_RADIUS);
   });
 
   it('legOutwardYawRadians rotates local +Z exactly onto the leg\'s world radial-outward direction', () => {

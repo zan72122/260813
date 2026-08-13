@@ -12,7 +12,7 @@
  * once per frame with `update(dtSeconds)`.
  */
 import type { CameraCue } from '../../contracts/camera';
-import { cueToPose, type CameraPose } from './cameraPoses';
+import { cueToPose, DEFAULT_ASPECT, type CameraPose } from './cameraPoses';
 
 /** Per-cue-kind transition duration (ms) at normal motion. */
 export const CAMERA_CUE_DURATION_MS: Record<CameraCue['kind'], number> = {
@@ -59,6 +59,15 @@ export interface CameraDirector {
   /** Begins easing toward `cue`'s pose from the current live pose. */
   setCue(cue: CameraCue): void;
   setReducedMotion(reducedMotion: boolean): void;
+  /**
+   * Updates the live viewport aspect (width/height) that aspect-aware poses
+   * (cameraPoses.ts's ground-prop close-ups) are framed against. Cheap —
+   * safe to call every frame (render/index.ts does). Does NOT retroactively
+   * reframe an in-flight transition's `toPose`; it takes effect on the
+   * NEXT `setCue`, same as `setReducedMotion` — an orientation change
+   * mid-cut re-settling one cut later reads as a minor, not a snap/pop.
+   */
+  setAspect(aspect: number): void;
   /** Advances the in-flight transition by `dtSeconds`. */
   update(dtSeconds: number): void;
   /** Current interpolated pose — read this every frame to drive the actual THREE.PerspectiveCamera. */
@@ -73,14 +82,17 @@ class CameraDirectorImpl implements CameraDirector {
   private elapsedS = 0;
   private durationS = 0;
   private reducedMotion: boolean;
+  private aspect: number;
   pose: CameraPose;
 
   constructor(
     private readonly seed: number,
     reducedMotion: boolean,
+    aspect: number = DEFAULT_ASPECT,
   ) {
     this.reducedMotion = reducedMotion;
-    const initial = cueToPose({ kind: 'establish' }, seed);
+    this.aspect = aspect;
+    const initial = cueToPose({ kind: 'establish' }, seed, aspect);
     this.fromPose = initial;
     this.toPose = initial;
     this.pose = initial;
@@ -90,13 +102,17 @@ class CameraDirectorImpl implements CameraDirector {
 
   setCue(cue: CameraCue): void {
     this.fromPose = this.pose;
-    this.toPose = cueToPose(cue, this.seed);
+    this.toPose = cueToPose(cue, this.seed, this.aspect);
     this.elapsedS = 0;
     this.durationS = durationForCue(cue.kind, this.reducedMotion);
   }
 
   setReducedMotion(reducedMotion: boolean): void {
     this.reducedMotion = reducedMotion;
+  }
+
+  setAspect(aspect: number): void {
+    this.aspect = aspect;
   }
 
   update(dtSeconds: number): void {
@@ -114,7 +130,7 @@ class CameraDirectorImpl implements CameraDirector {
   }
 }
 
-/** Creates a CameraDirector. `seed` is the run seed (for legScenario cameraYaw); `reducedMotion` mirrors GameState.reducedMotion at construction and can change later via setReducedMotion. */
-export function createCameraDirector(seed: number, reducedMotion: boolean): CameraDirector {
-  return new CameraDirectorImpl(seed, reducedMotion);
+/** Creates a CameraDirector. `seed` is the run seed (for legScenario cameraYaw); `reducedMotion` mirrors GameState.reducedMotion at construction and can change later via setReducedMotion. `aspect` (viewport width/height) seeds the initial `establish` pose and can change later via setAspect — defaults to a generic landscape-ish ratio when omitted (tests). */
+export function createCameraDirector(seed: number, reducedMotion: boolean, aspect?: number): CameraDirector {
+  return new CameraDirectorImpl(seed, reducedMotion, aspect);
 }

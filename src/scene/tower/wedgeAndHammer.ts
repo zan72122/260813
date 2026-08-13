@@ -12,9 +12,15 @@ import { targetRingPosition } from './pinAndRing';
 import { createWedgeGeometry } from '../props/wedgeGeometry';
 import type { HeroMaterials } from '../../render/materials';
 
-const WEDGE_WIDTH = 0.55;
-const WEDGE_HEIGHT = 0.65;
-const WEDGE_LENGTH = 1.25;
+// R3 (director defect list): scaled up ~1.5x alongside the ground props —
+// "wedge slot at the junction area" was part of the same "tiny ground-
+// clutter props" complaint. Kept in proportion with the pin/ring/magnifier
+// scale at this junction (no dedicated QA close-up shot exists for this
+// specific cue, so this is verified against the magnifier/alignment
+// framing rather than its own capture).
+const WEDGE_WIDTH = 0.85;
+const WEDGE_HEIGHT = 1.0;
+const WEDGE_LENGTH = 1.9;
 
 export interface WedgeAndHammer {
   /** Fixed group (added directly to the scene) at leg `leg`'s junction. */
@@ -43,7 +49,7 @@ export function buildWedgeAndHammer(leg: LegId, materials: HeroMaterials): Wedge
   group.add(slot);
 
   const wedge = new THREE.Mesh(createWedgeGeometry(WEDGE_WIDTH, WEDGE_HEIGHT, WEDGE_LENGTH), materials.forgedWedge);
-  const wedgeRestLocal = new THREE.Vector3(0, 0.9, 0.9);
+  const wedgeRestLocal = new THREE.Vector3(0, 1.3, 1.3);
   const wedgeInsertedLocal = new THREE.Vector3(0, 0, 0.35);
   wedge.position.copy(wedgeRestLocal);
   wedge.rotation.x = Math.PI; // tip (authored at -Z) points toward the slot when driven in from above/outboard
@@ -52,13 +58,13 @@ export function buildWedgeAndHammer(leg: LegId, materials: HeroMaterials): Wedge
 
   // Hammer: cylindrical handle + box head, resting beside the wedge, ready to swing.
   const hammer = new THREE.Group();
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1, 8), materials.wood);
-  handle.position.set(0, 0.55, 0);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.6, 8), materials.wood);
+  handle.position.set(0, 0.8, 0);
   hammer.add(handle);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.24, 0.24), materials.hammer);
-  head.position.set(0, 1.05, 0);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.34, 0.34), materials.hammer);
+  head.position.set(0, 1.55, 0);
   hammer.add(head);
-  hammer.position.set(0.85, 0.3, 1.1);
+  hammer.position.set(1.2, 0.4, 1.5);
   hammer.rotation.z = -0.4;
   group.add(hammer);
 

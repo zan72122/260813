@@ -227,19 +227,31 @@ export function createSkyTexture(size = 512): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d context unavailable');
 
+  // R4 (director defect list): the previous 5-stop gradient (with two
+  // stops only 0.10 apart at 0.72/0.82) plus an 55%-opacity silhouette
+  // band right on top of it read as a harsh, distinct edge right at the
+  // horizon instead of a soft haze. More stops spread further apart (no
+  // single jump bigger than ~0.16 of the gradient) and a bottom stop
+  // chosen to closely match the lit ground plane's own on-screen color
+  // (materials/index.ts `ground` 0x9c8a63, brightened somewhat by daylight)
+  // dissolve the sky↔ground seam instead of drawing a hard line across it.
   const grad = ctx.createLinearGradient(0, 0, 0, size);
   grad.addColorStop(0, '#4f86c6'); // zenith
-  grad.addColorStop(0.55, '#bcd9e8'); // mid sky
-  grad.addColorStop(0.72, '#f2e3c6'); // warm horizon haze
-  grad.addColorStop(0.82, '#e8caa0'); // horizon band
-  grad.addColorStop(1, '#cbb98c'); // below-horizon ground haze fallback
+  grad.addColorStop(0.45, '#8fb9d9'); // upper-mid sky
+  grad.addColorStop(0.62, '#bcd9e8'); // mid sky
+  grad.addColorStop(0.74, '#dae4d0'); // sky-to-haze blend
+  grad.addColorStop(0.85, '#e8d9b3'); // warm horizon haze
+  grad.addColorStop(0.93, '#d9c69c'); // horizon band
+  grad.addColorStop(1, '#a89676'); // below-horizon, matched to the lit ground
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, canvas.width, size);
 
-  // Restrained skyline silhouette, a thin jagged band right at the horizon.
-  const horizonY = size * 0.8;
+  // Restrained skyline silhouette, a thin jagged band right at the
+  // horizon — softened (lower opacity, taller feather) so it reads as a
+  // hint of distant rooftops rather than a hard drawn line.
+  const horizonY = size * 0.88;
   const rng = noiseRng(0x9a12);
-  ctx.fillStyle = 'rgba(90,84,86,0.55)';
+  ctx.fillStyle = 'rgba(90,84,86,0.28)';
   ctx.beginPath();
   ctx.moveTo(0, horizonY + 6);
   let x = 0;

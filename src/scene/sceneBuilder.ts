@@ -81,7 +81,7 @@ export function buildScene(materials: HeroMaterials, quality: QualityState): Sce
   const sky = buildSky(materials.sky);
   scene.add(sky);
 
-  const girderRing = buildGirderRing(materials.iron);
+  const girderRing = buildGirderRing(materials.girder);
   scene.add(girderRing);
 
   const legRigs = {} as Record<LegId, LegRig>;

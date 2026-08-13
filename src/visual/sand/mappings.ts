@@ -11,9 +11,13 @@ function clamp01(v: number): number {
   return v;
 }
 
-export const STREAM_MIN_WIDTH = 0.05;
-export const STREAM_MAX_WIDTH = 0.55;
-export const STREAM_MAX_OPACITY = 0.9;
+export const STREAM_MIN_WIDTH = 0.08;
+// R6 (director defect list): widened for the new hero-scale sandbox
+// (scene/layout.ts SANDBOX_WIDTH went 3.0 → 5.6) so a fully-open gate's
+// stream still reads as a substantial flow, not a hairline, now that the
+// sandboxCutaway camera (R2) actually shows it at close range.
+export const STREAM_MAX_WIDTH = 0.95;
+export const STREAM_MAX_OPACITY = 0.92;
 
 /** Scrolling-UV stream mesh width (world units), 0 rate → hairline, SAND_MAX_RATE → full width. Matches VISUAL_ACCEPTANCE "砂の流量がgate開度に見て取れる". */
 export function streamWidthForRate(rate: number, maxRate = SAND_MAX_RATE): number {

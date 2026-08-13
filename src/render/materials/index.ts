@@ -24,8 +24,10 @@ import {
 export interface HeroMaterials {
   /** Hero material #1: dry sand (heightfield surface, stream, pile, grains). */
   sand: THREE.MeshStandardMaterial;
-  /** Hero material #2: dark wrought iron with rivets — lattice legs, girder ring, sandbox iron bands. */
+  /** Hero material #2: dark wrought iron with rivets — lattice legs, sandbox iron bands. */
   iron: THREE.MeshStandardMaterial;
+  /** Same iron texture, visibly lighter tint — the first-level girder ring only, so it reads as a distinct structural element (R4) rather than fusing into the legs' silhouette. */
+  girder: THREE.MeshStandardMaterial;
   /** Same texture, slightly darker/more metallic — rivet studs (visually reads as a distinct, slightly raised detail against `iron`). */
   ironRivet: THREE.MeshStandardMaterial;
   /** Hero material #3a: black-iron hydraulic cylinder body. */
@@ -65,10 +67,44 @@ export function createHeroMaterials(): HeroMaterials {
   const forgedTex = createForgedIronTexture(256);
   const skyTex = createSkyTexture(512);
 
-  const sand = new THREE.MeshStandardMaterial({ map: sandTex, roughness: 0.95, metalness: 0.0, color: 0xffffff });
+  // A small fixed emissive warmth keeps the sand hero material legible
+  // (VISUAL_ACCEPTANCE "砂箱はcutawayで内部の砂面が見える") even on the
+  // sandbox interior faces that end up facing away from the key light for
+  // some legs' `legOutwardYawRadians` — without it, a fully-matte
+  // (roughness 0.95) surface lit only by hemisphere ambient reads as dim
+  // once the sandboxCutaway camera (R2) is actually close enough to show
+  // it. Small enough to still read as lit-by-daylight, not glowing.
+  const sand = new THREE.MeshStandardMaterial({
+    map: sandTex,
+    roughness: 0.95,
+    metalness: 0.0,
+    color: 0xffffff,
+    emissive: 0x4a3a20,
+    emissiveIntensity: 0.35,
+  });
 
   const iron = new THREE.MeshStandardMaterial({ map: ironTex, roughness: 0.75, metalness: 0.55, color: 0xffffff });
   const ironRivet = new THREE.MeshStandardMaterial({ map: ironTex, roughness: 0.55, metalness: 0.75, color: 0xbfa877 });
+  // R4 (director defect list): the first-level girder ring previously
+  // shared `iron` outright with the legs, so at establish distance it
+  // read as an indistinct dark box fused into the legs instead of a
+  // separate structural ring "not yet joined". A visibly lighter tint +
+  // a touch less roughness (a subtle rim-catch on its edges under the key
+  // light) is enough to read as a distinct element without breaking the
+  // "same dark wrought iron" material family. A first pass at a modest
+  // tint (0x8f7d5e) proved too subtle once actually lit/shadowed at
+  // establish/topReveal distance — bumped lighter still, plus a small
+  // fixed emissive (same technique as the sand fix above) so the ring
+  // reads as distinct even from angles the key light doesn't favor,
+  // rather than only in direct light.
+  const girder = new THREE.MeshStandardMaterial({
+    map: ironTex,
+    roughness: 0.55,
+    metalness: 0.5,
+    color: 0xc2ab7e,
+    emissive: 0x4a3a1e,
+    emissiveIntensity: 0.25,
+  });
 
   const jackCylinder = new THREE.MeshStandardMaterial({ color: 0x14100e, roughness: 0.35, metalness: 0.85 });
   const jackPiston = new THREE.MeshStandardMaterial({ map: brassTex, color: 0xffffff, roughness: 0.12, metalness: 0.9 });
@@ -114,6 +150,7 @@ export function createHeroMaterials(): HeroMaterials {
   return {
     sand,
     iron,
+    girder,
     ironRivet,
     jackCylinder,
     jackPiston,
@@ -144,6 +181,7 @@ export function disposeHeroMaterials(materials: HeroMaterials): void {
   const all: (THREE.MeshStandardMaterial | THREE.MeshBasicMaterial)[] = [
     materials.sand,
     materials.iron,
+    materials.girder,
     materials.ironRivet,
     materials.jackCylinder,
     materials.jackPiston,
