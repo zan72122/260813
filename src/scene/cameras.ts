@@ -177,75 +177,109 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     return found;
   }
 
-  // probe-gap(石垣): 隙間の横から。壁はワールドX方向に長い1枚の平面に近いため、
-  // approach→anchorの回転ではなく世界X方向への大きなオフセットで「壁の脇から見渡す」角度を作る
-  // (回転方式だと壁面とほぼ平行に見てしまい、接写がブロックの質感で埋まってしまうため専用計算)。
+  // probe-gap(石垣): S3c修正。壁はワールドX方向に長い1枚の面(法線は±Z、+Z側=approach側が
+  // ゾウの立つ側)。ゾウ(approach x=-6.4)は壁の東端(x=-6.2、WALL_WIDTH/gapColStartから算出)の
+  // すぐ外側に立ち、隙間(anchor x=-8)へ向けて西南西を向いて鼻を差し込む(向き=approach→anchor≈
+  // (-0.89,-0.45))。S3bの旧プリセットはanchorから世界+X(壁の東端の先=ゾウの背後)へ大きく離れた
+  // 位置だったため、ゾウの正面(西南西)から見て背後にカメラが回り込み「真後ろ」を映していた
+  // (dev-s3b-probe.pngで発覚)。修正: approachを基準に、ゾウの正面やや右(北西)・壁の東端より
+  // さらに外側(z=approach.z+1.5、壁のz≈-6から1.5以上離れているため「壁とゾウの間」の
+  // 狭い帯(z∈(-6,-5.2))に入らない)にカメラを置き、隙間+鼻+顔を同時に3/4前側面で狙う。
+  // 高さは鼻の高さ(1.2-1.6)に合わせて低めに変更(旧1.9-2.5は高すぎ、壁越しの俯瞰になっていた)。
   {
-    // approach-anchor間が近い(ゾウが鼻を伸ばして届く距離)ため、ゾウの胴体(全長~2.6)がanchor
-    // 付近まで張り出しうる。カメラは大きめに離し、狙点もanchor寄り(ゾウの顔にめり込まない)にする。
     const spot = spotOf("stone-gap");
-    const anchor = v3(spot.position);
-    const approach = v3(spot.approach);
-    const target = anchor.clone().lerp(approach, 0.28).add(new THREE.Vector3(0, 0.05, 0));
-    const side = new THREE.Vector3(1, 0, 0); // +X: マップ中央寄り(-X側は放飼場の外縁に近い)
-    const landscapePos = anchor.clone().addScaledVector(side, 5.8).add(new THREE.Vector3(0, 1.9, 1.6));
-    const portraitPos = anchor.clone().addScaledVector(side, 4.6).add(new THREE.Vector3(0, 2.5, 1.3));
+    const anchor = v3(spot.position); // (-8,0.9,-6) 隙間(壁はここを中心に世界X方向へ延びる)
+    const approach = v3(spot.approach); // (-6.4,0,-5.2) ゾウの立ち位置(壁東端のすぐ外)
+    const forward = anchor.clone().sub(approach).setY(0).normalize(); // ゾウが隙間へ向く方向
+    const side = new THREE.Vector3(forward.z, 0, -forward.x); // 側方(90°)ベクトル
+    // 隙間+顔を両方収めるため、狙点はanchorとapproachの中間よりやや隙間寄り(0.35)。
+    const target = anchor.clone().lerp(approach, 0.35).add(new THREE.Vector3(0, 0.35, 0));
+    // side方向(側方)を主軸に、forward方向へわずかに引く(=壁から離れる)ことで、壁の面(隙間含む)
+    // を斜め横~35°相当の角度で見つつ、「壁とゾウの間」の狭い帯へカメラが入り込むのを避ける。
+    const buildPos = (lateral: number, back: number, height: number): THREE.Vector3 =>
+      approach.clone().addScaledVector(side, lateral).addScaledVector(forward, -back).add(new THREE.Vector3(0, height, 0));
     presets.set("behavior:probe-gap", {
-      landscape: { position: landscapePos, target, fov: 40 },
-      portrait: { position: portraitPos, target, fov: 56 }
+      landscape: { position: buildPos(6.0, 3.0, 1.7), target, fov: 42 },
+      portrait: { position: buildPos(4.8, 2.4, 1.9), target, fov: 58 }
     });
   }
-  // dig-sand(砂場): やや低い斜め(65°)から、掘れていく砂面が広く見える角度。
+  // dig-sand(砂場): S3c修正。approach(0,0,2.6)→anchor(0,0.05,4)はほぼ世界+Z(北向き)なので、
+  // 旧rotateDeg65°+height0.95+distance3.1は「ほぼ真横・低く・近い」構図になり、ゾウの脚しか
+  // 映らなかった(dev-s3b-dig.pngで発覚)。斜め前30-40°(要件どおり35°)・高さ~2.0の見下ろし気味に
+  // 変更したが、targetOffsetが旧来のまま(y=0.15、ほぼ地面)だったため、カメラは高くなっても
+  // 「地面(掘り跡)を見下ろす」軸のままで、その軸の手前にある前脚が画面いっぱいに映り続けていた
+  // (実機デバッグでelephant.getPosition().y≈1.18=胴体基準の高さと判明、地面より遥かに高い)。
+  // 狙点を胴体寄りの高さ(0.8)へ引き上げ、頭+鼻+前脚+掘り跡が縦方向にバランスよく収まるようにした。
   presets.set(
     "behavior:dig-sand",
     behaviorShot(spotOf("sand"), {
-      rotateDeg: 65,
-      distance: 3.1,
-      height: 0.95,
-      targetOffset: new THREE.Vector3(0, 0.15, 0),
+      rotateDeg: 35,
+      distance: 3.6,
+      height: 2.0,
+      targetOffset: new THREE.Vector3(0, 0.8, 0),
       fovLandscape: 42,
       fovPortrait: 58
     })
   );
-  // reach-pipe(土管): 横から(85°)、開口部越しに内部(xray)が見える角度。
+  // reach-pipe(土管): 横から(85°、土管の軸=approach→anchor≈世界+Xにほぼ垂直)、開口部越しに
+  // 内部(xray)が見える角度。S3b時点で「概ね良」評価だったため角度はほぼ維持し、高さのみ要件の
+  // 「~1.2」に合わせて微調整(旧1.0 → 1.2、土管口と鼻の高さがより揃うようにする)。
   presets.set(
     "behavior:reach-pipe",
     behaviorShot(spotOf("pipe"), {
       rotateDeg: 85,
       distance: 2.8,
-      height: 1.0,
+      height: 1.2,
       targetOffset: new THREE.Vector3(0, 0.25, 0),
       fovLandscape: 40,
       fovPortrait: 58
     })
   );
-  // peel-banana(ガジュマル根元): 斜め手前から。ゾウが鼻を伸ばして幹に届く演出のため、実際の見た目上の
-  // 占有域(頭+伸びた鼻)はbbox実測で対角~5.6ユニットにも達する(体長2.6+鼻の伸び+ears等)。
-  // distanceを1.9〜3.8程度に取っていた初期案は軒並みこの占有域に食い込み、頭やゾウの一部が
-  // 画面いっぱいに映ってしまっていた(実機スクリーンショットで確認して発覚)。distanceを
-  // 5.2まで大きく取ることでゾウ全体+ガジュマル+バナナ茎を画面に収める。
-  presets.set(
-    "behavior:peel-banana",
-    behaviorShot(spotOf("banyan-root"), {
-      rotateDeg: 55,
-      distance: 7.0,
-      height: 2.4,
-      targetOffset: new THREE.Vector3(0, 0.2, 0.1),
-      fovLandscape: 44,
-      fovPortrait: 60
-    })
-  );
-  // break-branch(高木): 見上げ。anchor(spot位置=枝の高さ付近)より低い位置(height負)から見上げる。
+  // peel-banana(ガジュマル根元): S3c修正。banyan.tsのgapPosition(根の窪み)はspot.positionそのもの
+  // =幹の中心軸上にあるため、behaviorShot()(anchor=幹中心からdistance/rotateDegだけ離れた位置に
+  // カメラを置く)ではどの角度で回っても「幹の中心を見る」構図になりやすく、ゾウ(approachに立ち
+  // 窪みへ鼻を伸ばす)の顔とカメラの間に幹の太い胴が割り込んでしまっていた(dev-s3b-banana.pngで
+  // 発覚、「ガジュマルの幹がゾウの顔とバナナ茎を隠している」)。窪みは幹の"手前側"(approach側を
+  // 向いた面)にあるため、カメラはanchor基準ではなくapproach(ゾウの立ち位置)を基準に、
+  // ゾウの正面やや横(側方ベクトル)+わずかに後ろへ引いた位置に置き、幹を横から見る形にして
+  // 幹の胴が視線を遮らないようにする。
+  {
+    const spot = spotOf("banyan-root");
+    const anchor = v3(spot.position); // (-6,0.3,3) 幹の中心/根の窪み
+    const approach = v3(spot.approach); // (-4.6,0,2.2) ゾウの立ち位置
+    const forward = anchor.clone().sub(approach).setY(0).normalize(); // ゾウが窪みへ向く方向
+    const side = new THREE.Vector3(forward.z, 0, -forward.x); // 左右(側方)ベクトル
+    const buildPos = (lateral: number, back: number, height: number): THREE.Vector3 =>
+      approach.clone().addScaledVector(side, lateral).addScaledVector(forward, back).add(new THREE.Vector3(0, height, 0));
+    // 狙点は窪み(anchor)からわずかに上、剥がす作業の高さ(地面付近)。カメラは幹(anchor中心、
+    // 半径最大0.85の縦の塊)からの水平距離を5単位前後確保しつつ、ゾウ(approach)からは4単位未満に
+    // 近づけることで、ゾウの方が幹より画面上で優先して大きく映るようにする(幹が完全に見切れて
+    // いても問題ない=要件は「幹がゾウを隠さない」ことであり、幹自体を写す必要はない)。
+    const target = anchor.clone().add(new THREE.Vector3(0, 0.5, 0.1));
+    presets.set("behavior:peel-banana", {
+      landscape: { position: buildPos(4.2, -3.6, 2.0), target, fov: 44 },
+      portrait: { position: buildPos(3.4, -2.9, 2.3), target, fov: 60 }
+    });
+  }
+  // break-branch(高木): S3c修正。旧rotateDeg15°はapproach→anchor(=ゾウ→木)の正面軸にほぼ沿った
+  // ままで、しかも幹の付け根(anchor)からdistance3.2かつ低い位置(height-2.3→絶対高さ1.3)だった
+  // ため、木の真下から幹を見上げる形になり幹がゾウの頭を完全に隠していた(dev-s3b-branch.pngで
+  // 発覚)。high-branchのanchor(8,3.6,-7)は放飼場の隅寄りで、正面軸をそのまま延長する角度だと
+  // カメラが地形外(RADIUS_X14/RADIUS_Z12の楕円外)へ出てしまうため、rotateDegを140°まで大きく回し
+  // 「ゾウが木を背にして向き合う側(approachの外側、地形中心寄り)」からの3/4俯瞰気味アングルに
+  // 変更。距離7(要件6-9単位)、高さは絶対値~2.3(要件~2.5に近い)にして見上げ角を確保しつつ、
+  // 幹(細い1本、ゾウとの間に約2単位の間隔)が視線を横切らない方位角にした。
   presets.set(
     "behavior:break-branch",
     behaviorShot(spotOf("high-branch"), {
-      rotateDeg: 15,
-      distance: 3.2,
-      height: -2.3,
-      targetOffset: new THREE.Vector3(0, -0.3, 0),
-      portraitHeightMul: 1.05, // 縦画面でも十分低い位置を保つ(height*1.3だと持ち上がりすぎるため)
-      fovLandscape: 44,
-      fovPortrait: 60
+      rotateDeg: 140,
+      distance: 7.0,
+      height: -1.3,
+      targetOffset: new THREE.Vector3(0, -1.5, 0.2),
+      portraitScale: 0.86,
+      portraitHeightMul: 1.1,
+      fovLandscape: 42,
+      fovPortrait: 58
     })
   );
 

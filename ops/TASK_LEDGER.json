@@ -153,6 +153,39 @@
         "npm run build: PASS (dist/ generated)",
         "artifacts/screenshots/dev-s3b-{probe,dig,pipe,banana,branch}.png で5行動の姿勢/カメラ角/環境変化が明確に異なることを目視確認",
         "Fable目視ゲート不合格: probe/dig/branchのbehaviorカメラが行動を映していない(尻/フレーム外/幹遮蔽)。S3cへ引き継ぎ"
+      ],
+      "supersededBy": "S3c"
+    },
+    {
+      "id": "S3c",
+      "title": "5固有行動のカメラ演出修正: behavior:<id>プリセット再調整(Fable目視ゲート不合格対応)+keeper配置修正",
+      "status": "passed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/scene/cameras.ts",
+        "src/scene/world.ts",
+        "ops/reports/S3c.md"
+      ],
+      "dependsOn": [
+        "S3b"
+      ],
+      "acceptanceCommands": [
+        "npm run lint",
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S3c.md",
+      "commit": "0b42c0b",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (10 files, 113 tests)",
+        "npm run build: PASS (dist/ generated)",
+        "artifacts/screenshots/dev-s3b-{probe,dig,pipe,banana,branch}.png を新構図で上書き、目視確認済み(選定フレーム%はops/reports/S3c.md参照)",
+        "probe-gap/dig-sand/break-branchの不合格構図(真後ろ/脚のみ/幹に頭が隠れる)を解消。reach-pipeは微調整。peel-bananaは幹の遮蔽は解消したが繊維の視認性は既知の制限として明記",
+        "keeper配置をterrain.groundHeight(x,z)に合わせて修正(既知の制限あり、report参照)"
       ]
     },
     {
@@ -168,7 +201,7 @@
         "src/main.ts"
       ],
       "dependsOn": [
-        "S3b"
+        "S3c"
       ],
       "acceptanceCommands": [
         "npm run typecheck",

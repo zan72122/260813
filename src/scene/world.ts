@@ -21,7 +21,7 @@ import { createPipe } from "./environment/pipe";
 import { createSandPit } from "./environment/sandPit";
 import { createStoneWall } from "./environment/stoneWall";
 import { createTallTree } from "./environment/tallTree";
-import { createTerrain } from "./environment/terrain";
+import { createTerrain, groundHeight } from "./environment/terrain";
 
 export interface WorldHooks {
   openGate?: () => Promise<void>;
@@ -114,6 +114,12 @@ export function createWorld(opts?: {
   scene.add(cart);
 
   const keeper = createKeeper();
+  // S3c小修正: keeper.group.positionはこれまで既定値(0,0,0)のままで、地面が完全に平らな前提の
+  // 高さだった。terrain.tsのgroundHeight(x,z)は放飼場全体に緩やかな起伏(最大約±0.4)を付けている
+  // ため、y=0固定だとkeeperの足元が地面の起伏に埋まって/浮いて見えていた。x/zは変えず(=従来通り
+  // マップ中心付近)、yだけ実際の地面の高さに合わせる(keeper.ts内部のモデル構造は変更しない、
+  // 配置のみの最小修正)。
+  keeper.group.position.y = groundHeight(keeper.group.position.x, keeper.group.position.z);
   scene.add(keeper.group);
 
   // ゾウ本体(S3)。enter()が呼ばれるまで非表示(Elephantのコンストラクタで初期visible=false)。
