@@ -12,6 +12,18 @@ const ROLL_RADIUS = 0.045;
 const MAT_WIDTH = 0.4;
 const MAT_MAX_LEN = 0.62;
 
+// B7 fix (fix-round-1): shared, module-level (fixed params, not seed-dependent).
+const MAT_WEAVE_TEX = createFabricWeaveTexture(0xffffff, 256, 88);
+
+// M10 fix (fix-round-1): reused scratch objects for the per-frame matrix
+// updates below (updateRollMatrix/updateFlatMatrix/updateBeddingMatrix run
+// every frame during a drag/unroll swipe) — mutated in place instead of
+// allocating a new Vector3/Quaternion/Vector3 on every call.
+const SCRATCH_POS = new THREE.Vector3();
+const IDENTITY_QUAT = new THREE.Quaternion();
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const SCRATCH_SCALE = new THREE.Vector3();
+
 export interface MatVisual {
   id: string;
   def: MatDef;
@@ -36,7 +48,7 @@ export class MatSystem {
 
   constructor(seedConfig: SeedConfig, tweens: TweenManager) {
     this.tweens = tweens;
-    const weaveTex = createFabricWeaveTexture(0xffffff, 256, 88);
+    const weaveTex = MAT_WEAVE_TEX;
 
     const rollGeo = new THREE.CylinderGeometry(ROLL_RADIUS, ROLL_RADIUS, MAT_WIDTH, 14);
     rollGeo.rotateX(Math.PI / 2);
@@ -107,22 +119,24 @@ export class MatSystem {
   }
 
   private updateRollMatrix(index: number, anchor: THREE.Vector3, unroll: number): void {
-    const pos = new THREE.Vector3(anchor.x + unroll * MAT_MAX_LEN, ROLL_RADIUS, anchor.z);
-    this.m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+    SCRATCH_POS.set(anchor.x + unroll * MAT_MAX_LEN, ROLL_RADIUS, anchor.z);
+    this.m.compose(SCRATCH_POS, IDENTITY_QUAT, UNIT_SCALE);
     this.rollMesh.setMatrixAt(index, this.m);
     this.rollMesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateFlatMatrix(index: number, anchor: THREE.Vector3, unroll: number): void {
-    const pos = new THREE.Vector3(anchor.x, 0.003, anchor.z);
-    this.m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(Math.max(unroll, 0.0001), 1, 1));
+    SCRATCH_POS.set(anchor.x, 0.003, anchor.z);
+    SCRATCH_SCALE.set(Math.max(unroll, 0.0001), 1, 1);
+    this.m.compose(SCRATCH_POS, IDENTITY_QUAT, SCRATCH_SCALE);
     this.flatMesh.setMatrixAt(index, this.m);
     this.flatMesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateBeddingMatrix(index: number, anchor: THREE.Vector3, scale: number): void {
-    const pos = new THREE.Vector3(anchor.x + MAT_MAX_LEN * 0.5, 0.006, anchor.z);
-    this.m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+    SCRATCH_POS.set(anchor.x + MAT_MAX_LEN * 0.5, 0.006, anchor.z);
+    SCRATCH_SCALE.set(scale, scale, scale);
+    this.m.compose(SCRATCH_POS, IDENTITY_QUAT, SCRATCH_SCALE);
     this.beddingMesh.setMatrixAt(index, this.m);
     this.beddingMesh.instanceMatrix.needsUpdate = true;
   }
@@ -239,17 +253,39 @@ export class MatSystem {
       0.45,
       Easing.backOut,
       (p) => {
-        const pos = start.clone().lerp(target, p);
-        pos.y = Math.sin(Math.PI * p) * 0.25;
-        this.m.compose(new THREE.Vector3(pos.x, ROLL_RADIUS + pos.y, pos.z), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+        SCRATCH_POS.lerpVectors(start, target, p);
+        const hop = Math.sin(Math.PI * p) * 0.25;
+        SCRATCH_POS.y = ROLL_RADIUS + hop;
+        this.m.compose(SCRATCH_POS, IDENTITY_QUAT, UNIT_SCALE);
         this.rollMesh.setMatrixAt(v.index, this.m);
         this.rollMesh.instanceMatrix.needsUpdate = true;
-        v.proxy.position.set(pos.x, 0.05, pos.z);
+        v.proxy.position.set(SCRATCH_POS.x, 0.05, SCRATCH_POS.z);
       },
       () => {
         v.carryPos.copy(target);
         onDone?.();
       },
     );
+  }
+
+  /**
+   * B7 fix (fix-round-1): disposes the instanced roll/flat/bedding geometries
+   * + materials and every mat's proxy — leaving the shared module-level
+   * MAT_WEAVE_TEX texture untouched. Call this on the OLD MatSystem before
+   * building a new one for a reshuffled seed.
+   */
+  dispose(): void {
+    this.rollMesh.geometry.dispose();
+    (this.rollMesh.material as THREE.Material).dispose();
+    this.flatMesh.geometry.dispose();
+    (this.flatMesh.material as THREE.Material).dispose();
+    this.beddingMesh.geometry.dispose();
+    (this.beddingMesh.material as THREE.Material).dispose();
+    for (const v of this.mats.values()) {
+      v.proxy.geometry.dispose();
+      (v.proxy.material as THREE.Material).dispose();
+    }
+    this.mats.clear();
+    this.proxyToId.clear();
   }
 }

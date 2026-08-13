@@ -218,8 +218,17 @@ export class GameFsm {
         return { success: true, basketId: matchingBasket.id };
       }
     }
-    this.events.emit('toyRejected', { toyId, nearestBasketId: nearest?.target ?? null });
-    return { success: false, basketId: nearest?.target ?? null };
+    // B4 fix (fix-round-1): only treat this as a "wrong basket" rejection —
+    // with its float-back-from-that-basket animation — when the drop
+    // actually landed within a specific basket's (generous) capture radius.
+    // A dead-space miss (nowhere near any basket) must NOT emit toyRejected;
+    // per INTERACTION_SPEC it just settles in place where it was dropped,
+    // handled purely by the caller's settleAtCurrentPosition fallback.
+    if (nearest && nearest.withinRadius) {
+      this.events.emit('toyRejected', { toyId, nearestBasketId: nearest.target });
+      return { success: false, basketId: nearest.target };
+    }
+    return { success: false, basketId: null };
   }
 
   isPlayCleanupComplete(): boolean {

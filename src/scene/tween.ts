@@ -36,15 +36,30 @@ type ActiveTween = ActiveTweenHandle;
 
 export class TweenManager {
   private tweens: ActiveTween[] = [];
+  // B4 fix (fix-round-1): per-target tween cancellation. Without this, two
+  // tweens driving the same object's position (e.g. a reject-return float
+  // racing a settle-in-place) can run concurrently and fight every frame —
+  // whichever's onUpdate runs last that frame "wins", producing a visible
+  // jerk. Passing the same `key` to `add()` cancels any tween already
+  // registered under it before the new one starts.
+  private keyed = new Map<string, ActiveTween>();
 
-  add(duration: number, easing: Easing, onUpdate: (t: number) => void, onComplete?: () => void): ActiveTween {
+  add(duration: number, easing: Easing, onUpdate: (t: number) => void, onComplete?: () => void, key?: string): ActiveTween {
+    if (key !== undefined) this.cancelKey(key);
     const tween: ActiveTween = { elapsed: 0, duration: Math.max(duration, 0.0001), easing, onUpdate, onComplete, alive: true };
     this.tweens.push(tween);
+    if (key !== undefined) this.keyed.set(key, tween);
     return tween;
   }
 
   cancel(tween: ActiveTween): void {
     tween.alive = false;
+  }
+
+  /** Cancels whatever tween is currently registered under `key` (see `add`'s key param). No-op if none is active. */
+  cancelKey(key: string): void {
+    const prev = this.keyed.get(key);
+    if (prev) prev.alive = false;
   }
 
   update(dtSeconds: number): void {
@@ -72,5 +87,6 @@ export class TweenManager {
 
   clear(): void {
     this.tweens.length = 0;
+    this.keyed.clear();
   }
 }

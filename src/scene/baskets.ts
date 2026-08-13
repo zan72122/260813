@@ -18,6 +18,12 @@ export interface BasketVisual {
 
 export const BASKET_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky];
 
+// B7 fix (fix-round-1): shared, module-level (created once, never
+// seed-dependent) — same rationale as toys.ts's TOY_* constants.
+const BASKET_WEAVE_TEX = createFabricWeaveTexture(PALETTE.woodDark, 256, 77);
+const BASKET_SYMBOL_ATLAS = createSymbolAtlas(512);
+const BASKET_SYMBOL_MATERIAL = new THREE.MeshStandardMaterial({ map: BASKET_SYMBOL_ATLAS.texture, transparent: true, roughness: 0.6 });
+
 export class BasketSystem {
   readonly group = new THREE.Group();
   readonly baskets = new Map<string, BasketVisual>();
@@ -26,8 +32,8 @@ export class BasketSystem {
 
   constructor(seedConfig: SeedConfig, tweens: TweenManager) {
     this.tweens = tweens;
-    const atlas = createSymbolAtlas(512);
-    const weaveTex = createFabricWeaveTexture(PALETTE.woodDark, 256, 77);
+    const atlas = BASKET_SYMBOL_ATLAS;
+    const weaveTex = BASKET_WEAVE_TEX;
 
     seedConfig.baskets.forEach((basket, i) => {
       const visual = this.buildBasket(basket, i, atlas, weaveTex);
@@ -59,11 +65,11 @@ export class BasketSystem {
     bottom.rotation.x = -Math.PI / 2;
     bottom.position.y = 0.001;
 
-    // Front-facing badge (reads well at eye-level / 3/4 angles).
+    // Front-facing badge (reads well at eye-level / 3/4 angles). Material is
+    // the shared BASKET_SYMBOL_MATERIAL — never disposed per-basket.
     const symbolPlaneGeo = new THREE.PlaneGeometry(def.radius * 0.62, def.radius * 0.62);
     applySymbolUv(symbolPlaneGeo, atlas.uvRect(def.symbol));
-    const symbolMat = new THREE.MeshStandardMaterial({ map: atlas.texture, transparent: true, roughness: 0.6 });
-    const symbolPlane = new THREE.Mesh(symbolPlaneGeo, symbolMat);
+    const symbolPlane = new THREE.Mesh(symbolPlaneGeo, BASKET_SYMBOL_MATERIAL);
     symbolPlane.position.set(0, 0.09, def.radius * 0.63);
 
     // B2 fix: a large, high-contrast symbol facing straight UP on the basket's interior
@@ -72,7 +78,7 @@ export class BasketSystem {
     const symbolUpGeo = new THREE.PlaneGeometry(def.radius * 0.92, def.radius * 0.92);
     applySymbolUv(symbolUpGeo, atlas.uvRect(def.symbol));
     symbolUpGeo.rotateX(-Math.PI / 2);
-    const symbolUp = new THREE.Mesh(symbolUpGeo, symbolMat);
+    const symbolUp = new THREE.Mesh(symbolUpGeo, BASKET_SYMBOL_MATERIAL);
     symbolUp.position.y = 0.022;
 
     const proxyGeo = new THREE.SphereGeometry(def.radius * 1.6, 8, 6);
@@ -125,5 +131,25 @@ export class BasketSystem {
     }, () => {
       b.group.scale.copy(baseScale);
     });
+  }
+
+  /**
+   * B7 fix (fix-round-1): disposes every per-basket geometry/material —
+   * leaving the shared module-level texture/atlas/BASKET_SYMBOL_MATERIAL
+   * untouched, since those outlive any one seed. Call this on the OLD
+   * BasketSystem before building a new one for a reshuffled seed.
+   */
+  dispose(): void {
+    for (const b of this.baskets.values()) {
+      b.group.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!('geometry' in mesh)) return;
+        mesh.geometry?.dispose();
+        const mat = mesh.material as THREE.Material | undefined;
+        if (mat && mat !== BASKET_SYMBOL_MATERIAL) mat.dispose();
+      });
+    }
+    this.baskets.clear();
+    this.proxyToId.clear();
   }
 }

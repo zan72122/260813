@@ -49,4 +49,25 @@ export class BlobShadowManager {
     this.mesh.setMatrixAt(index, this.matrix);
     this.mesh.instanceMatrix.needsUpdate = true;
   }
+
+  /**
+   * B6 fix (fix-round-1): releases a previously-allocated slot back to the
+   * pool so a later allocate() can reuse it. Without this, every seed
+   * reshuffle allocated a fresh batch of slots against the same fixed-size
+   * pool and never freed the previous seed's — the InstancedMesh overflowed
+   * (shadows silently stopped appearing) after ~48/7 ~= 6 shuffles. Callers
+   * that own a batch of indices (e.g. ToySystem.dispose()) must call this
+   * for each one before the owning system is discarded.
+   */
+  free(index: number): void {
+    const slot = this.slots[index];
+    if (!slot) return;
+    slot.used = false;
+    this.hide(index);
+  }
+
+  /** Count of slots currently marked in-use (test/diagnostic use). */
+  get usedCount(): number {
+    return this.slots.reduce((n, s) => n + (s.used ? 1 : 0), 0);
+  }
 }

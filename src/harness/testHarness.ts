@@ -13,6 +13,7 @@ export interface GameHarness {
   readonly phase: Phase;
   readonly seed: number;
   readonly drawCalls: number;
+  readonly shadowSlotsUsed: number;
   readonly muted: boolean;
   readonly reducedMotion: boolean;
   advancePhase: () => void;
@@ -66,6 +67,9 @@ export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: Au
     },
     get drawCalls() {
       return sceneRoot.drawCalls;
+    },
+    get shadowSlotsUsed() {
+      return sceneRoot.shadowSlotsUsed;
     },
     get muted() {
       return audio.isMuted;

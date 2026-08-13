@@ -22,6 +22,22 @@ export interface ToyVisual {
 
 const TOY_Y_REST = 0.045;
 
+// B7 fix (fix-round-1): these procedural textures never vary by seed (fixed
+// colors/params), so they're created ONCE at module load and shared by every
+// ToySystem instance for the app's lifetime, instead of being regenerated
+// (and leaked — nothing ever disposed the old ones) on every reshuffle.
+const TOY_WOOD_TEX = createWoodGrainTexture(PALETTE.woodLight, 256, 40);
+const TOY_FABRIC_TEX = createFabricWeaveTexture(0xffffff, 256, 41);
+const TOY_SYMBOL_ATLAS = createSymbolAtlas(512);
+const TOY_DECAL_MATERIAL = new THREE.MeshStandardMaterial({
+  map: TOY_SYMBOL_ATLAS.texture,
+  transparent: true,
+  roughness: 0.6,
+  polygonOffset: true,
+  polygonOffsetFactor: -4,
+  polygonOffsetUnits: -4,
+});
+
 export class ToySystem {
   readonly group = new THREE.Group();
   readonly toys = new Map<string, ToyVisual>();
@@ -33,9 +49,9 @@ export class ToySystem {
     this.tweens = tweens;
     this.shadows = shadows;
 
-    const woodTex = createWoodGrainTexture(PALETTE.woodLight, 256, 40);
-    const fabricTex = createFabricWeaveTexture(0xffffff, 256, 41);
-    const atlas = createSymbolAtlas(512);
+    const woodTex = TOY_WOOD_TEX;
+    const fabricTex = TOY_FABRIC_TEX;
+    const atlas = TOY_SYMBOL_ATLAS;
 
     // B3 fix: a toy's accent color deterministically matches the color of the
     // basket it belongs in (same symbol), as a redundant color cue on top of
@@ -99,15 +115,10 @@ export class ToySystem {
     const decalGeo = new THREE.PlaneGeometry(decalSize, decalSize);
     applySymbolUv(decalGeo, atlas.uvRect(toy.symbol));
     decalGeo.rotateX(-Math.PI / 2);
-    const decalMat = new THREE.MeshStandardMaterial({
-      map: atlas.texture,
-      transparent: true,
-      roughness: 0.6,
-      polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits: -4,
-    });
-    const decal = new THREE.Mesh(decalGeo, decalMat);
+    // Shared module-level material (see TOY_DECAL_MATERIAL) — only the
+    // geometry's UVs vary per toy, so the material itself is never disposed
+    // per-toy (ToySystem.dispose() below skips it deliberately).
+    const decal = new THREE.Mesh(decalGeo, TOY_DECAL_MATERIAL);
     decal.position.y = topY + 0.004;
     mesh.add(decal);
 
@@ -155,16 +166,28 @@ export class ToySystem {
     this.shadows.update(t.shadowIndex, worldX, worldZ, THREE.MathUtils.clamp(1 - lift * 1.5, 0.35, 1));
   }
 
-  /** Sloppy drop landed outside any basket: gently settle where dropped, stays draggable. */
+  /**
+   * Sloppy drop landed in dead space (not near any basket): gently settle
+   * exactly where dropped, stays draggable. Per INTERACTION_SPEC ("drop in
+   * dead space: toy plops where dropped") this must NEVER also be racing a
+   * playRejectReturn tween for the same toy — both are registered under the
+   * same per-toy key so whichever is added last wins outright (B4 fix).
+   */
   settleAtCurrentPosition(id: string): void {
     const t = this.toys.get(id);
     if (!t) return;
     t.held = false;
     const startY = t.mesh.position.y;
-    this.tweens.add(0.25, Easing.cubicOut, (p) => {
-      t.mesh.position.y = THREE.MathUtils.lerp(startY, TOY_Y_REST, p);
-      t.mesh.scale.setScalar(THREE.MathUtils.lerp(1.08, 1, p));
-    });
+    this.tweens.add(
+      0.25,
+      Easing.cubicOut,
+      (p) => {
+        t.mesh.position.y = THREE.MathUtils.lerp(startY, TOY_Y_REST, p);
+        t.mesh.scale.setScalar(THREE.MathUtils.lerp(1.08, 1, p));
+      },
+      undefined,
+      `toy:${id}`,
+    );
   }
 
   /** Magnet-snap success: arcs into the basket, one soft bounce, then shrinks/hides into the basket. */
@@ -175,6 +198,7 @@ export class ToySystem {
     t.stored = true;
     const start = t.group.position.clone();
     const startY = t.mesh.position.y;
+    const key = `toy:${id}`;
     this.tweens.add(
       0.38,
       Easing.cubicOut,
@@ -195,32 +219,43 @@ export class ToySystem {
           t.group.visible = false;
           this.shadows.hide(t.shadowIndex);
           onLanded();
-        });
+        }, key);
       },
+      key,
     );
   }
 
-  /** Wrong-basket (or otherwise rejected) drop: floats gently back to its floor start position. No penalty. */
-  playRejectReturn(id: string): void {
+  /**
+   * Wrong-basket drop (B4 fix): floats a short hop to a nearby floor spot
+   * just outside the wrong basket it was dropped near — NOT all the way
+   * back to its original spawn point, and NOT for dead-space misses (those
+   * go through settleAtCurrentPosition only; see fsm.attemptStoreToy). No
+   * penalty either way.
+   */
+  playRejectReturn(id: string, wrongBasketWorldPos: THREE.Vector3): void {
     const t = this.toys.get(id);
     if (!t) return;
     t.held = false;
     const start = t.group.position.clone();
-    const restWorld = vec2ToWorld(t.def.start);
+    const away = new THREE.Vector2(start.x - wrongBasketWorldPos.x, start.z - wrongBasketWorldPos.z);
+    if (away.lengthSq() < 0.0001) away.set(0, 1);
+    away.normalize().multiplyScalar(0.22);
+    const target = new THREE.Vector3(wrongBasketWorldPos.x + away.x, 0, wrongBasketWorldPos.z + away.y);
     this.tweens.add(
-      0.55,
-      Easing.cubicInOut,
+      0.32,
+      Easing.cubicOut,
       (p) => {
-        t.group.position.x = THREE.MathUtils.lerp(start.x, restWorld.x, p);
-        t.group.position.z = THREE.MathUtils.lerp(start.z, restWorld.z, p);
-        t.mesh.position.y = TOY_Y_REST + Math.sin(Math.PI * p) * 0.12;
-        t.mesh.scale.setScalar(1 - Math.sin(Math.PI * p) * 0.06);
+        t.group.position.x = THREE.MathUtils.lerp(start.x, target.x, p);
+        t.group.position.z = THREE.MathUtils.lerp(start.z, target.z, p);
+        t.mesh.position.y = TOY_Y_REST + Math.sin(Math.PI * p) * 0.1;
+        t.mesh.scale.setScalar(1 - Math.sin(Math.PI * p) * 0.05);
         this.shadows.update(t.shadowIndex, t.group.position.x, t.group.position.z, 1);
       },
       () => {
         t.mesh.position.y = TOY_Y_REST;
         t.mesh.scale.setScalar(1);
       },
+      `toy:${id}`,
     );
   }
 
@@ -249,12 +284,42 @@ export class ToySystem {
       t.mesh.scale.setScalar(0.05);
       t.mesh.position.y = TOY_Y_REST;
       window.setTimeout(() => {
-        this.tweens.add(0.4, Easing.backOut, (p) => {
-          t.mesh.scale.setScalar(THREE.MathUtils.lerp(0.05, 1, p));
-          t.mesh.position.y = TOY_Y_REST + Math.sin(Math.PI * p) * 0.15;
-        });
+        this.tweens.add(
+          0.4,
+          Easing.backOut,
+          (p) => {
+            t.mesh.scale.setScalar(THREE.MathUtils.lerp(0.05, 1, p));
+            t.mesh.position.y = TOY_Y_REST + Math.sin(Math.PI * p) * 0.15;
+          },
+          undefined,
+          `toy:${toy.id}`,
+        );
         this.shadows.update(t.shadowIndex, restWorld.x, restWorld.z, 1);
       }, delay * 1000);
     }
+  }
+
+  /**
+   * B6/B7 fix (fix-round-1): releases this system's blob-shadow slots back to
+   * the shared pool and disposes every per-toy geometry/material (mesh,
+   * decal, proxy) — but deliberately leaves the module-level shared textures
+   * and TOY_DECAL_MATERIAL alone, since those outlive any one seed. Call this
+   * on the OLD ToySystem before building a new one for a reshuffled seed.
+   */
+  dispose(): void {
+    for (const t of this.toys.values()) {
+      this.shadows.free(t.shadowIndex);
+      t.mesh.geometry.dispose();
+      (t.mesh.material as THREE.Material).dispose();
+      for (const child of t.mesh.children) {
+        const decal = child as THREE.Mesh;
+        decal.geometry?.dispose();
+        // decal.material is the shared TOY_DECAL_MATERIAL — not disposed here.
+      }
+      t.proxy.geometry.dispose();
+      (t.proxy.material as THREE.Material).dispose();
+    }
+    this.toys.clear();
+    this.proxyToId.clear();
   }
 }

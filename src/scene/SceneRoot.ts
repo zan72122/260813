@@ -8,6 +8,7 @@ import { CameraDirector, type Orientation } from './camera.ts';
 import { CART_OUT, SEAT_OFFSETS, TABLE_OUT, buildFurniture, type FurnitureHandles } from './furniture.ts';
 import { worldToVec2 } from './constants.ts';
 import { buildCurtain, type CurtainHandles } from './curtain.ts';
+import { disposeObject3D } from './geometry.ts';
 import { LightingRig } from './lighting.ts';
 import { MatSystem } from './mats.ts';
 import { buildNpcRig, NpcAnimator, updateNpcIdle, type NpcRig } from './npc.ts';
@@ -234,13 +235,20 @@ export class SceneRoot {
   private subscribeFsm(): void {
     this.fsm.events.on('phaseChange', ({ to }) => this.onPhaseChange(to));
     this.fsm.events.on('toyCaptured', ({ toyId, basketId }) => this.onToyCaptured(toyId, basketId));
-    this.fsm.events.on('toyRejected', ({ toyId }) => this.onToyRejected(toyId));
+    this.fsm.events.on('toyRejected', ({ toyId, nearestBasketId }) => this.onToyRejected(toyId, nearestBasketId));
     this.fsm.events.on('seedChanged', () => this.onSeedChanged());
   }
 
   private onSeedChanged(): void {
     // Rebuild the seed-dependent visuals (toys/baskets/mats/weather/light angle) for a fresh run.
     this.scene.remove(this.toys.group, this.baskets.group, this.mats.group);
+    // B6/B7 fix (fix-round-1): dispose the OLD systems (frees blob-shadow
+    // slots + per-instance geometries/materials) before building new ones —
+    // previously nothing here ever freed them, so the shared 48-slot shadow
+    // pool overflowed after ~6 reshuffles and geometries/materials leaked.
+    this.toys.dispose();
+    this.baskets.dispose();
+    this.mats.dispose();
     this.toys = new ToySystem(this.fsm.seedConfig, this.tweens, this.shadows);
     this.baskets = new BasketSystem(this.fsm.seedConfig, this.tweens);
     this.mats = new MatSystem(this.fsm.seedConfig, this.tweens);
@@ -320,8 +328,12 @@ export class SceneRoot {
     }
   }
 
-  private onToyRejected(toyId: string): void {
-    this.toys.playRejectReturn(toyId);
+  private onToyRejected(toyId: string, nearestBasketId: string | null): void {
+    // fsm only emits toyRejected when the drop was actually near a specific
+    // wrong basket (see fsm.attemptStoreToy B4 fix), so nearestBasketId is
+    // always set here in practice; the fallback keeps this defensive.
+    const basketPos = nearestBasketId ? this.baskets.worldPositionOf(nearestBasketId) : this.toys.worldPositionOf(toyId);
+    this.toys.playRejectReturn(toyId, basketPos);
     this.audio.playRejectPop();
     this.baskets.clearAllAttention();
   }
@@ -706,7 +718,11 @@ export class SceneRoot {
     switch (drag.kind) {
       case 'toy': {
         const attempt = this.fsm.attemptStoreToy(drag.id, worldToVec2(this.toys.worldPositionOf(drag.id)));
-        if (!attempt.success) {
+        // B4 fix: attemptStoreToy already fired toyRejected (-> playRejectReturn,
+        // a float away from the wrong basket) when attempt.basketId is set — do
+        // NOT also call settleAtCurrentPosition here, or the two tweens race for
+        // the same toy. Only a true dead-space miss (basketId null) settles in place.
+        if (!attempt.success && !attempt.basketId) {
           this.toys.settleAtCurrentPosition(drag.id);
         }
         this.baskets.clearAllAttention();
@@ -1109,9 +1125,26 @@ export class SceneRoot {
     }
   }
 
+  /**
+   * B7 fix (fix-round-1): this used to only dispose the pointer controller
+   * and the renderer, leaving every geometry/material/texture created for
+   * the scene graph (room, furniture, curtain, stars, NPC rigs, blob-shadow
+   * pool, plus the seed-scoped toy/basket/mat systems) to whatever the GC
+   * happened to reclaim. Now walks every subsystem's group.
+   */
   dispose(): void {
     this.disposed = true;
     this.pointer.dispose();
+    this.toys.dispose();
+    this.baskets.dispose();
+    this.mats.dispose();
+    disposeObject3D(this.room.group);
+    disposeObject3D(this.furniture.group);
+    disposeObject3D(this.curtain.group);
+    disposeObject3D(this.stars.points);
+    disposeObject3D(this.teacherRig.group);
+    for (const rig of this.childRigs) disposeObject3D(rig.group);
+    disposeObject3D(this.shadows.group);
     this.renderer.dispose();
   }
 
@@ -1121,6 +1154,11 @@ export class SceneRoot {
 
   get drawCalls(): number {
     return this.renderer.info.render.calls;
+  }
+
+  /** T1 diagnostic: count of currently-allocated blob-shadow pool slots (see B6 fix-round-1). */
+  get shadowSlotsUsed(): number {
+    return this.shadows.usedCount;
   }
 
   simulateStoreAllToys(): void {

@@ -151,3 +151,22 @@ export function transformGeometry(
   geo.applyMatrix4(m);
   return geo;
 }
+
+/**
+ * B7 fix (fix-round-1): disposes every geometry + material found under `root`
+ * (Mesh and InstancedMesh alike). Deliberately does NOT touch `material.map`
+ * (or any other texture) — textures used here are shared, module-level-cached
+ * procedural textures (see toys.ts/baskets.ts/mats.ts) that outlive any one
+ * seed's systems and must not be disposed out from under the next reshuffle.
+ * Call this on a seed-scoped system's group right before discarding it.
+ */
+export function disposeObject3D(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!('geometry' in mesh) || !('material' in mesh)) return;
+    mesh.geometry?.dispose();
+    const mat = mesh.material;
+    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+    else mat?.dispose();
+  });
+}
