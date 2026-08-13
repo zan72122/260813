@@ -23,7 +23,7 @@ import {
   Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { LEG_ANGLES, LEVEL_HEIGHT, legOffsetAt, legRadiusAt, legTangentAt } from './curve';
+import { LEG_ANGLES, LEVEL_HEIGHT, legOffsetAt, legOffsetInto, legRadiusAt, legTangentAt } from './curve';
 import { MAX_TOWER_LEVEL } from '../contracts/machine';
 import type { MaterialSet } from '../visual/materials';
 
@@ -51,8 +51,11 @@ const MAX_GUSSET_INSTANCES = 480;
  * the (deliberately small, cheap) gusset instance budget. */
 const GUSSET_ROW_STRIDE = 3;
 /** Legs poke up bare past the last completed ring girder — reads as
- * "unfinished top, protruding members mid-construction". */
-const LEG_PROTRUSION = 2.0;
+ * "unfinished top, protruding members mid-construction" (R1: exaggerated
+ * from the original 2.0 so it reads clearly even in the pulled-back
+ * establish shot, and paired below with a few sparse diagonals + a partial
+ * ring fragment so the protrusion isn't just 4 bare rods). */
+const LEG_PROTRUSION = 3.4;
 
 const legThicknessBase = 0.62;
 const legThicknessTop = 0.2;
@@ -326,6 +329,22 @@ export function createTowerRig(materials: MaterialSet): TowerRig {
         idx = placeRingGirder(idx, a, b, t);
       }
     }
+
+    // ---- R1: sparse "next tier being built" members in the bare
+    // protrusion above the last completed level — a couple of diagonals per
+    // leg (only 2 of its 4 faces, not a full braced panel) plus ONE partial
+    // ring fragment between a single pair of adjacent legs (not all 4) at
+    // mid-protrusion height, so the top reads as "mid-assembly" rather than
+    // either a finished panel or just bare rods. ----
+    if (legTMax > builtFraction + 1e-6) {
+      const nextRowT1 = Math.min(builtFraction + (legTMax - builtFraction) * 0.7, legTMax);
+      for (const angle of LEG_ANGLES) {
+        idx = placeFaceDiagonal(idx, angle, 0, builtFraction, nextRowT1, false);
+        idx = placeFaceDiagonal(idx, angle, 2, builtFraction, nextRowT1, true);
+      }
+      const fragT = builtFraction + (legTMax - builtFraction) * 0.55;
+      idx = placeRingGirder(idx, LEG_ANGLES[0]!, LEG_ANGLES[1]!, fragT);
+    }
     latticeMesh.count = idx;
     latticeMesh.instanceMatrix.needsUpdate = true;
 
@@ -350,11 +369,16 @@ export function createTowerRig(materials: MaterialSet): TowerRig {
     rebuild(level);
   }
 
+  // R9: topOfLeg is called once per frame from scene/index.ts's hot path
+  // (its result is only ever read synchronously within that same frame, so
+  // a single reused Vector3 is safe) — avoids a fresh allocation every frame.
+  const topOfLegScratch = new Vector3();
+  const topOfLegOffsetScratch = { x: 0, z: 0 };
   function topOfLeg(angleIndex: number): Vector3 {
     const angle = LEG_ANGLES[angleIndex % LEG_ANGLES.length]!;
     const t = Math.min(builtHeight / MAX_HEIGHT, 1);
-    const off = legOffsetAt(angle, t);
-    return new Vector3(off.x, builtHeight, off.z);
+    const off = legOffsetInto(topOfLegOffsetScratch, angle, t);
+    return topOfLegScratch.set(off.x, builtHeight, off.z);
   }
 
   function dispose(): void {

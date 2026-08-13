@@ -15,7 +15,11 @@ export interface MaterialSet {
   timber: MeshStandardMaterial;
   ghost: MeshStandardMaterial;
   haussmannWall: MeshStandardMaterial;
+  /** Dark zinc mansard-roof material (R2: Haussmann buildings need a real geometric roof, not a flat box top). */
+  roofZinc: MeshStandardMaterial;
   trocadero: MeshStandardMaterial;
+  /** Slightly darker gold for the Trocadero's dome, distinct from its cream walls (R2). */
+  domeGold: MeshStandardMaterial;
   cloth: MeshStandardMaterial[];
   skin: MeshStandardMaterial;
   coal: MeshStandardMaterial;
@@ -60,7 +64,14 @@ export function buildMaterialSet(tex: TextureSet): MaterialSet {
     depthWrite: false,
   });
   const haussmannWall = new MeshStandardMaterial({ map: tex.haussmann, roughness: 1, metalness: 0 });
+  const roofZinc = new MeshStandardMaterial({
+    color: new Color('#3d4148'),
+    roughness: 0.55,
+    metalness: 0.3,
+    side: DoubleSide,
+  });
   const trocadero = new MeshStandardMaterial({ color: new Color('#c9b89a'), roughness: 1, metalness: 0 });
+  const domeGold = new MeshStandardMaterial({ color: new Color('#8a7248'), roughness: 0.4, metalness: 0.4 });
   const cloth = CLOTH_PALETTE.map(
     (c) => new MeshStandardMaterial({ color: new Color(c), roughness: 0.9, metalness: 0, side: DoubleSide }),
   );
@@ -83,7 +94,9 @@ export function buildMaterialSet(tex: TextureSet): MaterialSet {
     timber,
     ghost,
     haussmannWall,
+    roofZinc,
     trocadero,
+    domeGold,
     cloth,
     skin,
     coal,
@@ -101,6 +114,8 @@ export function disposeMaterialSet(set: MaterialSet): void {
   set.timber.dispose();
   set.ghost.dispose();
   set.haussmannWall.dispose();
+  set.roofZinc.dispose();
+  set.domeGold.dispose();
   set.trocadero.dispose();
   set.cloth.forEach((m) => m.dispose());
   set.skin.dispose();

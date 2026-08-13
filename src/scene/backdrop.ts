@@ -7,13 +7,17 @@
 
 import {
   BoxGeometry,
+  BufferGeometry,
+  CylinderGeometry,
   DynamicDrawUsage,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
   Object3D,
   PlaneGeometry,
+  SphereGeometry,
   TorusGeometry,
 } from 'three';
 import type { MaterialSet } from '../visual/materials';
@@ -22,6 +26,39 @@ import type { CanvasTexture } from 'three';
 const RIVER_Z = -70;
 const CITY_Z = -95;
 const MAX_BLOCKS = 48;
+
+/**
+ * Unit two-slope "mansard-ish" prism roof (R2): footprint 1x1 in x/z
+ * (spanning -0.5..0.5), eave at y=-0.5 (rests flush on the building top),
+ * ridge running along x at y=+0.5, z=0. Two slanted rectangular slopes
+ * (front/back) + two triangular gable ends — 6 triangles total, cheaper
+ * than the 12-triangle box it replaces reading as a roof. Scaled per
+ * building instance (footprint width/depth + roof height) via the
+ * InstancedMesh matrix, so this stays one shared geometry.
+ */
+function makeGableRoofGeometry(): BufferGeometry {
+  const backLeft = [-0.5, -0.5, -0.5];
+  const backRight = [0.5, -0.5, -0.5];
+  const frontRight = [0.5, -0.5, 0.5];
+  const frontLeft = [-0.5, -0.5, 0.5];
+  const ridgeLeft = [-0.5, 0.5, 0];
+  const ridgeRight = [0.5, 0.5, 0];
+  const verts = [
+    // back slope
+    ...backLeft, ...backRight, ...ridgeRight,
+    ...backLeft, ...ridgeRight, ...ridgeLeft,
+    // front slope
+    ...frontRight, ...frontLeft, ...ridgeLeft,
+    ...frontRight, ...ridgeLeft, ...ridgeRight,
+    // gable ends (triangles)
+    ...frontLeft, ...backLeft, ...ridgeLeft,
+    ...backRight, ...frontRight, ...ridgeRight,
+  ];
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
 
 export interface BackdropRig {
   group: Group;
@@ -54,10 +91,18 @@ export function createBackdropRig(
   river.position.set(0, 0.05, RIVER_Z);
   group.add(river);
 
-  // ---- Haussmann blocks (instanced) ------------------------------------------
+  // ---- Haussmann blocks (instanced): cream wall body + dark zinc mansard
+  // roof (R2 — "flat-roofed modern boxes" is the failure this fixes). The
+  // roof is a second InstancedMesh (own cheap 6-tri geometry) stacked on
+  // each wall instance at matching footprint, so instancing + the triangle
+  // budget are both kept (48 walls x 12 tri + 48 roofs x 6 tri, well under
+  // budget). ------------------------------------------------------------
   const blockGeo = new BoxGeometry(1, 1, 1);
   const blockMesh = new InstancedMesh(blockGeo, materials.haussmannWall, MAX_BLOCKS);
   blockMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+  const roofGeo = makeGableRoofGeometry();
+  const roofMesh = new InstancedMesh(roofGeo, materials.roofZinc, MAX_BLOCKS);
+  roofMesh.instanceMatrix.setUsage(DynamicDrawUsage);
   const dummy = new Object3D();
   let count = 0;
   for (let i = 0; i < MAX_BLOCKS; i += 1) {
@@ -67,17 +112,30 @@ export function createBackdropRig(
     const w = 4 + rand() * 3;
     const h = 3.5 + rand() * 3;
     const d = 3 + rand() * 2;
+    const rotY = (rand() - 0.5) * 0.1;
     dummy.position.set(x, h / 2, z);
-    dummy.rotation.y = (rand() - 0.5) * 0.1;
+    dummy.rotation.set(0, rotY, 0);
     dummy.scale.set(w, h, d);
     dummy.updateMatrix();
     blockMesh.setMatrixAt(i, dummy.matrix);
+
+    const roofHeight = h * (0.28 + rand() * 0.1);
+    dummy.position.set(x, h + roofHeight / 2, z);
+    dummy.rotation.set(0, rotY, 0);
+    dummy.scale.set(w * 1.05, roofHeight, d * 1.05);
+    dummy.updateMatrix();
+    roofMesh.setMatrixAt(i, dummy.matrix);
     count += 1;
   }
   blockMesh.count = count;
+  roofMesh.count = count;
   group.add(blockMesh);
+  group.add(roofMesh);
 
-  // ---- Trocadero silhouette (simplified twin-tower palace across the river) --
+  // ---- Trocadero silhouette (simplified twin-tower palace across the
+  // river) + a central dome (R2: "one Trocadero-like domed landmark
+  // silhouette") — the 1889 Palais du Trocadéro's signature Moorish-
+  // Byzantine rotunda, not just twin flat-roofed towers. ------------------
   const trocadero = new Group();
   const bodyGeo = new BoxGeometry(14, 5, 3);
   const wingL = new Mesh(bodyGeo, materials.trocadero);
@@ -89,7 +147,15 @@ export function createBackdropRig(
   towerL.position.set(-9, 3.5, CITY_Z - 10);
   const towerR = new Mesh(towerBodyGeo, materials.trocadero);
   towerR.position.set(9, 3.5, CITY_Z - 10);
-  trocadero.add(wingL, wingR, towerL, towerR);
+  // central rotunda: a squat drum + a real hemispherical dome, reading as
+  // the landmark silhouette even at backdrop distance/haze.
+  const rotundaGeo = new CylinderGeometry(4.4, 4.6, 4, 14);
+  const rotunda = new Mesh(rotundaGeo, materials.trocadero);
+  rotunda.position.set(0, 2, CITY_Z - 8);
+  const domeGeo = new SphereGeometry(4.4, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+  const dome = new Mesh(domeGeo, materials.domeGold);
+  dome.position.set(0, 4, CITY_Z - 8);
+  trocadero.add(wingL, wingR, towerL, towerR, rotunda, dome);
   group.add(trocadero);
 
   // ---- 1-2 arched bridges across the river ------------------------------------
@@ -137,7 +203,10 @@ export function createBackdropRig(
   group.add(cloudMesh);
 
   function setDetail(detail: 'full' | 'reduced' | 'minimal'): void {
-    blockMesh.count = detail === 'full' ? count : detail === 'reduced' ? Math.round(count * 0.6) : Math.round(count * 0.3);
+    const visibleCount =
+      detail === 'full' ? count : detail === 'reduced' ? Math.round(count * 0.6) : Math.round(count * 0.3);
+    blockMesh.count = visibleCount;
+    roofMesh.count = visibleCount;
     cloudMesh.count = detail === 'minimal' ? Math.round(cloudCount * 0.5) : cloudCount;
   }
 
@@ -146,8 +215,11 @@ export function createBackdropRig(
     riverMat.dispose();
     (river.geometry as PlaneGeometry).dispose();
     blockGeo.dispose();
+    roofGeo.dispose();
     bodyGeo.dispose();
     towerBodyGeo.dispose();
+    rotundaGeo.dispose();
+    domeGeo.dispose();
     archGeo.dispose();
     archMeshes.forEach((m) => {
       const geo = m.geometry;

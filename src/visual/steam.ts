@@ -60,10 +60,13 @@ export function createSteamSystem(texture: CanvasTexture): SteamSystem {
   // failure) — normal blending caps every pixel at this material's opacity
   // regardless of how many puffs overlap there, so the frame center can
   // never wash out to solid white.
+  // R4: climb puffs read as "two faint dots" at the old 0.5 cap — raised to
+  // the budget's max allowed (still capped, still NormalBlending so it
+  // still can't wash out toward pure white as puffs overlap).
   const material = new MeshBasicMaterial({
     map: texture,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.55,
     depthWrite: false,
     blending: NormalBlending,
     color: new Color('#fbf8f2'),
@@ -107,7 +110,9 @@ export function createSteamSystem(texture: CanvasTexture): SteamSystem {
       p.life = (reduced ? 2.0 : 1.5) + pseudoRand(emitCursor + 5) * 0.7;
       // Small, soft puffs (D5) — the old 0.5-1.2 range read as huge opaque
       // spheres once several overlapped; this tops out well under half that.
-      p.size = 0.22 + pseudoRand(emitCursor + 6) * 0.26;
+      // R4: nudged up from 0.22-0.48 (which read as "faint dots" at climb
+      // distance) — still nowhere near the pre-D5 size, just readable.
+      p.size = 0.28 + pseudoRand(emitCursor + 6) * 0.3;
       p.spin = (pseudoRand(emitCursor + 7) - 0.5) * 0.6;
       emitCursor += 8;
     }

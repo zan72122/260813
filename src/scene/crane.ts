@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { legOffsetAt, legTangentAt } from './curve';
+import { legOffsetInto, legTangentInto } from './curve';
 import type { MaterialSet } from '../visual/materials';
 
 export interface CraneAnchors {
@@ -26,6 +26,8 @@ export interface CraneAnchors {
   climbLeverWorld: Vector3;
   driverWorld: Vector3;
   wheelWorld: Vector3;
+  /** World position of the chimney cap — the idle steam wisp's true emission point (R6). */
+  chimneyWorld: Vector3;
 }
 
 export interface CraneRig {
@@ -46,7 +48,15 @@ export interface CraneRig {
 }
 
 const up = new Vector3(0, 1, 0);
+const zAxis = new Vector3(0, 0, 1);
 const scratchQuat = new Quaternion();
+const leanQuat = new Quaternion();
+const inwardScratch = new Vector3();
+const posScratch = new Vector3();
+/** R9: legOffsetInto/legTangentInto write into these instead of allocating —
+ * setCarriage runs every frame. */
+const legOffsetScratch = { x: 0, z: 0 };
+const legTangentScratch = { x: 0, y: 0, z: 0 };
 
 function box(w: number, h: number, d: number): BoxGeometry {
   return new BoxGeometry(w, h, d);
@@ -66,10 +76,13 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   const carriageMesh = new Mesh(carriageGeo, materials.ironDark);
   group.add(carriageMesh);
 
-  // wheels (instanced, small, read as "climbs rails")
-  const wheelGeo = new CylinderGeometry(0.18, 0.18, 0.1, 10);
+  // wheels (instanced): sized up + brass (not the carriage's own ironDark)
+  // so they read as distinct "wheels on rails" rather than disappearing
+  // into the carriage's underside silhouette (R4 — the climb shot needs
+  // the wheeled runner to actually read as wheeled).
+  const wheelGeo = new CylinderGeometry(0.26, 0.26, 0.12, 10);
   wheelGeo.rotateZ(Math.PI / 2);
-  const wheels = new InstancedMesh(wheelGeo, materials.ironDark, 4);
+  const wheels = new InstancedMesh(wheelGeo, materials.brass, 4);
   wheels.instanceMatrix.setUsage(DynamicDrawUsage);
   const wheelLocal: [number, number][] = [
     [-0.55, -0.55],
@@ -79,7 +92,7 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   ];
   const wdummy = new Object3D();
   wheelLocal.forEach(([x, z], i) => {
-    wdummy.position.set(x, 0.02, z ?? 0);
+    wdummy.position.set(x, -0.06, z ?? 0);
     wdummy.updateMatrix();
     wheels.setMatrixAt(i, wdummy.matrix);
   });
@@ -92,15 +105,23 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   group.add(superstructure);
 
   // ---- boiler + chimney (D3: slightly bulkier so the crane reads as a real
-  // steam machine, not a toy sliver, against the now-taller tower legs) -----
-  const boiler = new Mesh(new CylinderGeometry(0.4, 0.47, 1.15, 10), materials.ironDark);
+  // steam machine, not a toy sliver, against the now-taller tower legs;
+  // R6: boiler/chimney used to share one dark material and overlap deeply
+  // at the seam, reading as one stacked dark mass — boiler now uses the
+  // lighter/warmer `iron` tone (distinct from the chimney's sootier
+  // ironDark) and a brass collar marks a real, visible seam between them
+  // instead of a silent overlap). -----
+  const boiler = new Mesh(new CylinderGeometry(0.4, 0.47, 1.15, 10), materials.iron);
   boiler.position.set(-0.15, 0.78, 0.1);
   superstructure.add(boiler);
   const chimney = new Mesh(new CylinderGeometry(0.11, 0.15, 0.95, 8), materials.ironDark);
-  chimney.position.set(-0.15, 1.68, 0.1);
+  chimney.position.set(-0.15, 1.75, 0.1);
   superstructure.add(chimney);
+  const chimneyCollar = new Mesh(new CylinderGeometry(0.19, 0.19, 0.08, 10), materials.brass);
+  chimneyCollar.position.set(-0.15, 1.32, 0.1);
+  superstructure.add(chimneyCollar);
   const chimneyCap = new Mesh(new CylinderGeometry(0.16, 0.11, 0.11, 8), materials.brass);
-  chimneyCap.position.set(-0.15, 2.19, 0.1);
+  chimneyCap.position.set(-0.15, 2.26, 0.1);
   superstructure.add(chimneyCap);
   // two brass boiler bands (D3: "brass boiler bands", plural)
   const brassBandGeo = new CylinderGeometry(0.49, 0.49, 0.09, 10);
@@ -111,11 +132,20 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   brassBandUpper.position.set(-0.15, 1.1, 0.1);
   superstructure.add(brassBandUpper);
 
-  // ---- cable drum ------------------------------------------------------------
+  // ---- cable drum (R6: brass end-caps + brass winding so it reads as a
+  // distinct wound-cable spool, not just another dark cylinder blending
+  // into the boiler beside it) --------------------------------------------
   const drum = new Mesh(new CylinderGeometry(0.28, 0.28, 0.42, 12), materials.ironDark);
   drum.rotation.z = Math.PI / 2;
   drum.position.set(0.35, 1.0, 0.1);
   superstructure.add(drum);
+  const drumCapGeo = new CylinderGeometry(0.3, 0.3, 0.03, 12);
+  for (const side of [-1, 1]) {
+    const cap = new Mesh(drumCapGeo, materials.brass);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(0.35 + side * 0.21, 1.0, 0.1);
+    superstructure.add(cap);
+  }
   // wound-cable stripes (thin torus rings)
   const cableWindGeo = new CylinderGeometry(0.31, 0.31, 0.03, 10, 1, true);
   cableWindGeo.rotateZ(Math.PI / 2);
@@ -205,14 +235,15 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     climbLeverWorld: new Vector3(),
     driverWorld: new Vector3(),
     wheelWorld: new Vector3(),
+    chimneyWorld: new Vector3(),
   };
 
   let idlePhase = 0;
 
   function setCarriage(legAngle: number, t: number, extraLift: number): void {
-    const off = legOffsetAt(legAngle, t);
-    const tangent = legTangentAt(legAngle, t);
-    const inward = new Vector3(-Math.cos(legAngle), 0, -Math.sin(legAngle));
+    const off = legOffsetInto(legOffsetScratch, legAngle, t);
+    const tangent = legTangentInto(legTangentScratch, legAngle, t);
+    inwardScratch.set(-Math.cos(legAngle), 0, -Math.sin(legAngle));
     // Height comes from the caller (already resolved to world units via
     // scene/index.ts); here we offset inward so the carriage hugs the
     // curving leg surface at that height, yaw so the boom always points
@@ -221,13 +252,13 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     // without letting the boom swing off in an unpredictable direction (a
     // full tangent-aligned quaternion would also spin the boom's outward
     // reach, which reads as broken rather than "climbing a curved rail").
-    const pos = new Vector3(off.x, extraLift, off.z);
-    pos.addScaledVector(inward, 0.35);
-    group.position.copy(pos);
+    posScratch.set(off.x, extraLift, off.z);
+    posScratch.addScaledVector(inwardScratch, 0.35);
+    group.position.copy(posScratch);
     const horizTangentMag = Math.hypot(tangent.x, tangent.z);
     const lean = Math.min(Math.atan2(horizTangentMag, Math.max(tangent.y, 0.001)), 0.35);
     scratchQuat.setFromAxisAngle(up, -legAngle);
-    const leanQuat = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), lean);
+    leanQuat.setFromAxisAngle(zAxis, lean);
     group.quaternion.copy(scratchQuat).multiply(leanQuat);
 
     drum.getWorldPosition(anchors.drumWorld);
@@ -235,6 +266,7 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     climbLever.getWorldPosition(anchors.climbLeverWorld);
     driverSlot.getWorldPosition(anchors.driverWorld);
     wheels.getWorldPosition(anchors.wheelWorld);
+    chimneyCap.getWorldPosition(anchors.chimneyWorld);
   }
 
   function setBoomTilt(tilt: number): void {
@@ -246,11 +278,14 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
   function setWheelSpin(spinDelta: number): void {
     wheelSpin += spinDelta;
     wdummy.rotation.x = wheelSpin;
-    wheelLocal.forEach(([x, z], i) => {
-      wdummy.position.set(x, 0.02, z ?? 0);
+    // Manual loop (not .forEach with an inline closure, which would
+    // reallocate the callback every call) — this runs every frame (R9).
+    for (let i = 0; i < wheelLocal.length; i += 1) {
+      const local = wheelLocal[i]!;
+      wdummy.position.set(local[0], -0.06, local[1]);
       wdummy.updateMatrix();
       wheels.setMatrixAt(i, wdummy.matrix);
-    });
+    }
     wheels.instanceMatrix.needsUpdate = true;
   }
 
@@ -264,9 +299,11 @@ export function createCraneRig(materials: MaterialSet): CraneRig {
     wheelGeo.dispose();
     boiler.geometry.dispose();
     chimney.geometry.dispose();
+    chimneyCollar.geometry.dispose();
     chimneyCap.geometry.dispose();
     brassBandGeo.dispose();
     drum.geometry.dispose();
+    drumCapGeo.dispose();
     cableWindGeo.dispose();
     boomGeo.dispose();
     sheave.geometry.dispose();

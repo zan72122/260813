@@ -375,3 +375,298 @@ visible.
    taller `BASE_HEIGHT` has (they use the same `topOfLeg`-derived focus
    points as before, just at a higher absolute height); worth a director
    pass if time allows.
+
+## Wave 6 audit fixes
+
+Ten findings from three independent reviewers (R1-R10 in the task brief),
+covering silhouette/backdrop/framing/perf issues screenshot-verified against
+`docs/VISUAL_ACCEPTANCE.md` and `docs/PERFORMANCE_BUDGET.md`.
+
+**Salvage**: a prior interrupted attempt at
+`.claude/worktrees/wf_d81d3a58-f0b-1/src/{core,render,scene}` had 14 files
+diverged from main (`core/index.ts`; `render/{anchorProject,camera,
+cameraCompose}.ts`; `scene/{backdrop,beam,crane,curve,index,rivet,tower,
+workers}.ts`; `visual/{materials,steam}.ts`). Diffed every file against main
+before touching anything: each hunk mapped cleanly onto one of R1-R10 (curved
+leg exponent for R1, mansard roofs + Trocadero dome for R2, towerAxis-anchored
+hoist camera for R3, craneBase climb framing for R4, tongs geometry for R5,
+boiler/chimney material split for R6, light intensity + hole rim for R7,
+PointLight removal for R8, anchor/beam/wheel-spin allocation cleanup for R9,
+`camera.updateMatrixWorld(true)` for R10), typechecked/linted/tested clean,
+and was directly on-target — copied wholesale as the starting point rather
+than reimplementing. Nothing was discarded; everything from the salvage
+survived into the final diff (though several numeric constants were
+re-tuned further, see below).
+
+### R1 — Eiffel Tower silhouette
+
+`scene/curve.ts`: `legRadiusAt`'s taper exponent 1.55→2.35 (concentrates the
+inward curve near the base, where a static establish shot actually shows it,
+instead of only becoming visible near the unreachable apex) plus
+`BASE_RADIUS`/`APEX_RADIUS` widened slightly. `scene/tower.ts`:
+`LEG_PROTRUSION` 2.0→3.4 plus a sparse "next tier being built" pass (2 of 4
+face diagonals per leg + one partial ring-girder fragment) in the bare
+protrusion above the last completed level, so the unfinished top reads as
+mid-assembly rather than bare rods. `render/cameraCompose.ts`: `establish`/
+`reveal`/`complete` pulled back further (distance 21→34 portrait, 24→38
+landscape) with a raised `lookAtHeightOffset` so the pulled-back frame has
+headroom for the taller protrusion + sky instead of just the platform.
+
+### R2 — Paris backdrop
+
+`scene/backdrop.ts`: each Haussmann building instance gained a second
+InstancedMesh — a 6-triangle two-slope prism roof (`makeGableRoofGeometry`)
+in a new dark-zinc material (`visual/materials.ts`'s `roofZinc`, `#3d4148`,
+metalness 0.3) stacked on the cream wall body. The Trocadero silhouette
+gained a rotunda drum + a real hemispherical dome (`domeGold` material) —
+the signature Moorish-Byzantine landmark read, not just twin flat towers.
+Both stay instanced; triangle cost is 48 walls × 12 tri + 48 roofs × 6 tri,
+negligible against the 250k budget (worst observed ~20.9k total, see below).
+
+### R3 — Hoist framing + transition occlusion (the hard one — see below)
+
+`render/camera.ts`'s `focusFor`: `approach`/`hoist` cues now orbit
+`points.towerAxis` (the tower's own central axis — always at azimuth radius
+0, i.e. as far from every leg's curve as this scene gets) instead of
+`points.hook`/`points.beam` (which sit almost exactly on the operating leg's
+own radius, since the crane rides that leg — the literal cause of "a leg
+fills the whole frame"). `cameraCompose.ts`: `approach`/`hoist` widened
+(portrait distance 8→21/fov 52→74, landscape 9→26/fov 46→68) so the full
+hookDown→hoist vertical arc (hook near the yard up to the platform) stays in
+frame from a single static shot, verified via `window.__game.anchors()`
+across the whole arc at both extremes. Because `approach` and `hoist` are
+now identical shots, the hookDown→hoist phase transition is a literal no-op
+for the camera — nothing to occlude, verified with a sequential-screenshot
+sweep across that transition (never more than the identical framing before
+and after).
+
+Widening `hoist` this much broke `align` — see "The align regression" below
+for the full story; the short version is `cameraCompose.ts`'s `align` shot
+also needed widening (portrait distance 5.7→16/fov 50→78, landscape
+6→21/fov 44→76) so the beam anchor can't itself land off-canvas once it can
+drift farther from the ghost slot before align begins, and `render/
+camera.ts` gained a small hard-cut-on-entering-`align` (skip the eased
+transition for just that one cue change) as a secondary hardening.
+
+### R4 — Climb read
+
+`camera.ts`'s `focusFor('climb')`: `op`/`target` both now `points.craneBase`
+(the carriage/wheels) instead of splitting between the wheels and the
+sheave — the old split shot's own focus point sat between them, which read
+as "looking up at the boiler from underneath" and cropped the wheels/rails
+entirely. `cameraCompose.ts`'s `climb` shot: elevation raised off near-zero
+(0.06→0.2 portrait) so the wheels-on-rails read isn't dead-level foreshortened.
+`scene/crane.ts`: wheels enlarged (0.18→0.26 radius) and switched to brass
+(was the carriage's own dark iron, disappearing into its silhouette).
+`visual/steam.ts`: climb puff size 0.22-0.48→0.28-0.58, opacity cap
+0.5→0.55 (still `NormalBlending`, so still can't wash to white regardless of
+overlap count — this is the ceiling PERFORMANCE_BUDGET and R4 both allow).
+`scene/index.ts`: climb valve bursts 1→2 puffs/chuff, emitted from the
+crane's actual `chimneyWorld` anchor (was a crude fixed y-offset off the
+crane group's own position, which visibly missed the chimney tip once any
+lean was involved) instead of near the base. Tower `+1` level read is
+already handled by the pre-existing `heightForLevel`/ring-girder logic
+(untouched); re-verified with a `towerLevel=0` vs. post-`reveal` `towerLevel=
+1` screenshot pair under near-identical `establish`/`reveal` camera framing.
+
+### R5 — Rivet team tools
+
+`scene/workers.ts`: catcher's and heater's tools rebuilt from a single
+bare rod into `buildTongsGeometry` — two prongs sharing a shoulder pivot,
+spread apart toward the tip, reading as an open pincer. The striker's
+sledgehammer geometry already existed pre-Wave-6; what didn't exist was a
+readable *strike beat* — `scene/index.ts` now subscribes to the real
+`rivet:hit` bus event (already emitted by `game/phases/rivet.ts`, frozen
+contract) and drives the striker's arm through a swing→impact→recover pose
+(`hammerPose`/`hammerReach`) timed off `simTimeMs - lastHitSimTimeMs`,
+replacing a purely continuous idle-sway animation that had no relationship
+to actual hits landing.
+
+### R6 — Opening crane read
+
+`scene/crane.ts`: boiler switched to the lighter/warmer `iron` material
+(was sharing `ironDark` with the chimney, the literal cause of "stacked dark
+mass"); a brass collar (`chimneyCollar`) now marks a visible seam between
+boiler and chimney instead of a silent overlap; the cable drum gained brass
+end-caps so it reads as a distinct wound-cable spool rather than another
+dark cylinder blending into the boiler beside it. Idle steam wisp (R4's fix
+above) now also fixes R6's "chimney" requirement by emitting from the real
+`chimneyWorld` anchor at title/opening, not just during climb.
+
+### R7 — Align/bolts brightness
+
+`core/index.ts`: `HemisphereLight` intensity 0.85→1.05 (ground-bounce color
+warmed `#5a4636`→`#6f5a46` too) and `DirectionalLight` 1.35→1.55 — still
+exactly the 2 lights the budget allows, only their intensity changed.
+`scene/beam.ts`: each bolt hole gained a thin brass rim ring
+(`holeRimMesh`) just outside the existing dark hole ring, so both bolts and
+holes have a real material-contrast edge against the leg's own dark iron
+rather than relying on ambient light alone.
+
+### R8 — Forge PointLight (budget violation)
+
+`scene/rivet.ts`: the forge's `PointLight(0xff5a1a, 1.2, 2.5, 2)` — the
+scene's only 3rd live light — removed outright. Replaced with the coals'
+own emissive material (self-lit regardless of scene lights, `MeshStandard
+Material.emissive` unaffected either way) plus a small additive-blended
+billboard glow sprite (`visual/textures.ts`'s existing `softCircle` texture,
+camera-facing via a per-frame quaternion computed from world-space camera
+direction) standing in for the bloom/spill a real forge would cast, at zero
+lights. Verified: `grep -rn "new .*Light" src/scene` returns nothing;
+`core/index.ts` is the only place any `Light` is ever constructed, and it
+constructs exactly 2 (hemisphere + directional).
+
+### R9 — Per-frame GC allocations
+
+- `render/anchorProject.ts`: `projectToScreenInto`/`projectedRadius` now
+  write into caller-provided scratch objects; `projectToScreen` kept as a
+  thin allocating wrapper for tests/one-off callers.
+- `core/index.ts`'s `publishAnchors()`: one persistent `Anchor` object per
+  `AnchorId` (lazily created, reused every frame after) instead of a fresh
+  object literal every anchor every frame — `AnchorRegistry.set()` stores
+  by reference (frozen contract), so this is safe as long as each id gets
+  its own scratch (a single shared scratch would alias every anchor to the
+  same final values, which this avoids).
+- `scene/beam.ts`: `boltCurrentPosition()` used to `.clone().lerp()` a
+  fresh `Vector3` on every call (including from the per-frame anchor
+  publish path); now precomputed once per frame into a persistent
+  `boltCurrentWorld` pair inside `refreshBoltsAndHoles()` and returned by
+  reference. `placeSlot()`'s `slotWorld = slotPos.clone()` similarly
+  replaced with `slotWorld.copy(slotPos)`.
+- `scene/crane.ts`: `setWheelSpin()`'s `.forEach(([x,z], i) => {...})` —
+  which reallocates the callback closure every call, and this runs every
+  frame — replaced with a manual indexed loop. `setCarriage()`'s
+  `new Vector3()`/`new Quaternion()` per call replaced with module-level
+  scratch objects (`inwardScratch`, `posScratch`, `leanQuat`, `zAxis`).
+- `scene/curve.ts`: `legOffsetAt`/`legTangentAt` returned a fresh object
+  literal every call; added non-allocating `legOffsetInto`/`legTangentInto`
+  variants (write into a caller-provided `out`) and switched the two true
+  per-frame hot-path callers — `crane.ts`'s `setCarriage` (every frame) and
+  `tower.ts`'s `topOfLeg` (every frame, called once from `scene/index.ts`'s
+  hook/beam/slot positioning block) — to the new variants. The original
+  allocating versions are kept for cold-path callers (geometry rebuilds,
+  which only run on `towerLevel` change, not every frame) and tests.
+
+No remaining steady-state per-frame allocations were found in the render
+hot path (`core/index.ts`'s `frame()` → `sceneRig.update()` →
+`cameraDirector.update()` → `publishAnchors()` → `renderer.render()`) by
+manual audit; the leak/replay E2E scenario (`resilience.spec.ts`'s
+scenario (a), 20+ effective replay cycles via orientation-change-mid-replay)
+passed with no scene.children/listener/timer growth.
+
+### R10 — Anchor projection ordering after camera update
+
+`core/index.ts` already called `cameraDirector.update()` → `publishAnchors()`
+→ `renderer.render()` in that order (the ordering itself predates Wave 6).
+The actual bug: `camera.position`/`camera.lookAt()` mutate the camera's
+*local* transform, but THREE.js normally defers recomputing
+`matrixWorld`/`matrixWorldInverse` (what `Vector3.project()` actually reads)
+until the next `renderer.render()` scene-graph traversal — so
+`publishAnchors()`, running *before* that render call, was reading a
+one-frame-stale camera transform every time the camera cut (phase change or
+a `cam:cue` override). Fixed with one line: `camera.updateMatrixWorld(true)`
+immediately after `camera.lookAt()`/`updateProjectionMatrix()` in `render/
+camera.ts`'s `update()`, forcing the recompute synchronously before
+`publishAnchors()` ever runs.
+
+### The align regression (R3's real cost, and how it was actually fixed)
+
+Widening the `hoist` camera for R3 (above) broke `full-loop`'s real-gesture
+E2E for `tablet-landscape` outright: `driveAlignToSnap` timed out with
+"align: never snapped" on every run. This took the bulk of this round's
+iteration budget to root-cause correctly, because several plausible-looking
+fixes (all implemented, all kept as real hardening, none alone sufficient)
+turned out not to be the actual cause:
+
+- Camera "settling" lag after the hoist→align cue change — measured for
+  real: under this environment's swiftshader-backed rendering, the camera's
+  exponential ease's *simulated*-time "finish" (~300ms under `?test=1`)
+  could take **several real seconds** to visibly catch up, because
+  `?test=1` advances simulated time by a fixed 16.67ms per rendered frame
+  regardless of real elapsed time, and real frame delivery was only ~4-11fps
+  under contention. Mitigated with a hard cut-to-target the instant the cue
+  becomes `align` (`render/camera.ts`), plus a synchronous
+  `bus.on('phase:enter', ...)` re-publish in `core/index.ts` (re-runs
+  `sceneRig.update`/`cameraDirector.update`/`publishAnchors` with `dtMs=0`
+  the instant a phase changes, before any subsequent input event can read
+  stale anchors) — both real improvements, kept, **neither fixed the
+  failure alone or together**.
+- A progressive camera ease from the wide hoist shot toward align's framing
+  over the last 30% of the hoist drag (`hoistDesiredTransform` in
+  `camera.ts`) — sound in principle, but `game/phases/hoist.ts` advances
+  `hoist.height` per drag *intent*, and a single Playwright gesture's
+  sub-moves can cross the completion threshold mid-gesture with zero
+  rendered frames in between, so there was no real time for the progressive
+  ease to do anything. Kept (harmless, and a real production drag is far
+  more granular than a scripted `steps:8` gesture), **did not fix it**.
+
+The actual root cause, found by directly inspecting `window.__game.
+anchors()` at the moment align begins: with the widened hoist shot, the
+beam can end up meaningfully farther from the ghost slot in world space by
+the time hoisting finishes. `align`'s own camera cue is a fixed, tight
+orbit (untouched by any of the above) — at the old distance/fov, the beam
+anchor could itself project **off the canvas** (`beam.y` observed beyond
+the viewport height). A drag gesture that starts at an anchor position
+outside the viewport never registers, so `driveAlignToSnap`'s very first
+attempt was a no-op, and the whole 25-attempt budget exhausted without a
+single real drag reaching the game. The fix was simply widening `align`'s
+own distance/fov (portrait 5.7/50°→16/78°, landscape 6/44°→21/76°) enough
+that both beam and ghost stay on-screen through the whole drag regardless
+of where hoisting drops the beam — confirmed by rerunning
+`window.__game.anchors()` mid-drag (beam consistently in-bounds) and then
+the real `full-loop`/`resilience` E2E suite for both projects passing
+reliably (14/14, twice in a row, including under the 2-worker concurrent
+load the final validation command actually runs with — the specific
+tuning was pushed a further margin past the first passing values once a
+14/14 run under full 2-worker contention still showed one flaky failure on
+the very first pass, to build in headroom against exactly that kind of
+resource contention).
+
+### Validation actually run
+
+- `npx tsc --noEmit` — 0 errors.
+- `npx eslint src/core src/render src/scene src/visual` — 0 errors.
+- `npx vitest run` — 236/236 passed (31 files), including the
+  `cameraCompose.test.ts`/`curve.test.ts`/`anchorProject.test.ts` invariants
+  (rivetMacro still the closest shot, leg-curve monotonicity/concavity,
+  screen-projection math) unaffected by the constant re-tunes since those
+  tests assert relationships (`rivetMacro <= all other distances`,
+  `legRadiusAt` monotonic/concave), not specific numbers, or exercise the
+  new non-allocating `legOffsetInto`/`legTangentInto` transparently through
+  the existing `legOffsetAt`/`legTangentAt` wrappers.
+- `npx playwright test full-loop resilience --project=phone-portrait
+  --project=tablet-landscape` — **14/14 passed** (4.6m), including under
+  the default 2-worker concurrent load (both projects' full-loop +
+  5-scenario resilience suites running simultaneously) — this is the
+  specific condition that exposed the align regression above, so it's the
+  one that matters.
+- `window.__game.stats()` swept across 9 phases × both viewports: worst
+  observed 86 draw calls (budget ≤90 normal / ≤110 climb — climb-mid itself
+  measured 69-76) and ~20.9k triangles (budget ≤250k), large headroom.
+  Lights confirmed at exactly 2 (hemisphere + directional) by direct source
+  inspection: `grep -rn "new .*Light" src/scene` returns nothing (R8's
+  PointLight is gone), `core/index.ts` is the only constructor site.
+- Bundle: `vite build` → 580 KB / **153 KB gzip** (target < 900 KB gzip),
+  `three` still the only runtime dependency.
+- Preview servers (`vite preview`, ports 4399/4400 across iteration)
+  killed after finishing; verified with `ps aux` — no stray processes.
+
+### Known remaining gaps (flagging, not blocking)
+
+1. `align`'s camera is now noticeably wider than before (portrait fov
+   50°→78°) to guarantee beam+ghost never go off-canvas regardless of where
+   hoisting drops the beam — this trades a little of the "close-up
+   precision" framing VISUAL_ACCEPTANCE asks for in exchange for reliably
+   *working*; screenshots still read the hole/bolt/forge clearly (R7's
+   brightness bump helps here too), but a director pass with more precise
+   per-drag-distance framing (rather than a fixed worst-case-sized shot)
+   would read better if time allows.
+2. D3 (steam crane read)/`rivetMacro` single-cue-per-sub-phase gaps noted in
+   the prior "Visual repair round" section above are unchanged this round —
+   not touched, not called out as regressed.
+3. The align-entry hardening (hard-cut-on-cue-change, synchronous
+   `phase:enter` re-publish) is real and worth keeping, but per the
+   investigation above neither was the actual fix for the reported
+   failure — flagging so a future iteration doesn't assume removing the
+   width margin on `align`'s shot is safe just because those two
+   mechanisms are still in place.

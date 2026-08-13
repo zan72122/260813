@@ -29,10 +29,38 @@ export interface CameraShot {
 }
 
 const PORTRAIT: Record<CameraCueName, CameraShot> = {
-  establish: { distance: 21, elevation: 0.34, azimuth: 0.55, blend: 0.5, lookAtHeightOffset: 1.5, fov: 62 },
-  approach: { distance: 6.5, elevation: 0.22, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 0.3, fov: 54 },
-  hoist: { distance: 8, elevation: 0.22, azimuth: 0.55, blend: 0.45, lookAtHeightOffset: 0.4, fov: 52 },
-  align: { distance: 5.7, elevation: 0.16, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 0.1, fov: 50 },
+  // R1: pulled back + reframed so the FULL structure (splayed/curved base
+  // through the bare "unfinished top" protrusion above the working
+  // platform) fits in one shot instead of just the working platform —
+  // blend lowered (weights the orbit center toward towerAxis, near the
+  // base) and lookAtHeightOffset raised so the look-at point sits well
+  // above craneTop, leaving headroom for the protrusion + sky.
+  establish: { distance: 34, elevation: 0.27, azimuth: 0.55, blend: 0.35, lookAtHeightOffset: 4.5, fov: 58 },
+  // R3: op is now `towerAxis` (see camera.ts's focusFor comment) — the
+  // hook/beam ride the boom's reach, which sits almost exactly between the
+  // operating leg's own radius at ground level and at platform height, so
+  // ANY orbit collapsed near the load put that leg directly between camera
+  // and load for nearly the whole hookDown/hoist drag (verified with a
+  // real-gesture screenshot sequence AND an anchor-position sweep: the leg
+  // filled the entire frame at every azimuth/elevation tried while
+  // orbiting near the load). blend=0 anchors the shot fully on the safe,
+  // always-clear axis point instead; distance/fov are sized (verified via
+  // window.__game.anchors() across the full hookDown/hoist arc, both
+  // extremes and mid-travel) so hook+beam+ghost all stay on-screen too.
+  approach: { distance: 21, elevation: 0.32, azimuth: 0.5, blend: 0, lookAtHeightOffset: 0.6, fov: 74 },
+  hoist: { distance: 21, elevation: 0.32, azimuth: 0.5, blend: 0, lookAtHeightOffset: 0.6, fov: 74 },
+  // R3 (align-entry robustness): widened from the original 5.7/44° — with
+  // the wider hoist shot above, the beam can land meaningfully far from the
+  // ghost slot in world space by the time hoist finishes; align's own
+  // close-up (which tracks the midpoint between beam and ghost) is a fixed
+  // orbit, not a per-drag auto-frame, so if beam starts far enough from
+  // ghost it can itself project OFF the canvas at the old tight distance —
+  // confirmed via window.__game.anchors() (beam.y beyond the viewport
+  // height) and the real full-loop E2E hanging on "align: never snapped"
+  // because a drag gesture starting at an off-canvas anchor position never
+  // registers. Widened distance/fov gives enough margin that both beam and
+  // ghost stay on-screen through the whole drag in both aspects.
+  align: { distance: 16, elevation: 0.16, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 0.1, fov: 78 },
   // Integrator (Wave 4) fix: the rivet relay's four interactive stations
   // (forge / tongs / rivetHole / hammerSpot) span ~2.3 world units, but this
   // single shot has to hold all of them in frame across rivetHeat/Carry/
@@ -45,21 +73,35 @@ const PORTRAIT: Record<CameraCueName, CameraShot> = {
   // test still holds) until every station anchor stays on-screen with
   // margin across all 4 E2E viewport projects.
   rivetMacro: { distance: 5.6, elevation: 1.2, azimuth: 0.25, blend: 0.62, lookAtHeightOffset: 0.15, fov: 54 },
-  climb: { distance: 7, elevation: 0.06, azimuth: 1.25, blend: 0.5, lookAtHeightOffset: 0.6, fov: 58 },
-  reveal: { distance: 23, elevation: 0.3, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 2, fov: 60 },
-  complete: { distance: 21, elevation: 0.32, azimuth: 0.55, blend: 0.5, lookAtHeightOffset: 2, fov: 58 },
+  // R4: op=target=craneBase now (see camera.ts's focusFor) — a real side-
+  // elevation of the carriage, not a from-underneath crop. Elevation raised
+  // off near-zero (was 0.06, i.e. dead level with the carriage, which is
+  // what produced the "looking up from directly below" read) so the wheels
+  // read as wheels-on-rails, and lookAtHeightOffset lifts the frame a touch
+  // so the carriage sits mid-frame with headroom for the boiler/steam above.
+  climb: { distance: 13, elevation: 0.2, azimuth: -0.75, blend: 0.5, lookAtHeightOffset: 0.7, fov: 50 },
+  // R1/R4: same pull-back logic as establish — reveal is the "look, it's a
+  // level taller now" beat, so the WHOLE tower (old top + new band + the
+  // unfinished protrusion above that) must fit in frame for the before/
+  // after height comparison to read.
+  reveal: { distance: 34, elevation: 0.26, azimuth: 0.5, blend: 0.35, lookAtHeightOffset: 4.5, fov: 58 },
+  complete: { distance: 32, elevation: 0.28, azimuth: 0.55, blend: 0.37, lookAtHeightOffset: 4, fov: 56 },
 };
 
 const LANDSCAPE: Record<CameraCueName, CameraShot> = {
-  establish: { distance: 24, elevation: 0.3, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 1.5, fov: 52 },
-  approach: { distance: 7.5, elevation: 0.2, azimuth: 0.42, blend: 0.5, lookAtHeightOffset: 0.3, fov: 46 },
-  hoist: { distance: 9, elevation: 0.2, azimuth: 0.5, blend: 0.45, lookAtHeightOffset: 0.4, fov: 46 },
-  align: { distance: 6, elevation: 0.14, azimuth: 0.4, blend: 0.5, lookAtHeightOffset: 0.1, fov: 44 },
+  // See the portrait establish comment above — same pull-back/reframe.
+  establish: { distance: 38, elevation: 0.24, azimuth: 0.5, blend: 0.35, lookAtHeightOffset: 4.5, fov: 50 },
+  // See the portrait approach/hoist comment above — same towerAxis-anchored fix.
+  approach: { distance: 26, elevation: 0.27, azimuth: 0.42, blend: 0, lookAtHeightOffset: 0.6, fov: 68 },
+  hoist: { distance: 26, elevation: 0.27, azimuth: 0.42, blend: 0, lookAtHeightOffset: 0.6, fov: 68 },
+  // See the portrait align comment above — same off-canvas-beam fix, landscape numbers.
+  align: { distance: 21, elevation: 0.14, azimuth: 0.4, blend: 0.5, lookAtHeightOffset: 0.1, fov: 76 },
   // See the portrait rivetMacro comment above — same fix, landscape numbers.
   rivetMacro: { distance: 5.2, elevation: 1.1, azimuth: 0.25, blend: 0.62, lookAtHeightOffset: 0.15, fov: 50 },
-  climb: { distance: 8.5, elevation: 0.05, azimuth: 1.15, blend: 0.5, lookAtHeightOffset: 0.6, fov: 52 },
-  reveal: { distance: 26, elevation: 0.26, azimuth: 0.45, blend: 0.5, lookAtHeightOffset: 2, fov: 54 },
-  complete: { distance: 24, elevation: 0.28, azimuth: 0.5, blend: 0.5, lookAtHeightOffset: 2, fov: 52 },
+  // See the portrait climb comment above — same carriage side-elevation fix.
+  climb: { distance: 7.5, elevation: 0.22, azimuth: 1.05, blend: 0.5, lookAtHeightOffset: 0.9, fov: 50 },
+  reveal: { distance: 38, elevation: 0.23, azimuth: 0.45, blend: 0.35, lookAtHeightOffset: 4.5, fov: 50 },
+  complete: { distance: 36, elevation: 0.25, azimuth: 0.5, blend: 0.37, lookAtHeightOffset: 4, fov: 48 },
 };
 
 export const CAMERA_COMPOSITIONS: Record<AspectClass, Record<CameraCueName, CameraShot>> = {

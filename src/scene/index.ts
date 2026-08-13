@@ -15,6 +15,7 @@
 import { BoxGeometry, Group, Mesh, Vector3 } from 'three';
 import type { Camera } from 'three';
 import { mulberry32 } from '../contracts/machine';
+import type { EventBus } from '../contracts/bus';
 import type { AnchorId, GamePhase, GameState } from '../contracts/types';
 import { buildMaterialSet, disposeMaterialSet, type MaterialSet } from '../visual/materials';
 import { buildTextureSet, disposeTextureSet } from '../visual/textures';
@@ -121,13 +122,39 @@ const ANCHOR_ACTIVE_BY_PHASE: Partial<Record<GamePhase, ReadonlySet<AnchorId>>> 
   playClimb: new Set(['climbLever']),
 };
 
-/** A brief downward swing pulse timed off simTimeMs + hit count so each hit reads as a fresh swing. */
-function hammerPose(hits: 0 | 1 | 2 | 3, simTimeMs: number): number {
-  const phase = (simTimeMs * 0.006 + hits * 2.1) % (Math.PI * 2);
-  return Math.sin(phase) * 0.12 - 0.15;
+// R5: the striker's swing must be a *readable strike beat*, driven by the
+// real 'rivet:hit' bus event (not just a continuous idle sway) — a
+// screenshot taken right after the event fires should clearly show the
+// sledgehammer down at/near impact, then ease back up to a ready pose
+// before the next hit. `sinceHitMs` is Infinity-ish (huge) before any hit
+// has ever fired, so the ready branch is what a still of rivetHammer's
+// very first frame sees.
+// rivetMacro's near-overhead camera (elevation 1.1-1.2 rad) heavily
+// foreshortens a pure vertical up/down swing, so the amplitude is
+// exaggerated well past a "realistic" wrist swing purely so it still
+// reads from nearly directly above; hammerReach adds a second (Z-axis)
+// swing component the overhead angle foreshortens much less than the X
+// swing, so the strike beat has a screen-visible component either way.
+const STRIKE_READY_SWING = -0.25;
+const STRIKE_IMPACT_SWING = 1.15;
+const STRIKE_READY_REACH = 0;
+const STRIKE_IMPACT_REACH = -0.9;
+const STRIKE_RECOVER_MS = 320;
+function hammerPose(simTimeMs: number, sinceHitMs: number): number {
+  const idleBob = Math.sin(simTimeMs * 0.0035) * 0.05;
+  if (sinceHitMs >= STRIKE_RECOVER_MS) return STRIKE_READY_SWING + idleBob;
+  const t = Math.max(sinceHitMs, 0) / STRIKE_RECOVER_MS;
+  const eased = t * t; // stays near impact for a beat, then eases back to ready
+  return STRIKE_IMPACT_SWING + (STRIKE_READY_SWING - STRIKE_IMPACT_SWING) * eased;
+}
+function hammerReach(sinceHitMs: number): number {
+  if (sinceHitMs >= STRIKE_RECOVER_MS) return STRIKE_READY_REACH;
+  const t = Math.max(sinceHitMs, 0) / STRIKE_RECOVER_MS;
+  const eased = t * t;
+  return STRIKE_IMPACT_REACH + (STRIKE_READY_REACH - STRIKE_IMPACT_REACH) * eased;
 }
 
-export function createSceneRig(seed: number): SceneRig {
+export function createSceneRig(seed: number, bus: EventBus): SceneRig {
   const materialsRand = mulberry32((seed ^ 0x51ed) >>> 0);
   const backdropRand = mulberry32((seed ^ 0x7a11) >>> 0);
   const yardRand = mulberry32((seed ^ 0x9c31) >>> 0);
@@ -149,7 +176,7 @@ export function createSceneRig(seed: number): SceneRig {
   const beam = createBeamRig(materials);
   root.add(beam.group, beam.ghostGroup, beam.boltGroup);
 
-  const rivet = createRivetRig(materials);
+  const rivet = createRivetRig(materials, textures.softCircle);
   root.add(rivet.rivetGroup, rivet.forgeGroup);
 
   const team = createWorkerTeam(materials, Math.floor(clothRand() * 5));
@@ -225,6 +252,14 @@ export function createSceneRig(seed: number): SceneRig {
   const tmpVec = new Vector3();
   const prevCableEndpoints = { drum: new Vector3(), sheave: new Vector3(), hook: new Vector3() };
   let firstCableBuild = true;
+
+  // R5: striker swing is driven by the real 'rivet:hit' bus event — see
+  // hammerPose() above. sinceHitMs starts effectively infinite so the very
+  // first frame (before any hit) reads as the idle ready pose.
+  let lastHitSimTimeMs = -1e9;
+  const unsubscribeHit = bus.on('rivet:hit', () => {
+    lastHitSimTimeMs = simTimeMs;
+  });
 
   function setAnchor(id: AnchorId, pos: Vector3, r: number, active: boolean): void {
     let entry = anchorWorld.get(id);
@@ -358,7 +393,7 @@ export function createSceneRig(seed: number): SceneRig {
     // ---- rivet position + color ---------------------------------------------------
     rivet.setColor(state.rivet.temp, state.rivet.cooled);
     rivet.setFormed(state.rivet.hits / 3);
-    rivet.update(dtMs);
+    rivet.update(dtMs, camera);
 
     // ---- forge/brazier: previously left at the group's default (0,0,0) —
     // it never tracked points.forge, so it sat on the ground at the world
@@ -413,7 +448,10 @@ export function createSceneRig(seed: number): SceneRig {
     team.heater.setPose(state.rivet.station === 0 ? readySwing - 0.3 : -0.1, 0);
     team.catcher.setPose(state.rivet.station === 1 ? readySwing - 0.4 : -0.1, 0);
     team.holder.setPose(state.rivet.station >= 2 ? -0.9 : -0.2, 0.2);
-    team.striker.setPose(hammerPose(state.rivet.hits, simTimeMs), 0);
+    {
+      const sinceHit = simTimeMs - lastHitSimTimeMs;
+      team.striker.setPose(hammerPose(simTimeMs, sinceHit), hammerReach(sinceHit));
+    }
     team.driver.setPose(Math.sin(simTimeMs * 0.002) * 0.05, 0);
 
     points.workers[0].copy(team.heater.group.position);
@@ -436,24 +474,33 @@ export function createSceneRig(seed: number): SceneRig {
     }
 
     // ---- steam: chimney idle wisp + climb valve bursts ------------------------------
-    tmpVec.set(crane.group.position.x, crane.group.position.y + 2.1, crane.group.position.z);
+    // R6: emit from the chimney's actual (rotation-aware) world anchor, not a
+    // crude fixed y-offset off the crane group's own position — the old
+    // offset ignored the carriage's inward-lean rotation and the chimney's
+    // local x offset, so the idle wisp visibly missed the chimney tip once
+    // the leg curve introduced any lean.
+    const chimneyTip = crane.anchors.chimneyWorld;
     idleSteamAccumMs += dtMs;
     const idleSteamInterval = state.prefs.reducedMotion ? 900 : 550;
     if (idleSteamAccumMs > idleSteamInterval) {
       idleSteamAccumMs = 0;
-      steam.burst(tmpVec.x, tmpVec.y, tmpVec.z, 1);
+      steam.burst(chimneyTip.x, chimneyTip.y, chimneyTip.z, 1);
     }
     if (climbing) {
       // D5: rhythmic small chuffs timed to the climb, never a screen-filling
       // cloud — the old 30-90ms interval at count=2 could emit ~60+ puffs/sec,
       // which is what was stacking (even after softening individual puffs)
-      // into the completion.png white-out. One puff per "chuff", spaced out
-      // enough to read as distinct bursts even at full throttle.
+      // into the completion.png white-out. R4: bumped from 1 puff/chuff (read
+      // as "two faint dots" in the climb shot) to 2 — still a distinct,
+      // spaced-out "chuff" rather than a continuous cloud (worst case here is
+      // ~2 puffs/130ms ≈ 15/s, nowhere near the old whiteout-causing rate),
+      // and emitted from the actual chimney tip (not a crude fixed offset)
+      // so puffs visibly originate from the stack.
       valveSteamAccumMs += dtMs;
       const interval = Math.max(260 - state.climb.lever * 140, 130);
       if (valveSteamAccumMs > interval) {
         valveSteamAccumMs = 0;
-        steam.burst(crane.group.position.x, crane.group.position.y + 0.3, crane.group.position.z, 1);
+        steam.burst(chimneyTip.x, chimneyTip.y, chimneyTip.z, 2);
       }
     }
     steam.update(dtMs, camera);
@@ -513,6 +560,7 @@ export function createSceneRig(seed: number): SceneRig {
   }
 
   function dispose(): void {
+    unsubscribeHit();
     tower.dispose();
     crane.dispose();
     beam.dispose();

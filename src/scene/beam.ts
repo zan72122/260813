@@ -134,11 +134,20 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
   boltHeadMesh.count = 2;
   boltGroup.add(boltMesh, boltHeadMesh);
 
-  const holeGeo = new RingGeometry(0.14, 0.2, 12);
-  const holeMaterial = new MeshStandardMaterial({ color: 0x1a1512, roughness: 0.9, side: DoubleSide });
+  // R7: the dark hole ring alone read as low-contrast against the beam's
+  // own dark-in-shadow iron — added a thin brass rim ring just outside it
+  // (a real flange/collar read, not just a flat color swap) so both holes
+  // clearly stand out regardless of ambient light.
+  const holeGeo = new RingGeometry(0.13, 0.185, 12);
+  const holeMaterial = new MeshStandardMaterial({ color: 0x241a15, roughness: 0.85, side: DoubleSide });
   const holeMesh = new InstancedMesh(holeGeo, holeMaterial, 2);
   holeMesh.count = 2;
   boltGroup.add(holeMesh);
+
+  const holeRimGeo = new RingGeometry(0.185, 0.225, 12);
+  const holeRimMesh = new InstancedMesh(holeRimGeo, materials.brass, 2);
+  holeRimMesh.count = 2;
+  boltGroup.add(holeRimMesh);
 
   const holeLocalOffsets: [Vector3, Vector3] = [
     new Vector3(-BEAM_LENGTH * 0.28, BEAM_WIDTH * 0.32, 0.05),
@@ -149,10 +158,14 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
     new Vector3(-1.1, -0.4, 0.6),
   ];
 
-  let slotWorld = new Vector3();
+  const slotWorld = new Vector3();
   let slotAngle = 0;
   const holeWorld: [Vector3, Vector3] = [new Vector3(), new Vector3()];
   const boltRestWorld: [Vector3, Vector3] = [new Vector3(), new Vector3()];
+  // Current (lerped rest->hole) bolt position, republished every frame via
+  // boltCurrentPosition() — precomputed here (not `.clone()`d per call) so
+  // neither refreshBoltsAndHoles() nor its callers allocate per frame (R9).
+  const boltCurrentWorld: [Vector3, Vector3] = [new Vector3(), new Vector3()];
   const boltSeat: [number, number] = [0, 0];
   const rivetHoleWorld = new Vector3();
   const slotAttachWorld = new Vector3();
@@ -185,7 +198,7 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
 
     for (let i = 0; i < 2; i += 1) {
       const t = boltSeat[i]!;
-      const pos = boltRestWorld[i]!.clone().lerp(holeWorld[i]!, t);
+      const pos = boltCurrentWorld[i]!.copy(boltRestWorld[i]!).lerp(holeWorld[i]!, t);
       dummy.position.copy(pos);
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
@@ -198,14 +211,16 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       holeMesh.setMatrixAt(i, dummy.matrix);
+      holeRimMesh.setMatrixAt(i, dummy.matrix);
     }
     boltMesh.instanceMatrix.needsUpdate = true;
     boltHeadMesh.instanceMatrix.needsUpdate = true;
     holeMesh.instanceMatrix.needsUpdate = true;
+    holeRimMesh.instanceMatrix.needsUpdate = true;
   }
 
   function placeSlot(slotPos: Vector3, normalAngle: number): void {
-    slotWorld = slotPos.clone();
+    slotWorld.copy(slotPos);
     slotAngle = normalAngle;
     ghostGroup.position.copy(slotPos);
     ghostGroup.rotation.y = normalAngle;
@@ -241,6 +256,7 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
     boltHeadGeo.dispose();
     holeGeo.dispose();
     holeMaterial.dispose();
+    holeRimGeo.dispose();
   }
 
   return {
@@ -259,7 +275,7 @@ export function createBeamRig(materials: MaterialSet): BeamRig {
       return boltRestWorld;
     },
     boltCurrentPosition(index: 0 | 1): Vector3 {
-      return boltRestWorld[index]!.clone().lerp(holeWorld[index]!, boltSeat[index]!);
+      return boltCurrentWorld[index]!;
     },
     get rivetHolePosition() {
       return rivetHoleWorld;

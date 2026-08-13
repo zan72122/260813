@@ -2,16 +2,25 @@
 // The single hero rivet (emissive color driven by rivet.temp/cooled via
 // visual/rivetColor.ts, head "morphs" round by lerping a flat-headed scale
 // toward a round dome scale as rivet.formed rises) plus its forge/brazier
-// with glowing coals (emissive-only + a small flickering point light).
+// with glowing coals (emissive material only — no PointLight, see R8/
+// PERFORMANCE_BUDGET's "directional 1 + ambient/hemisphere 1 ONLY" light
+// budget) plus a soft additive billboard glow sprite standing in for bloom.
 
 import {
+  AdditiveBlending,
+  Color,
   CylinderGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
-  PointLight,
+  PlaneGeometry,
+  Quaternion,
   SphereGeometry,
+  Vector3,
   type BufferGeometry,
+  type Camera,
+  type CanvasTexture,
 } from 'three';
 import { rivetColorRamp } from '../visual/rivetColor';
 import type { MaterialSet } from '../visual/materials';
@@ -21,11 +30,17 @@ export interface RivetRig {
   forgeGroup: Group;
   setColor(temp: number, cooled: number): void;
   setFormed(formed: number): void;
-  update(dtMs: number): void;
+  update(dtMs: number, camera: Camera): void;
   dispose(): void;
 }
 
-export function createRivetRig(materials: MaterialSet): RivetRig {
+const glowCamPos = new Vector3();
+const glowWorldPos = new Vector3();
+const glowDir = new Vector3();
+const glowQuat = new Quaternion();
+const glowUnitZ = new Vector3(0, 0, 1);
+
+export function createRivetRig(materials: MaterialSet, glowTexture: CanvasTexture): RivetRig {
   // ---- rivet -----------------------------------------------------------------
   const rivetGroup = new Group();
   rivetGroup.name = 'rivet';
@@ -90,14 +105,47 @@ export function createRivetRig(materials: MaterialSet): RivetRig {
   coals.position.y = 0.28;
   forgeGroup.add(coals);
 
-  const glow = new PointLight(0xff5a1a, 1.2, 2.5, 2);
-  glow.position.y = 0.4;
+  // R8: the forge used to "sell" its heat with a 3rd live PointLight, which
+  // violates PERFORMANCE_BUDGET's "directional 1 + ambient/hemisphere 1
+  // ONLY" light budget (verified: this was the only 3rd light in the whole
+  // scene graph). Replaced with the coals' own strong emissive material
+  // (unaffected by scene lights either way — MeshStandardMaterial emissive
+  // always self-lights its own pixels) plus a soft additive billboard glow
+  // sprite layered just above the coals, standing in for the bloom/spill
+  // light a real forge would cast, without adding a light.
+  const glowGeo = new PlaneGeometry(0.95, 0.95);
+  const glowMat = new MeshBasicMaterial({
+    map: glowTexture,
+    color: new Color('#ff7a28'),
+    transparent: true,
+    opacity: 0.55,
+    blending: AdditiveBlending,
+    depthWrite: false,
+  });
+  const glow = new Mesh(glowGeo, glowMat);
+  glow.position.y = 0.36;
+  glow.renderOrder = 4;
   forgeGroup.add(glow);
 
   let flickerPhase = 0;
-  function update(dtMs: number): void {
+  function update(dtMs: number, camera: Camera): void {
     flickerPhase += dtMs * 0.006;
-    glow.intensity = 1.0 + Math.sin(flickerPhase) * 0.15 + Math.sin(flickerPhase * 2.7) * 0.08;
+    const flicker = 1.0 + Math.sin(flickerPhase) * 0.15 + Math.sin(flickerPhase * 2.7) * 0.08;
+    materials.coal.emissiveIntensity = 1.3 * flicker;
+    glowMat.opacity = 0.5 * flicker;
+    const scale = 0.9 * flicker;
+    glow.scale.set(scale, scale, scale);
+
+    // Billboard the glow sprite toward the camera. forgeGroup/rivetGroup's
+    // whole ancestor chain up to the scene root carries no rotation (only
+    // position, set every frame by scene/index.ts), so world-space and
+    // this mesh's local space share the same orientation basis — safe to
+    // set `glow.quaternion` directly from world-space camera direction.
+    camera.getWorldPosition(glowCamPos);
+    glow.getWorldPosition(glowWorldPos);
+    glowDir.copy(glowWorldPos).sub(glowCamPos).normalize().negate();
+    glowQuat.setFromUnitVectors(glowUnitZ, glowDir);
+    glow.quaternion.copy(glowQuat);
   }
 
   function dispose(): void {
@@ -108,6 +156,8 @@ export function createRivetRig(materials: MaterialSet): RivetRig {
     bowlGeo.dispose();
     legGeo.dispose();
     coalsGeo.dispose();
+    glowGeo.dispose();
+    glowMat.dispose();
   }
 
   return { rivetGroup, forgeGroup, setColor, setFormed, update, dispose };

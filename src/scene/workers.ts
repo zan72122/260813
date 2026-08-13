@@ -13,6 +13,7 @@ import {
   MeshStandardMaterial,
   SphereGeometry,
   Vector3,
+  type BufferGeometry,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { MaterialSet } from '../visual/materials';
@@ -52,6 +53,26 @@ function buildBody(materials: MaterialSet, clothMat: MeshStandardMaterial): { me
   mesh.add(headMesh);
 
   return { mesh, headTop: 1.42 };
+}
+
+/** Two prongs sharing a pivot at the shoulder end, spreading apart toward
+ * the tip — reads as an open pincer/tongs silhouette (R5: "catcher holds
+ * tongs") instead of a bare rod. Used for both the catcher's (rivet-relay)
+ * and heater's (forge) tongs. */
+function buildTongsGeometry(toolLen: number, zOffset: number): BufferGeometry {
+  const spreadAngle = 0.16;
+  const prongA = new CylinderGeometry(0.016, 0.016, toolLen, 6);
+  prongA.translate(0, -toolLen / 2, 0);
+  prongA.rotateZ(spreadAngle);
+  prongA.translate(0, 0, zOffset);
+  const prongB = new CylinderGeometry(0.016, 0.016, toolLen, 6);
+  prongB.translate(0, -toolLen / 2, 0);
+  prongB.rotateZ(-spreadAngle);
+  prongB.translate(0, 0, zOffset);
+  const merged = mergeGeometries([prongA, prongB], false);
+  prongA.dispose();
+  prongB.dispose();
+  return merged;
 }
 
 const ROLE_TOOL_LENGTH: Record<WorkerRole, number> = {
@@ -99,9 +120,8 @@ export function createWorkerRig(
       break;
     }
     case 'catcher': {
-      // long tongs
-      const geo = new CylinderGeometry(0.02, 0.02, toolLen, 6);
-      geo.translate(0, -toolLen / 2, 0.05);
+      // open pincer tongs (R5: must read as tongs, not a bare rod)
+      const geo = buildTongsGeometry(toolLen, 0.05);
       tool = new Mesh(geo, materials.ironDark);
       break;
     }
@@ -113,9 +133,8 @@ export function createWorkerRig(
       break;
     }
     case 'heater': {
-      // long-handled forge tongs
-      const geo = new CylinderGeometry(0.022, 0.022, toolLen, 6);
-      geo.translate(0, -toolLen / 2, -0.05);
+      // long-handled forge tongs (same open-pincer read as the catcher's)
+      const geo = buildTongsGeometry(toolLen, -0.05);
       tool = new Mesh(geo, materials.ironDark);
       break;
     }

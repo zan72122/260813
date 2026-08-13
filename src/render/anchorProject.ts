@@ -20,10 +20,13 @@ const scratch = new Vector3();
 
 /**
  * Project a world-space point to CSS pixel coordinates for a viewport of
- * `width`x`height`. Reuses a module-level scratch vector to avoid per-frame
- * allocation in the render hot path (safe: synchronous, non-reentrant).
+ * `width`x`height`, writing the result into `out` instead of allocating a
+ * fresh object. This is the hot-path entry point (called once per published
+ * anchor, every frame) — see `projectToScreen` below for an allocating
+ * convenience wrapper used by tests/one-off callers.
  */
-export function projectToScreen(
+export function projectToScreenInto(
+  out: ScreenPoint,
   camera: Camera,
   worldX: number,
   worldY: number,
@@ -33,13 +36,33 @@ export function projectToScreen(
 ): ScreenPoint {
   scratch.set(worldX, worldY, worldZ);
   scratch.project(camera);
-  const visible = scratch.z < 1 && scratch.z > -1;
-  const x = (scratch.x * 0.5 + 0.5) * width;
-  const y = (1 - (scratch.y * 0.5 + 0.5)) * height;
-  return { x, y, visible };
+  out.visible = scratch.z < 1 && scratch.z > -1;
+  out.x = (scratch.x * 0.5 + 0.5) * width;
+  out.y = (1 - (scratch.y * 0.5 + 0.5)) * height;
+  return out;
 }
 
-/** Convenience radius conversion: a world-space radius at a given depth, in CSS px, via a small offset probe. */
+/**
+ * Project a world-space point to CSS pixel coordinates for a viewport of
+ * `width`x`height`. Allocates a fresh `ScreenPoint` each call — fine for
+ * tests/occasional callers; the per-frame anchor-publish loop uses
+ * `projectToScreenInto` instead to avoid steady-state GC pressure.
+ */
+export function projectToScreen(
+  camera: Camera,
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  width: number,
+  height: number,
+): ScreenPoint {
+  return projectToScreenInto({ x: 0, y: 0, visible: false }, camera, worldX, worldY, worldZ, width, height);
+}
+
+const radiusCenterScratch: ScreenPoint = { x: 0, y: 0, visible: false };
+const radiusEdgeScratch: ScreenPoint = { x: 0, y: 0, visible: false };
+
+/** Convenience radius conversion: a world-space radius at a given depth, in CSS px, via a small offset probe. No per-call allocation (module-level scratch points). */
 export function projectedRadius(
   camera: Camera,
   worldX: number,
@@ -49,7 +72,7 @@ export function projectedRadius(
   width: number,
   height: number,
 ): number {
-  const center = projectToScreen(camera, worldX, worldY, worldZ, width, height);
-  const edge = projectToScreen(camera, worldX + worldRadius, worldY, worldZ, width, height);
-  return Math.hypot(edge.x - center.x, edge.y - center.y);
+  projectToScreenInto(radiusCenterScratch, camera, worldX, worldY, worldZ, width, height);
+  projectToScreenInto(radiusEdgeScratch, camera, worldX + worldRadius, worldY, worldZ, width, height);
+  return Math.hypot(radiusEdgeScratch.x - radiusCenterScratch.x, radiusEdgeScratch.y - radiusCenterScratch.y);
 }
