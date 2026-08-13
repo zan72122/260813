@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import type { SeedConfig, ToyDef, ToyMaterial, ToySymbol } from '../game/types.ts';
+import type { SeedConfig, ToyDef, ToySymbol } from '../game/types.ts';
+import { BASKET_COLORS } from './baskets.ts';
 import { vec2ToWorld } from './constants.ts';
 import { plushBlockGeometry, woodBlockGeometry } from './geometry.ts';
-import { createFabricWeaveTexture, createWoodGrainTexture } from './materials/textures.ts';
+import { applySymbolUv, createFabricWeaveTexture, createSymbolAtlas, createWoodGrainTexture } from './materials/textures.ts';
 import { PALETTE } from './palette.ts';
 import { BlobShadowManager } from './shadows.ts';
 import { Easing, TweenManager } from './tween.ts';
@@ -34,41 +35,81 @@ export class ToySystem {
 
     const woodTex = createWoodGrainTexture(PALETTE.woodLight, 256, 40);
     const fabricTex = createFabricWeaveTexture(0xffffff, 256, 41);
+    const atlas = createSymbolAtlas(512);
+
+    // B3 fix: a toy's accent color deterministically matches the color of the
+    // basket it belongs in (same symbol), as a redundant color cue on top of
+    // the symbol decal below — previously the accent was picked purely by
+    // material+index, which could coincidentally match a DIFFERENT basket's
+    // color and actively mislead the picture-matching mechanic.
+    const basketColorBySymbol = new Map<ToySymbol, number>();
+    seedConfig.baskets.forEach((basket, i) => {
+      basketColorBySymbol.set(basket.symbol, BASKET_COLORS[i % BASKET_COLORS.length]!);
+    });
 
     for (const toy of seedConfig.toys) {
-      const visual = this.buildToy(toy, woodTex, fabricTex);
+      const color = basketColorBySymbol.get(toy.symbol) ?? BASKET_COLORS[0]!;
+      const visual = this.buildToy(toy, color, woodTex, fabricTex, atlas);
       this.toys.set(toy.id, visual);
       this.proxyToId.set(visual.proxy, toy.id);
       this.group.add(visual.group);
     }
   }
 
-  private accentColor(material: ToyMaterial, index: number): number {
-    const list = PALETTE.toyAccentByMaterial[material];
-    return list[index % list.length]!;
-  }
-
-  private buildToy(toy: ToyDef, woodTex: THREE.Texture, fabricTex: THREE.Texture): ToyVisual {
+  private buildToy(
+    toy: ToyDef,
+    color: number,
+    woodTex: THREE.Texture,
+    fabricTex: THREE.Texture,
+    atlas: ReturnType<typeof createSymbolAtlas>,
+  ): ToyVisual {
     let geo: THREE.BufferGeometry;
     let mat: THREE.MeshStandardMaterial;
-    const idx = Number(toy.id.split('-')[1] ?? 0);
-    const color = this.accentColor(toy.material, idx);
+    let topY: number;
+    let decalSize: number;
 
     if (toy.material === 'wood') {
-      geo = woodBlockGeometry(0.15);
+      const size = 0.15;
+      geo = woodBlockGeometry(size);
       mat = new THREE.MeshStandardMaterial({ color, map: woodTex, roughness: 0.55, metalness: 0.04 });
+      topY = size / 2;
+      decalSize = size * 0.62;
     } else if (toy.material === 'fabric') {
-      geo = plushBlockGeometry(0.17);
+      const size = 0.17;
+      geo = plushBlockGeometry(size);
       mat = new THREE.MeshStandardMaterial({ color, map: fabricTex, roughness: 0.92, metalness: 0 });
+      topY = (size * 0.85) / 2;
+      decalSize = size * 0.55;
     } else {
-      geo = new THREE.SphereGeometry(0.085, 20, 14);
+      const radius = 0.085;
+      geo = new THREE.SphereGeometry(radius, 20, 14);
       mat = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.06 });
+      topY = radius;
+      decalSize = radius * 1.15;
     }
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.y = TOY_Y_REST;
     mesh.rotation.y = toy.rotationY;
     mesh.userData['toyId'] = toy.id;
+
+    // B3 fix: a small, high-contrast symbol decal on top of every toy so the
+    // picture-matching mechanic (toy symbol <-> basket symbol) is legible —
+    // previously toy.def.symbol was never rendered anywhere on the toy itself.
+    const decalGeo = new THREE.PlaneGeometry(decalSize, decalSize);
+    applySymbolUv(decalGeo, atlas.uvRect(toy.symbol));
+    decalGeo.rotateX(-Math.PI / 2);
+    const decalMat = new THREE.MeshStandardMaterial({
+      map: atlas.texture,
+      transparent: true,
+      roughness: 0.6,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const decal = new THREE.Mesh(decalGeo, decalMat);
+    decal.position.y = topY + 0.004;
+    mesh.add(decal);
 
     const proxyGeo = new THREE.SphereGeometry(0.19, 8, 6);
     const proxy = new THREE.Mesh(proxyGeo, new THREE.MeshBasicMaterial());

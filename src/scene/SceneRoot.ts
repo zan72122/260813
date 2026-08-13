@@ -1033,7 +1033,12 @@ export class SceneRoot {
   updateOrientation(): void {
     const portrait = window.innerHeight >= window.innerWidth;
     this.orientation = portrait ? 'portrait' : 'landscape';
-    this.cameraDirector.setOrientation(this.orientation, this.computeAspect());
+    // Tablet vs phone framing: based on the shorter CSS-px dimension, which
+    // stays stable across an orientation flip (e.g. 393x852 phone vs
+    // 834x1194 tablet both stay "phone"/"tablet" whichever way they're held).
+    const shortSide = Math.min(window.innerWidth, window.innerHeight);
+    const deviceClass = shortSide >= 600 ? 'tablet' : 'phone';
+    this.cameraDirector.setOrientation(this.orientation, this.computeAspect(), deviceClass);
   }
 
   resize(): void {

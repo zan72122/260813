@@ -155,14 +155,11 @@ export class Overlay {
     this.freeplayLayer.appendChild(napBtn);
     this.freeplayLayer.appendChild(exitBtn);
 
-    const versionTag = el('div', 'version-tag', `v${__APP_VERSION__}`);
-
     this.root.appendChild(dayDial);
     this.root.appendChild(topControls);
     this.root.appendChild(this.titleLayer);
     this.root.appendChild(this.replayLayer);
     this.root.appendChild(this.freeplayLayer);
-    this.root.appendChild(versionTag);
   }
 
   setPhase(phase: Phase): void {
@@ -191,5 +188,3 @@ export class Overlay {
     this.dayDialSun.setAttribute('cy', String(cy));
   }
 }
-
-declare const __APP_VERSION__: string;

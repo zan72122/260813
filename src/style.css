@@ -290,14 +290,3 @@ body.reduced-motion .title-button {
 .freeplay-btn.exit {
   background: var(--coral);
 }
-
-/* ---------- Version corner (tiny, incidental, not required to play) ---------- */
-
-.version-tag {
-  position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
-  left: calc(env(safe-area-inset-left, 0px) + 6px);
-  font-size: 10px;
-  color: rgba(74, 59, 44, 0.35);
-  pointer-events: none;
-}

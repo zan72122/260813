@@ -196,7 +196,13 @@ export interface SymbolAtlas {
   uvRect: (symbol: SymbolKind) => { u0: number; v0: number; u1: number; v1: number };
 }
 
-/** One shared 512px atlas holding the star/rainbow/flower icons used on baskets, badges, and replay UI. */
+/**
+ * One shared 512px atlas holding the star/rainbow/flower icons used on baskets, toys, badges, and
+ * replay UI. Fix-round-1 (B2/B3): each icon sits on its own cream/white backdrop disc with a dark
+ * outline so the symbol reads with guaranteed contrast no matter what color (basket body, toy
+ * accent) it is later composited over — the raw icon colors alone are not reliably distinct from
+ * every basket/toy hue (e.g. a yellow star over a butter-colored surface).
+ */
 export function createSymbolAtlas(size = 512): SymbolAtlas {
   const { canvas, ctx } = ctx2d(size);
   ctx.clearRect(0, 0, size, size);
@@ -207,6 +213,18 @@ export function createSymbolAtlas(size = 512): SymbolAtlas {
     flower: { x: 0, y: cell },
   };
   const r = cell * 0.32;
+  for (const p of Object.values(positions)) {
+    const cx = p.x + cell / 2;
+    const cy = p.y + cell / 2;
+    const backdropR = r * 1.45;
+    ctx.beginPath();
+    ctx.arc(cx, cy, backdropR, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFBF2';
+    ctx.fill();
+    ctx.lineWidth = backdropR * 0.09;
+    ctx.strokeStyle = 'rgba(74, 59, 44, 0.55)';
+    ctx.stroke();
+  }
   drawStar(ctx, positions.star.x + cell / 2, positions.star.y + cell / 2, r, '#F7D97B');
   drawRainbow(ctx, positions.rainbow.x + cell / 2, positions.rainbow.y + cell / 2, r * 1.1);
   drawFlower(ctx, positions.flower.x + cell / 2, positions.flower.y + cell / 2, r);

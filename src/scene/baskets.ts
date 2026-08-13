@@ -16,7 +16,7 @@ export interface BasketVisual {
   baseRotationZ: number;
 }
 
-const BASKET_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky];
+export const BASKET_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky];
 
 export class BasketSystem {
   readonly group = new THREE.Group();
@@ -59,11 +59,21 @@ export class BasketSystem {
     bottom.rotation.x = -Math.PI / 2;
     bottom.position.y = 0.001;
 
+    // Front-facing badge (reads well at eye-level / 3/4 angles).
     const symbolPlaneGeo = new THREE.PlaneGeometry(def.radius * 0.62, def.radius * 0.62);
     applySymbolUv(symbolPlaneGeo, atlas.uvRect(def.symbol));
     const symbolMat = new THREE.MeshStandardMaterial({ map: atlas.texture, transparent: true, roughness: 0.6 });
     const symbolPlane = new THREE.Mesh(symbolPlaneGeo, symbolMat);
     symbolPlane.position.set(0, 0.09, def.radius * 0.63);
+
+    // B2 fix: a large, high-contrast symbol facing straight UP on the basket's interior
+    // floor. This is the one that actually registers from the top-down cleanup camera —
+    // the front badge above is viewed edge-on from that angle and doesn't read at all.
+    const symbolUpGeo = new THREE.PlaneGeometry(def.radius * 0.92, def.radius * 0.92);
+    applySymbolUv(symbolUpGeo, atlas.uvRect(def.symbol));
+    symbolUpGeo.rotateX(-Math.PI / 2);
+    const symbolUp = new THREE.Mesh(symbolUpGeo, symbolMat);
+    symbolUp.position.y = 0.022;
 
     const proxyGeo = new THREE.SphereGeometry(def.radius * 1.6, 8, 6);
     const proxy = new THREE.Mesh(proxyGeo, new THREE.MeshBasicMaterial());
@@ -73,7 +83,7 @@ export class BasketSystem {
     const group = new THREE.Group();
     const worldPos = vec2ToWorld(def.position);
     group.position.copy(worldPos);
-    group.add(body, rim, bottom, symbolPlane, proxy);
+    group.add(body, rim, bottom, symbolPlane, symbolUp, proxy);
     body.userData['basketId'] = def.id;
     proxy.userData['basketId'] = def.id;
 
