@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#05060c" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>結晶の中の虹の目</title>
+<link rel="stylesheet" href="./styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%230a0b16'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23ff5fa2' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='none' stroke='%2338e8d0' stroke-width='2'/></svg>" />
+</head>
+<body>
+  <canvas id="gl" aria-label="虹の目のゲーム"></canvas>
+
+  <!-- 非言語ヒント層 -->
+  <div id="hud" aria-hidden="true">
+    <!-- タップ -->
+    <div class="hint" data-hint="tap">
+      <svg viewBox="0 0 200 200">
+        <circle class="pulse" cx="100" cy="100" r="34" />
+        <circle class="pulse d1" cx="100" cy="100" r="34" />
+        <circle class="dot" cx="100" cy="100" r="13" />
+      </svg>
+    </div>
+
+    <!-- 円をなぞる -->
+    <div class="hint" data-hint="circle">
+      <svg viewBox="0 0 200 200">
+        <circle class="track" cx="100" cy="100" r="70" />
+        <circle class="runner" cx="100" cy="30" r="11" />
+        <path class="arrowhead" d="M148 44 l16 6 l-6 16" />
+      </svg>
+    </div>
+
+    <!-- 左右 -->
+    <div class="hint" data-hint="swipeX">
+      <svg viewBox="0 0 240 120">
+        <path class="track line" d="M40 60 H200" />
+        <path class="arrowhead" d="M196 46 l16 14 l-16 14" />
+        <path class="arrowhead" d="M44 46 l-16 14 l16 14" />
+        <circle class="runner rx" cx="60" cy="60" r="14" />
+      </svg>
+    </div>
+
+    <!-- 上下 -->
+    <div class="hint" data-hint="swipeY">
+      <svg viewBox="0 0 120 240">
+        <path class="track line" d="M60 40 V200" />
+        <path class="arrowhead" d="M46 196 l14 16 l14 -16" />
+        <path class="arrowhead" d="M46 44 l14 -16 l14 16" />
+        <circle class="runner ry" cx="60" cy="60" r="14" />
+      </svg>
+    </div>
+  </div>
+
+  <!-- 進み具合（文字なし） -->
+  <svg id="progress" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="bg" cx="50" cy="50" r="46" />
+    <circle class="fg" cx="50" cy="50" r="46" />
+  </svg>
+
+  <!-- もういちど -->
+  <button id="again" type="button" hidden>
+    <svg viewBox="0 0 120 120" aria-hidden="true">
+      <path class="loop" d="M92 60a32 32 0 1 1-9.4-22.6" />
+      <path class="tip" d="M84 12 l0 28 l-28 0" />
+      <g class="gem">
+        <path d="M60 42 L74 56 L60 82 L46 56 Z" />
+      </g>
+    </svg>
+    <span>もういちど</span>
+  </button>
+
+  <div id="boot">
+    <div class="gem"></div>
+  </div>
+
+  <noscript><p style="color:#fff;font:16px sans-serif;padding:2em">JavaScript を有効にしてください。</p></noscript>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

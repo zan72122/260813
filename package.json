@@ -1,0 +1,14 @@
+{
+  "name": "rainbow-eye-crystal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "結晶の中の虹の目 — 4歳児向けモバイルWebゲーム",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/dev-server.mjs",
+    "test": "node tests/play.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
