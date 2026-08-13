@@ -300,7 +300,7 @@
     {
       "id": "R1",
       "title": "独立レビュー: コード/性能/安全（読み取り専用）",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "ops/reviews/R1.md"
@@ -312,7 +312,12 @@
       "reportPath": "ops/reviews/R1.md",
       "commit": "",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "npm run test: PASS (16 files, 186 tests) を実行確認した上でコードレビューを実施",
+        "発見13件(major2/minor4/info7)。既知バグ3件(S6記載)を独立に再現・原因特定、うち1件(gait.ts walkTo)は根本原因をコードレベルで特定",
+        "新規発見: main.tsのhideFoodDirectがqa判定なしに本番でも機能する(major, R1-05)",
+        "詳細はops/reviews/R1.md参照"
+      ]
     },
     {
       "id": "R2",
