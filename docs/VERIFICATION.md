@@ -265,3 +265,189 @@ passing):
 - **WebKit/Safari** — not installed in this container (see Environment);
   Chromium-only per DECISIONS.md #12's documented environment constraint.
 - **Real iPhone/iPad hardware** — none available in this container.
+
+## Fix round 1
+
+Applied after three independent fresh-context reviews were triaged into a
+single blockers/majors/minors list (B1-B7, M1-M11, m1-m3) plus 3 new e2e
+tests (T1-T3). All items implemented on branch
+`claude/henshin-hoikushitsu-impl-f82vcb`, verified in this same container on
+2026-08-13.
+
+### What changed (by item)
+
+**Blockers**
+- **B1** — portrait `SHOTS` camera table in `src/scene/camera.ts` rebuilt
+  from scratch for all 5 shots, with separate phone/tablet presets
+  (`Record<ShotName, Record<DeviceClass, Record<Orientation, ShotPreset>>>`).
+  Lower vertical FOV and shallower pitch fix the vertical blowout portrait
+  previously had. Landscape presets untouched. A regression this surfaced
+  (chair-stack tap target pushed off-screen in the `transform` shot) was
+  found and fixed during verification by re-deriving `transform.phone/tablet
+  .portrait` with wider FOV and a shifted target x.
+- **B2** — `createSymbolAtlas` (`src/scene/materials/textures.ts`) now draws
+  a cream backdrop disc with a dark outline behind every icon, and
+  `baskets.ts` adds a large up-facing symbol plane on the basket's interior
+  floor, merged into the existing symbol mesh — readable from the overhead
+  cleanup camera.
+- **B3** — `toys.ts` renders `toy.def.symbol` as a decal (shares
+  `BASKET_SYMBOL_ATLAS`) and colors each toy's accent to match its correct
+  basket via `BASKET_COLORS`, imported from `baskets.ts`.
+- **B4** — `fsm.ts`'s `attemptStoreToy()` only emits `toyRejected` when a
+  basket is actually nearby (`nearest && nearest.withinRadius`); dead-space
+  drops now settle in place instead of tweening back to spawn.
+  `TweenManager.add()` gained an optional `key` that cancels any prior tween
+  registered under the same key, and toy-position tweens are now keyed —
+  fixes the race where a fast second drop could fight an in-flight return
+  tween.
+- **B5** — the `.version-tag` overlay div and its `__APP_VERSION__` read
+  were removed from `Overlay.ts`/`style.css`.
+- **B6** — `BlobShadowManager` (`shadows.ts`) gained `free(index)` and a
+  `usedCount` getter; the pool is freed on toy/basket disposal instead of
+  only ever growing.
+- **B7** — `SceneRoot.onSeedChanged()` now disposes the old `ToySystem` /
+  `BasketSystem` / `MatSystem` (each gained a `dispose()`) before rebuilding;
+  `SceneRoot.dispose()` walks every subsystem. Procedural canvas textures
+  (wood grain, fabric weave, symbol atlas, blob shadow) are now created once
+  at module level instead of per-seed.
+
+**Majors**
+- **M1** — `SceneRoot` gained `basketsVisible` + `setBasketsVisible(visible,
+  animate)`, wired into phase changes and free-play mode so baskets fade
+  out/in instead of staying visible through phases where they're irrelevant.
+- **M2** — `lighting.ts`'s `NAP` preset rewritten from cold navy to dim warm
+  amber, plus a new rim light (`LightingRig.rim`) for separation.
+- **M3** — wood-grain and blob-shadow procedural texture contrast raised
+  (`materials/textures.ts`); curtain material darkened/more opaque
+  (`curtain.ts`). Chose strengthening blob shadows + contrast over enabling
+  a real shadow map (stays inside the draw-call/perf budget on
+  software-rendered WebGL).
+- **M4** — `replaySameDay` icon in `ui/icons.ts` redrawn with a bold 15px
+  stroke arc and a real arrowhead instead of a plain circle.
+- **M5** — the 3s wiggle/pulse hint block in `SceneRoot.updateHints()` is
+  now gated behind `if (!this.reducedMotion)`.
+- **M6** — lunch `transform` camera pitch raised and `SEAT_OFFSETS`
+  staggered in `furniture.ts` so all 4 chairs/children are visible instead
+  of 2.
+- **M7** — `stackRotationY(index)` alternates yaw per stacked chair so the
+  stack reads as individual chairs, not a plain block tower.
+- **M8** — `SceneRoot` gained `setupContextLossHandling()` /
+  `showContextLossOverlay()`, listening for `webglcontextlost`/
+  `webglcontextrestored` and showing a recovery overlay
+  (`.context-loss-overlay` in `style.css`).
+- **M9** — `PointerController` gained a dedicated `onCancel` handler (was
+  previously routed through `onUp`), so a `pointercancel` mid-drag is always
+  treated as incomplete rather than potentially completing the gesture.
+- **M10** — hoisted scratch `Vector3`/`Vector2`/`Quaternion` objects to
+  module level in `mats.ts`, `furniture.ts`, and `baskets.ts`'s
+  `setAttention` (runs per basket per pointermove while dragging) —
+  removed per-frame allocations in these hot paths.
+- **M11** — clouds in `room.ts` rebuilt from 3-4 merged squashed lumps
+  instead of plain spheres; toys gained a `plushLumpGeometry` for fabric
+  items so toy families are silhouette-differentiated.
+
+**Meaningful minors**
+- **m1** — `AudioEngine.setMuted()` ramps gain over ~30ms via Web Audio
+  scheduling instead of a hard step, removing the mute click/pop.
+- **m2** — `overview.phone/tablet.landscape` camera nudged (+0.35 x) so the
+  title block tower no longer sits on the play-button centerline.
+- **m3** — `.replay-card` restyled in `style.css` as a wooden picture tile
+  (gradient + inset bevel shadows), tap targets kept ≥72px.
+
+**e2e additions**
+- **T1** `e2e/shuffle-leak.spec.ts` — loops `replayShuffle()` x8 (9 full
+  play-loop passes total: 1 warmup + 8 measured), asserts `shadowSlotsUsed`
+  stays a constant value across all 8 shuffles (was unbounded growth
+  pre-B6) and JS heap growth (CDP `Runtime.getHeapUsage`, forced GC before
+  each sample) stays under a generous 15% threshold after warmup.
+- **T2** `e2e/pointercancel.spec.ts` — starts a real table drag, dispatches
+  a synthetic `pointercancel`, asserts the drag objective stays incomplete
+  and the table tweens back to its stored position.
+- **T3** `e2e/reduced-motion.spec.ts` — two tests. Asserts the eating
+  vignette's auto-advance wall-clock is shortened under reduced motion, and
+  that a real wipe gesture spawns zero sparkles under reduced motion vs.
+  spawning some without it (control test).
+
+### Re-run results
+
+All commands re-run for real in this container against the fixed code:
+
+```
+npm run lint        — PASS (0 errors, 0 warnings)
+npm run typecheck   — PASS (tsc --noEmit, 0 errors)
+npm run test        — PASS, 39/39 (5 test files, unchanged from baseline —
+                       fix round 1 touched no unit-tested game-logic module
+                       signatures other than fsm.ts's attemptStoreToy, whose
+                       existing fsm.test.ts coverage still passes)
+npm run build        — PASS
+npm run test:e2e     — PASS, 54 passed, 10 skipped, 0 failed (41.5m total),
+                       all 4 projects (mobile-portrait 393×852,
+                       mobile-landscape 852×393, tablet-portrait 834×1194,
+                       tablet-landscape 1194×834), single worker
+```
+
+The 10 skips are the same intentional scoping as the original verification
+pass (see "npm run test:e2e" section above) plus the new specs following
+the same phone/tablet full-loop-vs-screenshot split; no new unexplained
+skips were introduced. `test-results/` contains no failure subdirectories
+after the run (only `.last-run.json`), confirming zero failures across the
+full battery.
+
+New spec files added this round: `e2e/shuffle-leak.spec.ts`,
+`e2e/pointercancel.spec.ts`, `e2e/reduced-motion.spec.ts` (2 tests) — 4 new
+e2e tests × 4 projects = 16 new test instances, all passing.
+
+### New measured numbers
+
+- **Draw calls (peak)**: **112**, sampled at `TITLE` phase on
+  `mobile-landscape` — the true peak across all 4 viewports. Under the
+  ≤120 hard cap in CLAUDE.md/DECISIONS.md #10, and below the fix-round-1
+  reviewer's noted starting point of 119. Per-viewport peaks:
+  mobile-portrait 88, mobile-landscape 112, tablet-portrait 90,
+  tablet-landscape 110. Full mobile-landscape sample sequence (the peak
+  viewport): `TITLE:112, PLAY_CLEANUP:110→91, LUNCH_SETUP:82×2,
+  LUNCH_CLEANUP:82×2, NAP_SETUP:82×2, WAKE_RESTORE:82×2, REPLAY:82`.
+  During development, adding B2's up-facing basket symbol and B3's toy
+  decal temporarily pushed this to 125 (over budget); fixed by merging
+  same-material basket meshes (body+rim+bottom into one geometry, the two
+  symbol decals into another) via the existing `mergeGeometries` helper,
+  landing at 2 draw calls per basket instead of a naive 5.
+- **T1 heap/shadow-slot leak check** (`shuffle-leak.spec.ts`, all 4
+  projects): `shadowSlotSamples` flat at `[7,7,7,7,7,7,7,7]` across 8
+  reshuffles on every viewport (pre-B6 this grew unbounded, 7/14/21/…,
+  overflowing the fixed 48-slot `InstancedMesh` pool around the 7th
+  shuffle). Heap growth after a warmup pass, per viewport: mobile-portrait
+  **10.4-10.5%** (two runs), mobile-landscape **8.0%**, tablet-portrait
+  **8.2%**, tablet-landscape **8.6%** — all comfortably under the 15%
+  threshold. `heapAfterWarmup`/`heapAfterShuffles` land around 6.0-6.8MB
+  across all runs.
+- **T3 reduced-motion timing** (`reduced-motion.spec.ts`, all 4 projects):
+  eating vignette auto-advance wall-clock ranged **6109-6349ms** under
+  reduced motion across viewports vs. the full ~8.4s (8000ms
+  `VIGNETTE_MS` + 400ms furniture-ready delay) without it — consistent
+  with the spec's `VIGNETTE_MS * 0.6` reduction. Sparkle count delta: 0
+  under reduced motion during a real wipe gesture on every viewport, >0 in
+  the un-reduced control on every viewport.
+- **T2 pointercancel**: passes on all 4 viewports — table returns to its
+  stored y position and `tableOut` stays `false` after a mid-drag
+  `pointercancel`.
+
+### Screenshot set regenerated
+
+The full named screenshot set under `artifacts/screenshots/` was
+regenerated in this run (same filenames as the original verification
+pass, all with fresh 2026-08-13 timestamps), including every portrait
+shot (`title.png`, `cleanup.png`, `drag-mid.png`, `lunch-set-start.png`,
+`lunch-set.png`, `eating.png`, `lunch-cleanup-done.png`, `wipe.png`,
+`mat-unroll-mid.png`, `mat-unroll-done.png`, `nap.png`, `stars.png`,
+`wake.png`, `replay.png`, `restored.png`) plus the `-landscape` and
+`-tablet-portrait`/`-tablet-landscape` variants and the seed-2/seed-3
+title+cleanup shots — visually re-confirming the B1 portrait camera
+rework and the M2 nap/stars amber-lighting fix.
+
+### Files removed
+
+- `.shot.mjs` — ad hoc diagnostic script used during B1 camera-value
+  derivation and screenshot spot-checks; deleted before the final commit
+  of this round (not part of the shipped codebase, same pattern as the
+  original verification pass).
