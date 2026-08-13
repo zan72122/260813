@@ -167,7 +167,7 @@ export function createRenderer(gl, assets) {
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     prog.ground.use().set({
       u_vp: vp, u_time: s.time, u_noise: G.tex(noise), u_tex: G.tex(terrace),
-      u_center: [0, TERRACE_Y, s.charZ + 0.75], u_size: [5.2, 1.25],
+      u_center: [0, TERRACE_Y, s.charZ + 0.55], u_size: [5.2, 1.6],
       u_tint: sky.terrace || [0.65, 0.62, 0.78], u_rim: sky.sun,
     });
     gl.bindVertexArray(quad.vao);

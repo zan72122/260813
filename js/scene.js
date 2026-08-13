@@ -95,7 +95,6 @@ export function createScene(seedIn) {
     fogPan: [0, 0],
     mist: 0,
     sweetX: 0,
-    magnet: 0,
 
     // Derived each frame.
     align: 0,
@@ -215,8 +214,10 @@ export function update(s, dt) {
   // player waits, and the sweet spot drifts toward them if they linger.
   if (s.stage === STAGE.FOG && s.idle > 6) s.fog = Math.min(1, s.fog + dt * 0.045);
   if (s.stage === STAGE.ALIGN) {
-    s.magnet = Math.min(1, s.magnet + dt * (s.idle > 8 ? 0.09 : 0.035));
-    s.sweetX = lerp(s.sweetX, s.charX, clamp(s.magnet * dt * 0.5, 0, 0.02));
+    // The sweet spot drifts toward the child, faster if they have stopped
+    // trying. Nobody gets stuck, but it never solves itself in a blink.
+    const help = s.idle > 10 ? 0.36 : 0.05;
+    s.sweetX = lerp(s.sweetX, s.charX, clamp(help * dt, 0, 0.05));
   }
   if (s.stage === STAGE.FINALE) {
     // Lock the crown on: playing after the reveal never breaks the picture.
@@ -277,7 +278,9 @@ function updateStage(s, dt) {
       if (s.fog > 0.72) setStage(s, STAGE.ALIGN);
       break;
     case STAGE.ALIGN:
-      if (s.score > 0.40) {
+      // A wide basin: anywhere near the sweet spot counts, and it only has to
+      // be held for a moment.
+      if (s.align > 0.55) {
         s.hold = (s.hold || 0) + dt;
         if (s.hold > 1.1) setStage(s, STAGE.MIST);
       } else {
@@ -285,7 +288,7 @@ function updateStage(s, dt) {
       }
       break;
     case STAGE.MIST:
-      if (s.mist > 0.9 && s.score > 0.55) setStage(s, STAGE.FINALE);
+      if (s.mist > 0.92) setStage(s, STAGE.FINALE);
       break;
     default:
       break;
@@ -342,7 +345,7 @@ function updateSparks(s, dt) {
 // one frame with the shadow head above the child's head.
 const RIGS = {
   // The opening looks back at the child with the sun blazing behind them.
-  [STAGE.TITLE]: { theta: 3.05, r: 7.6, y: 2.4, bias: 0.12, fov: 52, yOff: 1.25 },
+  [STAGE.TITLE]: { theta: 3.05, r: 7.6, y: 2.3, bias: 0.12, fov: 52, yOff: 0.40 },
   [STAGE.INTRO]: { theta: 0.0, r: 6.4, y: 4.45, bias: 0.55, fov: 50, yOff: 0.45 },
   [STAGE.FOG]: { theta: 0.0, r: 6.4, y: 4.45, bias: 0.55, fov: 50, yOff: 0.45 },
   [STAGE.ALIGN]: { theta: 0.0, r: 6.2, y: 4.5, bias: 0.60, fov: 48, yOff: 0.40 },

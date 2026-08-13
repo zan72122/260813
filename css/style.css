@@ -111,6 +111,11 @@ html,body{
 }
 @keyframes fadeIn{ from{ opacity:0 } }
 
+/* Portrait: the card sits low so the child and the sun stay in view above it. */
+@media (orientation:portrait){
+  #title{ align-items:flex-end; padding-bottom:calc(env(safe-area-inset-bottom) + 6vmin); }
+}
+
 .titleCard,.finaleCard{
   background:var(--paper); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
   border-radius:5vmin; padding:3.6vmin 4vmin;

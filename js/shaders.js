@@ -304,10 +304,10 @@ void main(){
   if (t.a <= 0.004) discard;
   float n = fbm(v_world.xz * 0.45);
   vec3 col = t.rgb * u_tint * (0.82 + 0.36 * n);
-  // The sun is behind, so the far edge of the ledge catches a warm line.
-  col += u_rim * smoothstep(0.62, 0.96, v_uv.y) * 0.55 * t.a;
+  // v = 0 is the far edge, and the sun is out that way: it catches a warm line.
+  col += u_rim * smoothstep(0.30, 0.02, v_uv.y) * 0.85 * t.a;
   // Edges dissolve into the cloud rather than ending in a cut.
-  float edge = smoothstep(0.0, 0.30, v_uv.y) * smoothstep(1.0, 0.70, v_uv.y)
+  float edge = smoothstep(0.0, 0.16, v_uv.y) * smoothstep(1.0, 0.62, v_uv.y)
              * smoothstep(0.0, 0.18, v_uv.x) * smoothstep(1.0, 0.82, v_uv.x);
   edge *= 0.65 + 0.5 * n;
   frag = vec4(col, t.a * clamp(edge, 0.0, 1.0));
