@@ -159,11 +159,13 @@ export function createWorld(opts?: {
   }
 
   const isQaMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("qa") === "1";
-  // QA視覚確認用の一時的な足場: ?qa=1の時だけゾウを見える状態にし、window経由でenter/walkToSpot/
-  // sniffAroundを外部(playwright等)から呼べるようにする。本番フロー(qa未指定)では一切発火しない。
+  // QA視覚確認用の足場: ?qa=1の時、window経由でenter/walkToSpot/sniffAroundを外部(playwright等)から
+  // 呼べるようにwindow.__elephantDebugを公開する。本番フロー(qa未指定)では一切発火しない。
+  // 注意(POLISH_BACKLOG既知課題/S6で修正): 以前はここで無条件にelephant.object3D.visible=trueへし
+  // idleAtで定位置に置いていたため、タイトル/hide画面等ゾウがまだ登場していないはずの場面のQAスクショに
+  // ゾウが写り込んでいた。ゾウの表示はact=seek実行時(runElephantSeek)・playBehaviorDirect実行時・
+  // 通常のelephantEnter()経由のみに限定し、ここでは可視化もidleAtも行わない。
   if (isQaMode) {
-    elephant.object3D.visible = true;
-    elephant.idleAt({ x: 0, y: 0, z: 2 });
     (window as unknown as { __elephantDebug?: Elephant }).__elephantDebug = elephant;
   }
 

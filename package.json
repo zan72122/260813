@@ -11,8 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "qa:e2e": "playwright test",
-    "qa:screenshots": "playwright test --grep @screenshot",
+    "qa:e2e": "playwright test --grep-invert @screenshot",
+    "qa:screenshots": "playwright test e2e/screenshots.spec.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

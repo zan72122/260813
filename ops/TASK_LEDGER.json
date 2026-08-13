@@ -262,7 +262,7 @@
     {
       "id": "S6",
       "title": "QAハーネス: debug API完成/E2E/screenshots/console捕捉/README/QA report雛形",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "src/debug/",
@@ -270,7 +270,9 @@
         "playwright.config.ts",
         "README.md",
         "docs/QA_REPORT.md",
-        "package.json"
+        "package.json",
+        "src/scene/world.ts",
+        "LICENSES.md"
       ],
       "dependsOn": [
         "S5"
@@ -283,7 +285,17 @@
       "reportPath": "ops/reports/S6.md",
       "commit": "",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (16 files, 186 tests)",
+        "npm run build: PASS (dist/ generated)",
+        "npm run check: PASS",
+        "npm run qa:e2e: PASS (60 tests run, 42 skipped, 0 failed, no retries)",
+        "npm run qa:screenshots: PASS (1 test run, 3 skipped, artifacts/screenshots/に10枚生成)",
+        "スクショ10枚をReadで目視確認: 白画面/欠けなし、QA用ゾウの写り込みバグ修正を確認",
+        "発見バグ4件をops/reports/S6.mdとdocs/QA_REPORT.mdに記録(1件は修正、3件は範囲外につき記録のみ)"
+      ]
     },
     {
       "id": "R1",
