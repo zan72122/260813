@@ -38,14 +38,21 @@ export function createUI({ onStart, onAgain, onShelf, onShelfClose, onSound, onP
       });
     },
 
-    /** ゆびのヒント。x,y は画面ピクセル */
+    /**
+     * ゆびのヒント。x,y は「丸の左上」の画面ピクセル。
+     * 画面の外に出そうなときは、ふちの内がわに寄せる。
+     */
     showHint(mode, x, y) {
       hint.className = `hint on ${mode}`;
-      hint.style.transform = `translate(${x}px, ${y}px)`;
+      api.moveHint(x, y);
     },
 
     moveHint(x, y) {
-      hint.style.transform = `translate(${x}px, ${y}px)`;
+      const size = hint.offsetWidth || Math.min(window.innerWidth, window.innerHeight) * 0.24;
+      const pad = 8;
+      const cx = Math.min(Math.max(x, pad), Math.max(pad, window.innerWidth - size - pad));
+      const cy = Math.min(Math.max(y, pad), Math.max(pad, window.innerHeight - size - pad));
+      hint.style.transform = `translate(${cx}px, ${cy}px)`;
     },
 
     hideHint() {

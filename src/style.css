@@ -20,7 +20,12 @@ body {
   background: #0d0716;
   color: #fff;
   font-family:
-    "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic", system-ui, -apple-system, sans-serif;
+    'Hiragino Maru Gothic ProN',
+    'Hiragino Sans',
+    'Yu Gothic',
+    system-ui,
+    -apple-system,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
@@ -92,13 +97,14 @@ body {
 }
 
 /* ---------- ゆびヒント ---------- */
+/* JS が translate(x, y) で画面ピクセル座標に置くので、原点は左上に固定する。
+   x, y は「丸の中心 − 12vmin」で渡ってくる（game.js の hintHalf）。 */
 .hint {
   position: absolute;
-  left: 50%;
-  top: 60%;
+  left: 0;
+  top: 0;
   width: 24vmin;
   height: 24vmin;
-  margin: -12vmin 0 0 -12vmin;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.45s;
@@ -117,27 +123,34 @@ body {
   height: 16vmin;
   margin: -8vmin 0 0 -8vmin;
   border-radius: 50%;
-  border: 0.9vmin solid rgba(255, 255, 255, 0.85);
+  border: 1.1vmin solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 2vmin rgba(255, 236, 180, 0.65),
+    inset 0 0 1.5vmin rgba(255, 236, 180, 0.5);
   animation: pulse 1.5s ease-out infinite;
 }
 
 @keyframes pulse {
   0% {
-    transform: scale(0.55);
-    opacity: 0.95;
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(1.25);
+    opacity: 0.5;
   }
   100% {
-    transform: scale(1.35);
-    opacity: 0;
+    transform: scale(1.4);
+    opacity: 0.18;
   }
 }
 
 .hint-hand {
   position: absolute;
-  left: 46%;
-  top: 42%;
-  width: 11vmin;
-  filter: drop-shadow(0 0.6vmin 0.8vmin rgba(0, 0, 0, 0.4));
+  left: 44%;
+  top: 40%;
+  width: 14vmin;
+  filter: drop-shadow(0 0.6vmin 1vmin rgba(0, 0, 0, 0.55));
   animation: tapper 1.5s ease-in-out infinite;
 }
 

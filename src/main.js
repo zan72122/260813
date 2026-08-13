@@ -86,11 +86,18 @@ window.__BISMUTH__ = {
   clearShelf: () => game.debug.clearShelf(),
   frames: () => frames,
   mute: (m = true) => setMuted(m),
-  /** 論理時間を まとめて進める（アニメ待ちをしない決定論テスト用） */
-  tick: (ms, stepMs = 33) => {
+  /**
+   * 論理時間を まとめて進める（アニメ待ちをしない決定論テスト用）。
+   * render=false にすると描画をとばすので、進行だけを確かめたいときに速い。
+   */
+  tick: (ms, stepMs = 33, render = true) => {
     running = false;
     const n = Math.max(1, Math.round(ms / stepMs));
-    for (let i = 0; i < n; i++) step(stepMs / 1000);
+    const dt = stepMs / 1000;
+    for (let i = 0; i < n; i++) {
+      if (render) step(dt);
+      else game.update(dt);
+    }
     running = true;
     last = performance.now();
   },

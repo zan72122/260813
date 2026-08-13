@@ -91,7 +91,10 @@ export function createWorld({ fast = false } = {}) {
 
   /* ---------------- 台 ---------------- */
   const tableMat = track(matteMaterial(0x53355e, 0.92));
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.55, 0.34, fast ? 24 : 48), tableMat);
+  const table = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.35, 2.55, 0.34, fast ? 24 : 48),
+    tableMat,
+  );
   table.position.y = -0.18;
   scene.add(table);
 
@@ -203,10 +206,7 @@ export function createWorld({ fast = false } = {}) {
 
   const crucibleMat = track(matteMaterial(0x2b2431, 0.88));
   const profile = CRUCIBLE_PROFILE.map(([x, y]) => new THREE.Vector2(x, y));
-  const crucible = new THREE.Mesh(
-    new THREE.LatheGeometry(profile, fast ? 24 : 48),
-    crucibleMat,
-  );
+  const crucible = new THREE.Mesh(new THREE.LatheGeometry(profile, fast ? 24 : 48), crucibleMat);
   crucibleGroup.add(crucible);
 
   // るつぼの内側（暗く）
@@ -241,7 +241,7 @@ export function createWorld({ fast = false } = {}) {
 
   /** 液面の高さ（0..1）をセットする */
   function setMeltLevel(level) {
-    const h = Math.max(0.0001, level * 0.30);
+    const h = Math.max(0.0001, level * 0.3);
     melt.scale.y = h;
     melt.position.y = 0.09 + h * 0.5;
     melt.visible = level > 0.005;
@@ -368,10 +368,7 @@ export function createWorld({ fast = false } = {}) {
     trayMat,
   );
   tray.add(trayBowl);
-  const trayRim = new THREE.Mesh(
-    new THREE.TorusGeometry(0.68, 0.045, 8, fast ? 16 : 26),
-    trayMat,
-  );
+  const trayRim = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.045, 8, fast ? 16 : 26), trayMat);
   trayRim.rotation.x = Math.PI / 2;
   trayRim.position.y = 0.19;
   tray.add(trayRim);

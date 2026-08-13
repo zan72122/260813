@@ -9,6 +9,8 @@ const URL = '/?fast=1&seed=1234';
 
 /** 論理時間だけ進める（実時間を待たないので速くて安定する） */
 const tick = (page, ms) => page.evaluate((m) => window.__BISMUTH__.tick(m), ms);
+// 描画をとばして進行だけ進める（放置テスト用・SwiftShader でも軽い）
+const tickLogic = (page, ms) => page.evaluate((m) => window.__BISMUTH__.tick(m, 33, false), ms);
 const state = (page) => page.evaluate(() => window.__BISMUTH__.state());
 
 async function boot(page) {
@@ -136,9 +138,9 @@ test('できた結晶が かざりだなに 追加される', async ({ page }) =
 test('なにも触らなくても、ひとりでに さいごまで進む（しっぱいなし）', async ({ page }) => {
   await boot(page);
   await page.click('#startBtn', { force: true });
-  // 一切さわらずに 論理時間だけ進める
-  for (let i = 0; i < 120; i++) {
-    await tick(page, 1000);
+  // 一切さわらずに 論理時間だけ進める（描画はとばす）
+  for (let i = 0; i < 40; i++) {
+    await tickLogic(page, 3000);
     if ((await state(page)).finished) break;
   }
   const s = await state(page);
@@ -146,11 +148,20 @@ test('なにも触らなくても、ひとりでに さいごまで進む（し�
   expect(s.finished).toBe(true);
 });
 
-test('ヒントのゆびが、まよったときに出る', async ({ page }) => {
+test('ヒントのゆびが、まよったときに 画面の中に 出る', async ({ page }) => {
   await boot(page);
   await page.click('#startBtn', { force: true });
   await tick(page, 2500);
-  await expect(page.locator('#hint')).toHaveClass(/on/);
+  const hint = page.locator('#hint');
+  await expect(hint).toHaveClass(/on/);
+
+  // 画面の外に出ていないこと（前に position のバグで見えなくなった）
+  const box = await hint.boundingBox();
+  const v = page.viewportSize();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(v.width + 1);
+  expect(box.y + box.height).toBeLessThanOrEqual(v.height + 1);
 });
 
 test('もういちど、で最初からやり直せる', async ({ page }) => {

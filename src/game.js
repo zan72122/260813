@@ -172,8 +172,8 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   /* ---------------- カメラ ---------------- */
-  let camPos = new THREE.Vector3(0, 2.4, 4.4);
-  let camLook = new THREE.Vector3(0, 0.6, 0);
+  const camPos = new THREE.Vector3(0, 2.4, 4.4);
+  const camLook = new THREE.Vector3(0, 0.6, 0);
   let shotOverride = null;
 
   function currentShot() {
@@ -316,9 +316,9 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
 
     // 結晶をるつぼの中にもどす
     world.crucibleGroup.add(world.crystalHolder);
-    world.crystalHolder.position.set(0, 0.1, 0);
+    world.crystalHolder.position.set(0, 0.09, 0);
     world.crystalHolder.rotation.set(0, 0, 0);
-    world.crystalHolder.scale.setScalar(1);
+    world.crystalHolder.scale.setScalar(potScale(state.crystalInfo));
 
     world.crucibleGroup.rotation.z = 0;
     world.setMeltLevel(0);
@@ -374,7 +374,7 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
     const from = chunk.position.clone();
     const slot = state.chunksIn - 1;
     const a = slot * 2.3;
-    const to = new THREE.Vector3(Math.cos(a) * 0.28, 0.26, Math.sin(a) * 0.28);
+    const to = new THREE.Vector3(Math.cos(a) * 0.34, 0.25, Math.sin(a) * 0.34);
     const peak = 1.35;
     tweens.push({
       t: 0,
@@ -389,8 +389,9 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
       done: () => {
         sfx.drop();
         chunk.position.copy(to);
-        state.meltLevel = state.chunksIn / 3;
-        world.setMeltLevel(state.meltLevel * 0.3);
+        // まだ とけていないので、液はない（かけらが るつぼの底に ころがる）
+        state.meltLevel = 0;
+        world.setMeltLevel(0);
         if (state.chunksIn >= 3) {
           after(0.42, () => {
             if (state.stage === 'load') setStage('heat');
@@ -402,7 +403,7 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
 
   /* ---------------- ステージごとの毎フレーム ---------------- */
 
-  function updateLoad(dt) {
+  function updateLoad() {
     if (pointer.tapped) {
       pointer.tapped = false;
       dropChunkIn(nearestChunk(pointer.x, pointer.y));
@@ -440,7 +441,7 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
       c.visible = meltAmt < 0.98;
       c.rotation.y += dt * 0.6;
     }
-    state.meltLevel = 0.34 + meltAmt * 0.66;
+    state.meltLevel = meltAmt;
     world.setMeltLevel(state.meltLevel);
     world.meltMat.uniforms.uHeat.value = state.heat;
     world.crucibleMat.uniforms.uHeat.value = state.heat;
@@ -460,7 +461,11 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
         (Math.random() - 0.5) * 0.25,
         0.6 + Math.random() * 0.7,
         (Math.random() - 0.5) * 0.25,
-        { color: [1.0, 0.5 + Math.random() * 0.3, 0.12], gravity: 3.4, size: 0.012 + Math.random() * 0.014 },
+        {
+          color: [1.0, 0.5 + Math.random() * 0.3, 0.12],
+          gravity: 3.4,
+          size: 0.012 + Math.random() * 0.014,
+        },
       );
     }
 
@@ -504,8 +509,11 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
       }
     }
 
-    const cool = dt * (0.10 + fan * 2.6) + (state.idle > 5 ? dt * 0.22 : 0);
+    const cool = dt * (0.1 + fan * 2.6) + (state.idle > 5 ? dt * 0.22 : 0);
     state.heat = clamp(state.heat - cool, 0, 1);
+    // 固まったぶんだけ 液がへる → 育つ結晶が 液の上に 出てくる
+    state.meltLevel = 0.3 + state.heat * 0.7;
+    world.setMeltLevel(state.meltLevel);
     world.meltMat.uniforms.uHeat.value = state.heat;
     world.crucibleMat.uniforms.uHeat.value = state.heat * 0.7;
     world.burnerMat.uniforms.uHeat.value = state.heat * 0.4;
@@ -524,7 +532,7 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
     world.crystalMat.uniforms.uMelt.value = clamp(state.heat * 1.4, 0, 1);
     world.crystalMat.uniforms.uRainbow.value = clamp((1 - state.heat) * 0.35, 0, 0.35);
 
-    if (state.grow > 2.5 && !state.saidKaku) {
+    if (state.grow > (state.crystalInfo.layerCount + 0.6) * 0.5 && !state.saidKaku) {
       state.saidKaku = true;
       ui.word('カクカク！');
     }
@@ -580,12 +588,20 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
       if (Math.random() < dt * 40 * rate) {
         const lipLocal = new THREE.Vector3(1.02, 0.5, (Math.random() - 0.5) * 0.35);
         const lip = world.crucibleGroup.localToWorld(lipLocal);
-        world.emitDrop(lip.x, lip.y, lip.z, 0.55 + Math.random() * 0.5, 0.1, (Math.random() - 0.5) * 0.2, {
-          color: [1.0, 0.45, 0.12],
-          gravity: 4.6,
-          size: 0.016 + Math.random() * 0.018,
-          floor: 0.2,
-        });
+        world.emitDrop(
+          lip.x,
+          lip.y,
+          lip.z,
+          0.55 + Math.random() * 0.5,
+          0.1,
+          (Math.random() - 0.5) * 0.2,
+          {
+            color: [1.0, 0.45, 0.12],
+            gravity: 4.6,
+            size: 0.016 + Math.random() * 0.018,
+            floor: 0.2,
+          },
+        );
       }
       if (Math.random() < dt * 3) sfx.pour();
     }
@@ -600,7 +616,6 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
     } else {
       ui.hideHint();
     }
-
   }
 
   function updateLift(dt) {
@@ -653,6 +668,12 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
    * 仕上げで見せるときの「まんなかぞろえ」と大きさ。
    * どの結晶でも、画面の中でおなじくらいの大きさになるようにする。
    */
+  /** るつぼの中に置くときの大きさ（背たけをそろえて、個性は少しだけ残す） */
+  function potScale(info) {
+    const bias = info.sizeClass === 'big' ? 1.1 : info.sizeClass === 'small' ? 0.9 : 1.0;
+    return clamp((0.66 / Math.max(info.height, 0.3)) * bias, 0.5, 1.5);
+  }
+
   function displayFit() {
     const info = state.crystalInfo;
     const box = info.geometry.boundingBox;
@@ -694,26 +715,30 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
   }
 
   function updateShine(dt) {
-    // まわす
+    // まわす：ゆびに ぴったり ついてくる（ターンテーブルのように）。
+    // はなすと、その勢いのまま しばらく 回りつづける。
+    const idleSpin = 0.55; // 触っていないときも ゆっくり回って きれい
     if (pointer.down) {
-      state.spinVel += pointer.dx * 0.0016 / Math.max(dt, 0.001) * 0.02;
-      state.spinVel = clamp(state.spinVel, -9, 9);
+      const d = pointer.dx * 0.013;
       pointer.dx = 0;
+      state.spin += d;
+      // 手をはなしたときの 勢いを おぼえておく
+      const v = clamp(d / Math.max(dt, 0.008), -14, 14);
+      state.spinVel = state.spinVel * 0.55 + v * 0.45;
+    } else {
+      state.spinVel = damp(state.spinVel, idleSpin, 1.1, dt);
+      state.spin += state.spinVel * dt;
     }
-    // 触っていないときも、ゆっくり回って きれい
-    const idleSpin = 0.55;
-    state.spinVel = damp(state.spinVel, pointer.down ? state.spinVel : idleSpin, 1.1, dt);
-    state.spin += state.spinVel * dt;
     world.crystalHolder.rotation.y = state.spin;
     world.crystalHolder.rotation.x = 0.1 + Math.sin(state.spin * 0.5) * 0.05;
 
     const speed = Math.abs(state.spinVel);
-    state.charge = clamp(state.charge + dt * (0.16 + speed * 0.2), 0, 1);
+    state.charge = clamp(state.charge + dt * (0.14 + Math.min(speed, 10) * 0.16), 0, 1);
     state.rainbow = damp(state.rainbow, 0.4 + state.charge * 0.6, 2.4, dt);
 
     const m = world.crystalMat.uniforms;
     m.uRainbow.value = state.rainbow;
-    m.uSpin.value = clamp(speed / 6, 0, 1);
+    m.uSpin.value = clamp(speed / 7, 0, 1);
     m.uSpotlight.value = damp(m.uSpotlight.value, 1, 2, dt);
     m.uHeat.value = damp(m.uHeat.value, 0, 2, dt);
     m.uMelt.value = 0;
@@ -774,9 +799,9 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
   function saveCurrentToShelf() {
     const thumb = captureThumb(renderer.domElement);
     if (!thumb) return;
-    shelfItems = [{ seed: state.crystalInfo.seed, thumb, size: state.crystalInfo.sizeClass }].concat(
-      shelfItems,
-    );
+    shelfItems = [
+      { seed: state.crystalInfo.seed, thumb, size: state.crystalInfo.sizeClass },
+    ].concat(shelfItems);
     saveShelf(shelfItems);
     sfx.place();
   }
@@ -842,7 +867,7 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
 
     switch (state.stage) {
       case 'load':
-        updateLoad(dt);
+        updateLoad();
         break;
       case 'heat':
         updateHeat(dt);
@@ -894,7 +919,11 @@ export function createGame({ renderer, canvas, fast = false, seed = null }) {
       size: state.crystalInfo?.sizeClass ?? '',
       fov: +camera.fov.toFixed(1),
       aspect: +camera.aspect.toFixed(3),
-      camera: [+camera.position.x.toFixed(2), +camera.position.y.toFixed(2), +camera.position.z.toFixed(2)],
+      camera: [
+        +camera.position.x.toFixed(2),
+        +camera.position.y.toFixed(2),
+        +camera.position.z.toFixed(2),
+      ],
     }),
     setStage,
     begin,

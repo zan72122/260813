@@ -245,8 +245,8 @@ void main(){
   vec3 R = reflect(-V, N);
   vec3 env = envColor(R);
 
-  vec3 silver = vec3(0.52, 0.53, 0.58);
-  vec3 col = silver * (0.25 + 0.85 * env);
+  vec3 silver = vec3(0.40, 0.41, 0.46);
+  vec3 col = silver * (0.22 + 0.72 * env);
 
   // 熱で光る（内側から）。まっ白にとばさず、なみのかげが見えるようにする。
   float r = length(vXZ);
