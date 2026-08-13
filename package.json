@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 4173",
     "test:e2e": "playwright test",
-    "test:e2e:fast": "E2E_FAST=1 playwright test"
+    "test:e2e:fast": "E2E_FAST=1 playwright test",
+    "playtest": "node scripts/naive-play.mjs",
+    "shots": "node scripts/shots.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

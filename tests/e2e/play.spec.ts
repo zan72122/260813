@@ -229,6 +229,50 @@ test('さがしもの: 3つ みつけて クリア', async ({ page }, info) => {
   await shot(page, '10-select-cleared', proj);
 });
 
+test('あそんでいる とちゅうで 画面を まわしても つづけられる', async ({ page }) => {
+  await page.getByTestId('btn-free').click();
+  await openSlide(page, 'niji');
+  await page.getByTestId('btn-polar').click();
+  await expect.poll(async () => (await state(page)).polarT, { timeout: 5_000 }).toBe(1);
+
+  const before = await state(page);
+  const wasPortrait = before.portrait;
+
+  // たて ⇄ よこ を ひっくりかえす
+  const vp = page.viewportSize()!;
+  await page.setViewportSize({ width: vp.height, height: vp.width });
+  await page.waitForTimeout(500);
+
+  const after = await state(page);
+  expect(after.phase).toBe('observe');
+  expect(after.portrait).toBe(!wasPortrait);
+  // 視野は つぶれず、じゅうぶんな大きさで のこっている
+  expect(after.fieldR).toBeGreaterThan(90);
+  // にじいろは ついたまま
+  expect(after.polarOn).toBe(true);
+
+  // canvas は 画面いっぱいのまま（すきまが出ない）
+  const gap = await page.evaluate(() => {
+    const c = document.getElementById('stage') as HTMLCanvasElement;
+    const r = c.getBoundingClientRect();
+    return {
+      dx: r.x,
+      dy: r.y,
+      dw: Math.abs(r.width - window.innerWidth),
+      dh: Math.abs(r.height - window.innerHeight),
+    };
+  });
+  expect(gap).toEqual({ dx: 0, dy: 0, dw: 0, dh: 0 });
+
+  // まわしても ちゃんと 色が変わる
+  await page.evaluate(() => window.__game.setStageAngle(0));
+  await page.waitForTimeout(90);
+  const a = await fieldPixels(page);
+  await page.evaluate(() => window.__game.setStageAngle(Math.PI / 4));
+  await page.waitForTimeout(90);
+  expect(pixelGap(a, await fieldPixels(page))).toBeGreaterThan(20);
+});
+
 test('どの薄片でも 回すと色が変わる', async ({ page }) => {
   await page.getByTestId('btn-free').click();
   for (const id of ['kori', 'niji', 'hoshizora', 'tamago']) {

@@ -166,10 +166,6 @@ export const SLIDES: SlideDef[] = [
   },
 ];
 
-export function getSlideDef(id: string): SlideDef {
-  return SLIDES.find((s) => s.id === id) ?? SLIDES[0];
-}
-
 /** 丸い粒（ざくろ石など）のポリゴンを作る */
 function blobPolygon(rng: Rng, cx: number, cy: number, r: number): Pt[] {
   const n = 18;

@@ -2,15 +2,9 @@
  * 接眼レンズの中（まるい視野）を描く。
  */
 
-import { rgbToCss, rgbaToCss, type RGB } from '../core/colors';
+import { rgbToCss } from '../core/colors';
 import { pointInPolygon, type Pt } from '../core/mosaic';
-import {
-  grainDisplayColor,
-  grainIntensity,
-  isSparkling,
-  type Grain,
-  type ThinSection,
-} from '../core/slides';
+import { grainDisplayColor, isSparkling, type Grain, type ThinSection } from '../core/slides';
 import { Rng } from '../core/rng';
 
 export interface FieldView {
@@ -323,13 +317,3 @@ export function fieldToScreen(view: FieldView, stageAngle: number, p: Pt): Pt {
   };
 }
 
-/** いま光っている粒の色（当たり判定用） */
-export function currentColorOf(g: Grain, stageAngle: number, polarT: number): RGB {
-  return grainDisplayColor(g, stageAngle, polarT);
-}
-
-export function grainBrightness(g: Grain, stageAngle: number): number {
-  return grainIntensity(g, stageAngle);
-}
-
-export { rgbaToCss };

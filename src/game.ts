@@ -118,6 +118,9 @@ export class Game {
   private questIndex = 0;
   private sparkles = 0;
 
+  /** 回転の手ごたえ（カチッ）用 */
+  private tickAccum = 0;
+
   /** あそびかたヒント用 */
   private polarUsed = false;
   private rotatedTotal = 0;
@@ -355,6 +358,7 @@ export class Game {
     this.stageAngle += delta;
     this.rotatedTotal += Math.abs(delta);
     this.angVel = this.angVel * 0.55 + delta * 45 * 0.45;
+    this.addSpinTick(Math.abs(delta));
     this.lastAngle = angle;
     this.lastX = p.x;
     this.lastY = p.y;
@@ -554,6 +558,7 @@ export class Game {
     else if (this.polarT > target) this.polarT = Math.max(target, this.polarT - speed * dt);
 
     if (this.phase === 'observe') {
+      const angleBefore = this.stageAngle;
       if (this.autoSpin) {
         this.stageAngle += AUTO_SPIN_SPEED * dt;
         this.rotatedTotal += AUTO_SPIN_SPEED * dt;
@@ -564,6 +569,7 @@ export class Game {
         this.angVel *= Math.exp(-2.6 * dt);
         if (Math.abs(this.angVel) < 0.02) this.angVel = 0;
       }
+      this.addSpinTick(Math.abs(this.stageAngle - angleBefore));
       this.sinceFind += dt;
       this.updateCoach(dt);
     }
@@ -581,6 +587,15 @@ export class Game {
     this.particles.update(dt);
     if (this.phase === 'clear' && this.particles.count < 12 && this.phaseTime < 6) {
       this.particles.confetti(this.layout.w, this.layout.h, 26);
+    }
+  }
+
+  /** ステージが すこし回るたびに、小さく カチッ と鳴らす */
+  private addSpinTick(amount: number): void {
+    this.tickAccum += amount;
+    if (this.tickAccum >= 0.9) {
+      this.tickAccum = 0;
+      sound.play('click');
     }
   }
 
@@ -772,14 +787,6 @@ export class Game {
         const p = fieldToScreen(this.view(), this.stageAngle, g.c);
         this.tapGrain(g, p.x, p.y);
         return true;
-      },
-      /** 視野の中の粒が、いま何色に見えているか（テストの色チェック用） */
-      sampleColors: () => {
-        const section = this.section;
-        if (!section) return [];
-        return section.grains
-          .slice(0, 40)
-          .map((g) => grainIntensity(g, this.stageAngle));
       },
     };
   }
