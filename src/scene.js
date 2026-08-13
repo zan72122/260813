@@ -18,10 +18,6 @@ export class Scene {
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
-    this.blit = new Program(gl, FULLSCREEN_VS, `
-in vec2 vUv; uniform sampler2D uTex;
-void main(){ outColor = texture(uTex, vUv); }`, 'blit');
-
     this.data = new Float32Array(MAX_PROPS * PROP_STRIDE);
     this.count = 0;
     this.buf = gl.createBuffer();
@@ -306,7 +302,7 @@ void main() {
     float w = 0.92 * (0.18 + 0.82 * pow(t, 0.7));
     float blades = abs(fract(p.x * 2.2 + seed * 3.0) - 0.5) * 2.0;
     float clump = smoothstep(w, w * 0.35, abs(p.x)) * smoothstep(-1.05, -0.75, p.y);
-    mask = clump * (0.35 + 0.65 * smoothstep(0.05, 0.85, blades));
+    mask = clump * (0.58 + 0.42 * smoothstep(0.05, 0.85, blades));
     col = mix(base * 0.86, base * 1.12, t);
     spec = smoothstep(0.6, 1.0, blades) * (1.0 - abs(p.x)) * 0.8;
   } else if (kind == 1) {
@@ -371,11 +367,11 @@ void main() {
 
   // 濡れると、小さな反射がふえる（主役の素材のひとつ）
   float sparkleN = fract(sin(seed * 91.7 + floor(uTime * 3.0)) * 43758.5453);
-  col += vec3(0.85, 0.95, 1.0) * spec * (0.10 + uWet * (0.45 + 0.55 * sparkleN));
+  col += vec3(0.85, 0.95, 1.0) * spec * (0.09 + uWet * (0.26 + 0.38 * sparkleN));
   col = mix(col, col * 0.88, uWet * 0.35);
 
   // 遠くほど空気の色にとける
-  col = mix(vec3(0.84, 0.90, 0.93), col, 0.35 + 0.65 * smoothstep(0.0, 0.22, vDepth));
+  col = mix(vec3(0.82, 0.89, 0.93), col, 0.62 + 0.38 * smoothstep(0.0, 0.14, vDepth));
 
   float a = mask;
   vec3 outc = col * a;
@@ -438,11 +434,12 @@ void main() {
   float noz = sdRound(p - vec2(0.0, 0.74), vec2(0.11, 0.16), 0.05);
   float shell = smin(smin(body, neck, 0.06), smin(head, noz, 0.05), 0.05);
   // 引き金と握り（本体につながるように、内側まで伸ばす）
-  float grip = sdRound(p - vec2(0.36, 0.14), vec2(0.28, 0.085), 0.07);
-  float trig = sdRound(p - vec2(0.30, -0.06), vec2(0.075, 0.20), 0.06);
+  // 引き金の握り：首から横へ出て、そのまま下へ回りこむ L 字
+  float grip = sdRound(p - vec2(0.36, 0.19), vec2(0.27, 0.080), 0.06);
+  float trig = sdRound(p - vec2(0.52, -0.05), vec2(0.115, 0.29), 0.09);
 
   float aShell = smoothstep(0.02, -0.01, shell);
-  float aGrip = smoothstep(0.02, -0.01, min(grip, trig));
+  float aGrip = smoothstep(0.02, -0.01, smin(grip, trig, 0.06));
   float a = max(aShell, aGrip);
   if (a < 0.004) { outColor = vec4(0.0); return; }
 

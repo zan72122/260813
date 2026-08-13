@@ -1,5 +1,5 @@
 // にじいろ霧吹き — 指で霧をつくり、その霧の中から虹を育てる。
-import { createContext, RenderTarget, createFullscreen, bindScreen, Program, FULLSCREEN_VS } from './glutil.js';
+import { createContext, RenderTarget, createFullscreen, Program, FULLSCREEN_VS } from './glutil.js';
 import { makeRng, randomSeed } from './rng.js';
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
@@ -55,7 +55,8 @@ void main(){ outColor = texture(uTex, vUv); }`, 'blit');
 /* ---------------- 画面まわり ---------------- */
 
 let cssW = 1, cssH = 1, dpr = 1;
-let qualityScale = FAST ? 0.75 : 1;
+const PINNED_Q = params.has('q') ? parseFloat(params.get('q')) : null;
+let qualityScale = PINNED_Q ?? (FAST ? 0.75 : 1);
 
 function resize() {
   const r = canvas.getBoundingClientRect();
@@ -245,7 +246,8 @@ function updateSpray(dt) {
   if (state.power < 0.004) state.power = 0;
 
   const p = state.power;
-  const q = qualityScale;
+  // 解像度は落としても、霧の量はあまり落とさない（絵の印象が変わってしまう）
+  const q = 0.62 + 0.38 * qualityScale;
   if (p > 0.01) {
     state.accNear += SPRAY_RATE_NEAR * q * p * dt;
     state.accFar += SPRAY_RATE_FAR * q * p * dt;
@@ -504,7 +506,7 @@ function frame(now) {
   fpsAcc += dt; fpsCount++;
   if (fpsAcc >= 0.5) { fps = fpsCount / fpsAcc; fpsAcc = 0; fpsCount = 0; }
   qualityCheck += dt;
-  if (!FAST && qualityCheck > 2.5) {
+  if (!FAST && PINNED_Q === null && qualityCheck > 2.5) {
     qualityCheck = 0;
     if (frameAvg > 26 && qualityScale > 0.62) {
       qualityScale = Math.max(0.62, qualityScale - 0.16);

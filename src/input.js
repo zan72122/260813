@@ -41,7 +41,7 @@ export class Input {
     this._downX = this.x; this._downY = this.y;
     this.vx = 0; this.vy = 0;
     if (this.el.setPointerCapture) {
-      try { this.el.setPointerCapture(e.pointerId); } catch (_) {}
+      try { this.el.setPointerCapture(e.pointerId); } catch { /* 対応していない端末では無視 */ }
     }
     e.preventDefault();
     if (this.onFirstTouch) { this.onFirstTouch(); }

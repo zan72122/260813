@@ -56,7 +56,7 @@ export class Audio {
       this.sprayGain = g;
       this.ready = true;
       if (ctx.state === 'suspended') ctx.resume();
-    } catch (e) {
+    } catch {
       this.ready = false;
     }
   }

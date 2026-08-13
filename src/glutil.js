@@ -103,11 +103,6 @@ function compileShader(gl, type, src, name) {
   return s;
 }
 
-/** テクスチャをユニフォームとして渡すためのラッパ。 */
-export function tex(texture) {
-  return { __texture: texture };
-}
-
 export class RenderTarget {
   constructor(gl, w, h, { float = false, filter = null, format = null } = {}) {
     this.gl = gl;

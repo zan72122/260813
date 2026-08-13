@@ -51,7 +51,6 @@ export class Particles {
     this.spark = new Pool(PARTICLE_CAPS.sparkle);
     this.wind = 0;
     this.windTarget = 0;
-    this.quality = 1;
 
     this.buffers = new Map();
     this.quad = createQuad(gl);
@@ -140,7 +139,6 @@ void main() {
 in vec2 vP; in vec4 vB; in float vAlpha; in float vBack;
 uniform vec3 uSunTint;
 uniform vec3 uShadeTint;
-uniform float uWet;
 ${SOFT}
 void main() {
   float f = blob(vP, vB.x);
@@ -233,7 +231,7 @@ void main() {
       P.vy[idx] = dy * sp;
       P.age[idx] = 0;
       P.life[idx] = rng.range(MIST_LIFE[0], MIST_LIFE[1]);
-      P.size[idx] = rng.range(9, 16);
+      P.size[idx] = rng.range(12, 20);
       P.grow[idx] = rng.range(13, 26);
       P.seed[idx] = rng();
       P.k[idx] = rng.range(0.6, 1.0);
@@ -304,8 +302,8 @@ void main() {
     const gust = this.wind + Math.sin(time * 0.53) * 5 + Math.sin(time * 0.21 + 1.7) * 7;
 
     // 霧はうすい。重ねてはじめて濃くなる（＝噴いた量がそのまま見た目になる）
-    this._step(this.near, dt, gust, time, MIST_DRAG, MIST_GRAVITY * 0.55, 0.40, 30);
-    this._step(this.far, dt, gust * 0.7, time, MIST_DRAG * 0.8, MIST_GRAVITY * 0.3, 0.14, 18);
+    this._step(this.near, dt, gust, time, MIST_DRAG, MIST_GRAVITY * 0.55, 0.46, 30);
+    this._step(this.far, dt, gust * 0.7, time, MIST_DRAG * 0.8, MIST_GRAVITY * 0.3, 0.18, 18);
     this._step(this.drop, dt, gust * 0.3, time, 1.05, MIST_GRAVITY * 6.2, 0.95, 0);
 
     // きらめきは重力に乗らず、ふわっと消える

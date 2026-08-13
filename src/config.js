@@ -23,11 +23,11 @@ export const ARC_DECAY_TAU = 34.0;      // 秒。ゆっくり薄れる
 export const ARC_DIFFUSE = 5.5;         // 隣のビンへにじむ速さ（弧がつながる）
 
 // --- 霧 ---
-export const SPRAY_RATE_NEAR = 110;      // 個/秒
-export const SPRAY_RATE_FAR = 30;
+export const SPRAY_RATE_NEAR = 150;      // 個/秒
+export const SPRAY_RATE_FAR = 38;
 export const DROPLET_RATE = 6;
 export const MIST_SPEED = 470;          // ワールド単位/秒
-export const MIST_SPREAD = 0.40;        // ラジアン
+export const MIST_SPREAD = 0.46;        // ラジアン
 export const MIST_DRAG = 2.4;
 export const MIST_GRAVITY = 78;
 export const MIST_LIFE = [1.6, 2.5];
@@ -35,7 +35,6 @@ export const FAR_LIFE = [2.1, 3.3];
 
 // ノズル先端は指よりこれだけ上（ワールド単位）。指で虹が隠れないように。
 export const NOZZLE_OFFSET_Y = 122;
-export const NOZZLE_OFFSET_X = 6;
 
 // --- 進行の段階 ---
 export const STAGE = { EMPTY: 0, MIST: 1, FAINT: 2, GROWING: 3, BIG: 4 };
