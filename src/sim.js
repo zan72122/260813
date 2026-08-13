@@ -56,8 +56,10 @@ float flowerTarget(vec2 uv) {
   float a = atan(p.y, p.x);
   float petal = cos(uFlowerB.x * a + uFlowerB.w * r * 2.2 + uFlower.w * 0.30);
   float rings = cos(uFlowerB.y * r - uFlower.w);
-  float env = exp(-(r * r) / (uFlowerB.z * uFlowerB.z));
-  return 1.15 * env * rings * (0.26 + 0.74 * petal);
+  // Steeper than a gaussian so the flower is a distinct object with a rim,
+  // rather than fading into ripples across the whole pool.
+  float env = exp(-pow(r / uFlowerB.z, 2.8));
+  return 1.25 * env * rings * (0.18 + 0.82 * petal);
 }
 
 void main() {

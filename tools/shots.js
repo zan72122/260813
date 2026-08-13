@@ -29,6 +29,22 @@ const wait = (p,m) => p.evaluate(x => new Promise(r=>setTimeout(r,x)), m);
   await page.screenshot({path: out('st-open')});
   await page.close();
 }
+// A2: the finale flower of light
+{
+  const page = await (await b.newContext({ viewport:{width:430,height:900}, deviceScaleFactor:2, hasTouch:true })).newPage();
+  await page.goto('http://localhost:8080/?seed=4242', {waitUntil:'load'});
+  await page.waitForFunction(()=>window.__lab, null, {timeout:20000});
+  await page.evaluate(() => { const l=window.__lab;
+    l.input.hasTouched = true; l.sinceFinale = 99; l.sinceRelease = 99;
+    l.input.activityLevel = 0; l.releaseAt = {u:0.5, v:0.5}; });
+  // Long wait on purpose: this renderer manages ~8 fps and the frame-delta
+  // clamp slows wall-clock animation, so the flower peaks much later here
+  // than it does on real hardware.
+  await wait(page, 9000);
+  await page.screenshot({path: out('st-finale')});
+  await page.close();
+}
+
 // B: landscape
 {
   const page = await (await b.newContext({ viewport:{width:900,height:430}, deviceScaleFactor:2, hasTouch:true })).newPage();

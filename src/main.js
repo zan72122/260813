@@ -369,7 +369,7 @@ class Lab {
       const down = 1 - smoothstep(2.9, 4.4, f.t);
       f.amount = up * down;
       this.sim.flower.rate = f.amount * 5.5;
-      this.sim.ambientScale = 1 - 0.88 * f.amount;
+      this.sim.ambientScale = 1 - 0.70 * f.amount;
       this.sim.flower.phase += dt * 2.35;
       if (f.t > 4.6) {
         f.active = false;
@@ -396,7 +396,7 @@ class Lab {
       // Big enough to be the whole picture for a few seconds.
       const lo = Math.min(this.pool[0], this.pool[1]);
       const hi = Math.max(this.pool[0], this.pool[1]);
-      this.sim.flower.radius = (0.58 * lo + 0.17 * hi) * (1 + 0.16 * clamp(this.openedCount / 4, 0, 1));
+      this.sim.flower.radius = (0.62 * lo + 0.13 * hi) * (1 + 0.16 * clamp(this.openedCount / 4, 0, 1));
       this.sim.flower.twist = s.finaleSpin * 0.16;
       this.sim.flower.phase = 0;
       this.stats.finales++;
@@ -477,7 +477,7 @@ class Lab {
 
     this._updateCamera(dt, false);
 
-    const glowTarget = 1 + 0.35 * this.finale.amount + 0.25 * opening;
+    const glowTarget = 1 + 0.75 * this.finale.amount + 0.25 * opening;
     this.glow = damp(this.glow, glowTarget, 4, dt);
 
     const tex = this.scene.render({
