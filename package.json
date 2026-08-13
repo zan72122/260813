@@ -1,0 +1,20 @@
+{
+  "name": "sarasara-pink-lake",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "さらさら！ピンク湖のしおづくり - a one-finger WebGL salt-pond game for 4-year-olds",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host --port 4173",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "vite": "^7.1.0"
+  }
+}
