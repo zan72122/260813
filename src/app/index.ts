@@ -125,6 +125,45 @@ export function createApp(): void {
 
   installErrorOverlay(appRoot);
 
+  // Audit finding #3: the 'lever' anchor the renderer publishes during
+  // 'title' is a decorative 3D object's screen projection (src/scene/
+  // index.ts's startLever), which does not track the actual clickable
+  // target — the title-start button is a plain DOM element positioned by
+  // CSS flex layout (src/styles/components.css's .screen-title), entirely
+  // independent of the 3D camera framing. Nothing in Input/Gameplay ever
+  // hit-tests 'lever' during title: the button owns its own click listener
+  // and bypasses the anchor system entirely (src/ui/index.ts), and
+  // hintForPhase() returns null for 'title' (src/ui/hints.ts). So the
+  // registry entry is only ever read as a diagnostic, via
+  // window.__game.anchors() — the fix is scoped to that read-only surface
+  // rather than the shared AnchorRegistry itself, which the renderer keeps
+  // writing to every frame regardless of this override; mutating the
+  // registry in place here would just get overwritten again on core's very
+  // next independent rAF tick (two separate rAF loops racing over the same
+  // map entry), which isn't worth taking on for a read-only diagnostic.
+  // While 'title' is the active phase, splice the DOM button's own live
+  // center into the published list in its place, so window.__game.anchors()
+  // always reflects a real, currently-clickable on-screen target — in every
+  // phase, title included.
+  const titleStartButton = uiRoot.querySelector<HTMLElement>('[data-testid="title-start"]');
+  function publishedAnchors(): Anchor[] {
+    const list = anchors.all();
+    if (store.get().phase !== 'title' || !titleStartButton) return list;
+    const rect = titleStartButton.getBoundingClientRect();
+    const domLever: Anchor = {
+      id: 'lever',
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      r: Math.max(rect.width, rect.height) / 2,
+      active: true,
+    };
+    const idx = list.findIndex((a) => a.id === 'lever');
+    if (idx === -1) return [...list, domLever];
+    const next = list.slice();
+    next[idx] = domLever;
+    return next;
+  }
+
   window.__game = {
     getState: () => store.get(),
     dispatch: (to) => advance(store, bus, to),
@@ -137,7 +176,7 @@ export function createApp(): void {
     settled: () => renderer.isSettled(),
     stats: () => renderer.getStats(),
     seed,
-    anchors: () => anchors.all(),
+    anchors: () => publishedAnchors(),
     listenerCount: () => bus.listenerCount(),
     timerCount: () => getTimerCount(),
   };
@@ -189,20 +228,26 @@ export function createApp(): void {
   window.addEventListener('orientationchange', onResize);
   window.visualViewport?.addEventListener('resize', onResize);
 
-  canvas.addEventListener(
-    'webglcontextlost',
-    (event) => {
-      event.preventDefault();
-    },
-    false,
-  );
-  canvas.addEventListener(
-    'webglcontextrestored',
-    () => {
-      renderer.resize();
-    },
-    false,
-  );
+  // Single-owner fix (audit finding #1): webglcontextlost/restored used to be
+  // wired TWICE on `canvas` — once here and once inside src/core/index.ts's
+  // createRenderer() (event.preventDefault() + its own `contextLost` flag +
+  // resize()-on-restore). Per docs/ARCHITECTURE_CONTRACT.md ("webglcontext
+  // lost/restored で復旧（core担当、app結線）"), core alone owns the actual
+  // GL-level recovery — it already calls preventDefault() (required exactly
+  // once for the browser to attempt automatic restoration; core's own call
+  // satisfies that) and its own resize() internally on restore, so this
+  // app-level pair added nothing but a second, redundant resize() pass and a
+  // second no-op preventDefault(). "app結線" (app wires it up) is satisfied
+  // by app simply constructing the renderer against `canvas` above — app has
+  // no further recovery role to play here. There is also nothing for app's
+  // own rAF loop to pause/resume for: `game.update()` (below) never touches
+  // the WebGL context, so gameplay state safely keeps advancing through a
+  // (typically brief) context loss and the resumed renderer just picks up
+  // rendering the current state on the next frame — the one loop that *does*
+  // need pausing around an external interruption is already handled by the
+  // `visibilitychange` listener below, a separate concern. Verified this
+  // removal doesn't regress tests/e2e/resilience.spec.ts's (e) WebGL
+  // context-loss/restore scenario.
 
   window.addEventListener(
     'pointerdown',

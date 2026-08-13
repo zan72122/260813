@@ -25,10 +25,21 @@ import {
   waitForSettled,
 } from './helpers';
 
+// page.screenshot()'s own action timeout defaults to playwright.config.ts's
+// global `actionTimeout: 10_000` -- fine in isolation, but under heavy
+// 2-worker CI contention (this spec now shares the pool with leak.spec.ts's
+// heavier real-gesture pass) a screenshot can occasionally need the renderer
+// to actually produce a fresh, CPU-starved swiftshader frame in that window,
+// which observed failing at exactly the 10s mark on tablet viewports.
+// Widen just this action's timeout (not the global config, which is outside
+// this file's scope) rather than the test's overall test.setTimeout budget,
+// which governs something different (total wall-clock, not one action).
+const SCREENSHOT_TIMEOUT_MS = 30_000;
+
 async function captureShot(page: import('@playwright/test').Page, path: string): Promise<void> {
   await waitForSettled(page, 15_000);
   await waitForNonzeroDrawCalls(page, 15_000);
-  await page.screenshot({ path });
+  await page.screenshot({ path, timeout: SCREENSHOT_TIMEOUT_MS });
 }
 
 /**
@@ -47,12 +58,18 @@ async function captureShot(page: import('@playwright/test').Page, path: string):
 async function captureShotWhileTracking(page: import('@playwright/test').Page, path: string): Promise<void> {
   await waitForNonzeroDrawCalls(page, 15_000);
   await page.waitForTimeout(500);
-  await page.screenshot({ path });
+  await page.screenshot({ path, timeout: SCREENSHOT_TIMEOUT_MS });
 }
 
 test.describe('qa-screens', () => {
   test('capture opening / hoist / rivet-macro / crane-climb / completion', async ({ page }, testInfo) => {
-    test.setTimeout(150_000);
+    // 150s was tight on tablet viewports under 2-worker CI contention (a
+    // full real-gesture playthrough plus 5 screenshots) even before
+    // leak.spec.ts grew a second, heavier real-gesture pass (see its own
+    // comments) that adds to the shared CPU load during a full `verify`
+    // run; observed hitting this ceiling on tablet-portrait. Widen for
+    // headroom -- the work itself hasn't gotten slower, the contention has.
+    test.setTimeout(240_000);
     const errors = collectConsoleErrors(page);
     const vp = testInfo.project.use.viewport ?? { width: 390, height: 844 };
     const outDir = `artifacts/qa/${testInfo.project.name}`;
