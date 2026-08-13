@@ -147,6 +147,8 @@ export class Audio {
 
   setEnabled(on) {
     this.enabled = on;
+    // turning sound back on before the context ever existed must still work
+    if (on && !this.ctx) { this.unlock(); return; }
     if (this.master) {
       this.master.gain.setTargetAtTime(on ? 0.85 : 0.0, this.ctx.currentTime, 0.12);
     }

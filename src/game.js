@@ -20,8 +20,8 @@ const approach = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp
 
 // zoom, panX, panY, ringRadius, ringWidth, ringOpacity
 const SHOT = {
-  [STAGE.INTRO]:  { z: 0.47, x: 0.0, y: 0.30, rr: 1.12, rw: 0.10, ro: 0.0 },
-  [STAGE.PLACE]:  { z: 0.60, x: 0.0, y: 0.16, rr: 1.12, rw: 0.10, ro: 0.0 },
+  [STAGE.INTRO]:  { z: 0.55, x: 0.0, y: 0.28, rr: 1.12, rw: 0.10, ro: 0.0 },
+  [STAGE.PLACE]:  { z: 0.64, x: 0.0, y: 0.14, rr: 1.12, rw: 0.10, ro: 0.0 },
   [STAGE.RING]:   { z: 0.70, x: 0.0, y: 0.00, rr: 1.12, rw: 0.10, ro: 1.0 },
   [STAGE.PRESS]:  { z: 1.00, x: 0.0, y: -0.02, rr: 1.12, rw: 0.10, ro: 1.0 },
   [STAGE.PARTS]:  { z: 0.50, x: 0.0, y: -0.02, rr: 1.66, rw: 0.13, ro: 1.0 },
@@ -29,11 +29,11 @@ const SHOT = {
   [STAGE.DONE]:   { z: 0.44, x: 0.0, y: 0.05, rr: 2.20, rw: 0.155, ro: 1.0 },
 };
 
-const SOLO_SCALE = 0.76;
-const GROUP_SCALE = [0.58, 0.45, 0.45];
+const SOLO_SCALE = 0.82;
+const GROUP_SCALE = [0.62, 0.49, 0.49];
 const GROUP_X = [0.0, -0.95, 0.95];
 // the finale pulls back, so the parts grow to stay the heroes of the shot
-const FINALE_SCALE = [0.74, 0.58, 0.58];
+const FINALE_SCALE = [0.78, 0.62, 0.62];
 const FINALE_X = [0.0, -1.15, 1.15];
 
 class Part {
@@ -370,7 +370,8 @@ export class Game {
       if (!p) { u.objC[i * 4 + 1] = 0; continue; }
       const sq = 1 + p.squash;
       u.objA[i * 4 + 0] = p.x;
-      u.objA[i * 4 + 1] = p.y;
+      u.objA[i * 4 + 1] = p.y + (this.stage <= STAGE.PLACE && i === 0
+        ? 0.035 * Math.sin(this.time * 1.9) : 0);
       u.objA[i * 4 + 2] = p.scale * sq * p.r.size;
       u.objA[i * 4 + 3] = p.rot;
       u.objB[i * 4 + 0] = p.r.mode;

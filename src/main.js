@@ -115,6 +115,14 @@ function ringDelta(prev, cur) {
   return (dHoriz * (1 - w) + dCirc * w) * 1.30;
 }
 
+// The start veil sits above the canvas, so it has to hand the first touch on
+// itself: without this the very first tap of a session goes nowhere.
+veil.addEventListener('pointerdown', (e) => {
+  dismissVeil();
+  e.preventDefault();
+});
+veil.addEventListener('click', dismissVeil);
+
 canvas.addEventListener('pointerdown', (e) => {
   if (active) return; // one finger is all this game ever needs
   dismissVeil();

@@ -234,3 +234,44 @@ test('one finger anywhere turns the ring — no precise aiming needed', async ({
   // a vertical drag well away from the ring still does something
   expect(await spin({ x: 340, y: 700 }, { x: 340, y: 500 })).toBeGreaterThan(0.05);
 });
+
+test('a real first touch starts the game (no e2e shortcuts)', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e.message)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');                       // no ?e2e=1: veil up, audio live
+  await page.waitForSelector('#veil');
+  expect(await page.locator('#veil').evaluate((n) => n.classList.contains('off'))).toBe(false);
+
+  // exactly what a child does: one poke in the middle
+  await page.mouse.move(195, 420);
+  await page.mouse.down();
+  await page.mouse.up();
+
+  await page.waitForFunction(
+    () => document.getElementById('veil').classList.contains('off'),
+    null, { timeout: 5000 },
+  );
+
+  // and then a sloppy swipe has to actually turn something
+  await page.mouse.move(120, 400);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(120 + i * 20, 400 + i * 4);
+  await page.mouse.up();
+
+  await page.waitForTimeout(400);
+  expect(errors).toEqual([]);
+});
+
+test('the sound toggle survives being pressed before anything else', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e.message)));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.locator('#sound').click({ force: true });   // off, before any audio exists
+  await page.locator('#sound').click({ force: true });   // back on
+  await page.mouse.click(195, 420);
+  await page.waitForTimeout(300);
+  expect(errors).toEqual([]);
+});

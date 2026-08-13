@@ -214,11 +214,11 @@ void drawObject(inout vec3 col, vec3 incident, vec2 world, Obj o, float pxW){
     + o.ret.y * edgeBand
     + o.ret.z * (0.5 + 0.5*cos(o.spokeN*(ang - o.gate))) * smoothstep(0.04, 0.85, rr)
     + o.ret.w * sin(q.x*o.seed.x + o.seed.z) * cos(q.y*o.seed.y - o.seed.z*1.7)
-    + (330.0 + 520.0*o.seed.w)                    // tint plate: this piece's hero colour
+    + o.seed.w                                    // tint plate: this piece's hero colour
     + dPress;
   // smaller parts subtend fewer pixels, so ease their stress off a little —
   // otherwise their fringes go sub-pixel and wash out to pastel
-  delta = max(delta, 0.0) * uPol.z * mix(0.70, 1.0, smoothstep(0.32, 0.62, o.scale));
+  delta = max(delta, 0.0) * uPol.z * mix(0.80, 1.0, smoothstep(0.34, 0.66, o.scale));
 
   /* ---------------- slow-axis orientation ---------------- */
   vec2 v = vec2(-nrm.y, nrm.x) * (1.55*exp(-dIn*4.0));            // hugs the rim

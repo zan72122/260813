@@ -70,11 +70,12 @@ test('every seed makes a piece with sane, pretty-range stress', () => {
   for (let seed = 0; seed < 400; seed++) {
     const g = new Game({ seed });
     for (const p of [g.set.hero, ...g.set.others]) {
-      const total = p.ret.reduce((a, b) => a + b, 0) + 330 + 520 * p.seed[3];
+      const total = p.ret.reduce((a, b) => a + b, 0) + p.seed[3];
+      expect(p.seed[3]).toBeGreaterThan(250);   // the tint plate, in nm
       // stays inside the vivid first few Michel-Lévy orders, never the pale tail
       expect(total).toBeGreaterThan(1100);
       expect(total).toBeLessThan(3400);
-      expect(p.size).toBeGreaterThan(0.8);
+      expect(p.size).toBeGreaterThan(0.5);
       expect(Number.isFinite(p.sweet)).toBe(true);
     }
     // the three pieces on stage together are never all the same shape

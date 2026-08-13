@@ -26,7 +26,7 @@ const MODE = { FLOWER: 0, STAR: 1, GEAR: 2, BUTTERFLY: 3, LEAF: 4, SPOON: 5 };
 const FAMILY = [
   {
     mode: MODE.FLOWER,
-    size: 1.00,
+    size: 0.86,
     amp: [0.26, 0.34],
     freq: [5, 6, 7, 8],
     sharp: 1,
@@ -35,7 +35,7 @@ const FAMILY = [
   },
   {
     mode: MODE.STAR,
-    size: 1.16,
+    size: 1.12,
     amp: [0.42, 0.55],
     freq: [5, 6],
     sharp: [0.38, 0.62],
@@ -44,7 +44,7 @@ const FAMILY = [
   },
   {
     mode: MODE.GEAR,
-    size: 1.06,
+    size: 1.12,
     amp: [0.17, 0.24],
     freq: [10, 12, 14],
     sharp: 1,
@@ -53,7 +53,7 @@ const FAMILY = [
   },
   {
     mode: MODE.BUTTERFLY,
-    size: 1.05,
+    size: 1.12,
     amp: [0, 0],
     freq: [1],
     sharp: 1,
@@ -62,7 +62,7 @@ const FAMILY = [
   },
   {
     mode: MODE.LEAF,
-    size: 0.95,
+    size: 0.99,
     amp: [0, 0],
     freq: [1],
     sharp: 1,
@@ -71,7 +71,7 @@ const FAMILY = [
   },
   {
     mode: MODE.SPOON,
-    size: 1.22,
+    size: 1.08,
     amp: [0, 0],
     freq: [1],
     sharp: 1,
@@ -115,7 +115,10 @@ export function makeRecipe(rng, familyHint = -1) {
       2.0 + rng() * 3.4, // blob freq A
       2.0 + rng() * 3.4, // blob freq B
       rng() * Math.PI * 2, // phase
-      rng(), // subtle hero-tint bias: pink-leaning vs cyan-leaning
+      // First-order tint plate, in nm. A uniform retardation bias that parks
+      // this piece's flat areas on a saturated band, so it gets its own hero
+      // colour: ~300 orange, ~550 magenta, ~700 blue, ~900 green-gold.
+      280 + 700 * rng(),
     ],
     // the angle where this particular piece looks its very best
     sweet: rng() * Math.PI,
