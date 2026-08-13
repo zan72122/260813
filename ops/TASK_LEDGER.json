@@ -129,7 +129,7 @@
     {
       "id": "S3b",
       "title": "5固有行動: probe-gap/dig-sand/reach-pipe/peel-banana/break-branch + 完了イベント",
-      "status": "failed",
+      "status": "superseded",
       "owner": "sonnet",
       "ownedPaths": [
         "src/scene/elephant/behaviors/",
