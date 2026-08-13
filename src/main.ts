@@ -4,11 +4,13 @@
  */
 
 import { App } from './app/App.ts';
-import type { EiffelTestAPI } from './contracts/testing.ts';
+import type { EiffelTestApiWithSoundLog } from './app/testApi.ts';
 
 declare global {
   interface Window {
-    __eiffel: EiffelTestAPI;
+    /** The frozen `EiffelTestAPI` shape plus the integrator's QA-only
+     * `soundCueLog` bonus — see `src/app/testApiSoundLog.ts`. */
+    __eiffel: EiffelTestApiWithSoundLog;
   }
 }
 

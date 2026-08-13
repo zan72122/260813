@@ -15,6 +15,14 @@ no score, no failure state — one finger, one continuous story, 3–5 minutes.
 絵本のようなゲームです。斜面が54度から74度に急に変わっても、キャビンの床だけは
 水平を保ち続けます。文字を読む必要はありません。
 
+## Quickstart
+
+```bash
+npm install
+npm run dev       # local dev server (http://localhost:5173)
+npm run verify    # typecheck + lint + unit tests + production build + e2e
+```
+
 ## Documentation
 
 The binding product/engineering contracts live in [`docs/`](./docs):
@@ -38,13 +46,38 @@ physics engine, no UI framework, no runtime network calls. All geometry is
 procedural, all textures are canvas-generated, all audio is synthesized via
 WebAudio.
 
+## Controls
+
+One finger only, no reading required — every control is a pictogram drawn as
+a physical machine part, shown one at a time (one verb per scene). If a
+control sits idle for 5 seconds, a short ghost-hand animation demonstrates
+the gesture.
+
+| Control | Where | Gesture | Effect |
+|---|---|---|---|
+| Tap anywhere | Attract screen | Tap | Begins the ride |
+| Master lever | Machine room | Vertical slide (≥120px travel) | Opens the hydraulic valve proportionally; release eases it shut — nothing ever breaks |
+| Up/down throttle | Riding (ascend/descend) | Press and hold ▲/▼ | Holds a calm, accel-limited climb/descent speed; release eases to a smooth stop |
+| Level wheel | The slope transition | Rotate left/right | Helps the cabin floor stay level with the horizon; wide magnetic snap and a 3-second auto-assist mean success is guaranteed even with no input |
+| Replay tiles (×4) | Replay menu | Tap | Ride again ▲ · ride down ▼ · machine-room free play · jump straight back to the slope-change moment |
+| Pause / resume | Top corner, any time | Tap | Freezes and restores the ride exactly |
+| Sound on/off | Top corner, any time | Tap | Mutes/unmutes (remembered next visit) |
+
+## Browser support
+
+Built for mobile Safari on iPhone and iPad (portrait and landscape are both
+first-class), and any evergreen desktop browser with WebGL2 for development.
+Requires WebGL2 — if a device doesn't have it, a friendly static illustration
+is shown instead of a crash. Orientation can change at any moment without
+losing the ride's state.
+
 ## Development
 
 ```bash
 npm install
-npm run dev        # local dev server
-npm run build       # tsc -b type-check + production build
-npm run preview     # serve the production build locally
+npm run dev         # local dev server
+npm run build        # tsc -b type-check + production build
+npm run preview      # serve the production build locally
 ```
 
 ## Quality gates
@@ -83,7 +116,9 @@ src/ui/**          DOM/scene-integrated controls, pictograms, menus
 src/audio/**       WebAudio synth engine, sound cues
 src/styles/**       CSS, safe-area, portrait/landscape layouts
 tests/unit/**      unit tests, owned by the owner of the code under test
-tests/e2e/**       Playwright smoke + acceptance suite
+tests/e2e/**       Playwright smoke + full acceptance suite (complete-loop,
+                   replay, robustness, screenshots), plus QA screenshots
+                   under artifacts/qa/<viewport>/
 ```
 
 See [`docs/FILE_OWNERSHIP.md`](./docs/FILE_OWNERSHIP.md) for the exact

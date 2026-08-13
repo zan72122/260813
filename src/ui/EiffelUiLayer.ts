@@ -265,6 +265,20 @@ export class EiffelUiLayer implements UiLayer {
       if (event.pointerId !== this.leverPointerId) return;
       this.leverPointerId = null;
       this.leverDrag.end();
+      // INTEGRATOR FIX (Wave 4): this handler previously never told
+      // `GameLogic` the finger lifted, so `EiffelGameLogic.leverValue`
+      // stayed pinned at the last dragged value forever (state-change is
+      // the only other place it resets) — pistons/carrier kept creeping
+      // forward at that commanded rate after release, violating
+      // PRODUCT_SPEC "Finger off -> valve eases shut, machinery glides to a
+      // stop" / "Any input released -> motion eases to a stop" for any
+      // release that doesn't happen to land exactly at value 0. Mirrors the
+      // throttle's `release()`, which already did this correctly; the
+      // resulting easing itself is handled by `stepDrive`'s existing
+      // rate-limited speed dynamics (MATH_CONTRACT §5) once `valveTarget`
+      // reaches 0, and the knob glides back to match via
+      // `updateFromSnapshot`'s existing valveOpen-dirty-check sync.
+      this.options.onIntent({ kind: 'lever', value: 0 });
     };
     track.addEventListener('pointerdown', onDown);
     track.addEventListener('pointermove', onMove);

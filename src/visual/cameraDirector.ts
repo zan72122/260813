@@ -84,6 +84,23 @@ export class CameraDirector {
     return this.activeCue;
   }
 
+  /**
+   * QA-only bonus (integrator addition, Wave 4 — not part of any frozen
+   * contract, same duck-typed-extra pattern as `isSettled()`): current
+   * multi-stage cue progress `[0,1]` (`cableFollow`/`arrivalReveal` walk
+   * authored keyframes over a fixed real-time duration — see
+   * `multiStagePose`). `0` for a single-pose cue, where the concept doesn't
+   * apply. VISUAL_ACCEPTANCE's `03-cable-follow` shot specifically wants
+   * the camera mid-journey (framing the pulley, not the start/end
+   * keyframe) — `cameraCue`/`cameraSettled` alone can't express "half way
+   * through a 6.5s keyframe walk", so QA scrubbing needs this to stage that
+   * shot deterministically instead of guessing a fixed wall-clock delay.
+   */
+  get cueProgress(): number {
+    const multiStage = this.activeCue === 'cableFollow' || this.activeCue === 'arrivalReveal';
+    return multiStage && this.lastCueForProgressReset === this.activeCue ? this.stageProgress : 0;
+  }
+
   requestCue(id: CameraCueId): void {
     if (id === this.activeCue) return; // idempotent: re-requesting the active cue is a no-op
     this.activeCue = id;

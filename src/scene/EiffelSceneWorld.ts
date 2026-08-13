@@ -310,6 +310,11 @@ export class EiffelSceneWorld implements SceneWorld {
     return this.cameraDirector?.isSettled() ?? true;
   }
 
+  /** QA-only bonus, forwards `CameraDirector.cueProgress` — see that getter's doc. */
+  getCameraCueProgress(): number {
+    return this.cameraDirector?.cueProgress ?? 0;
+  }
+
   private applyTierSettings(settings: QualityTierSettings): void {
     this.rendererHandle?.setDpr(settings.dpr);
     this.rendererHandle?.setShadowsEnabled(settings.shadowsEnabled);
