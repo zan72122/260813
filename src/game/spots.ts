@@ -27,7 +27,7 @@ export const SPOTS: readonly HidingSpot[] = [
     position: { x: 7, y: 0.5, z: -1 },
     approach: { x: 5.4, y: 0, z: -0.6 },
     cameraPreset: "spot:pipe",
-    acceptedFoodTypes: ["grass", "hay-cube"],
+    acceptedFoodTypes: ["vegetable", "hay-cube", "grass"],
     elephantBehavior: "reach-pipe",
     difficulty: 3,
     snapRadius: 1.4
@@ -47,7 +47,7 @@ export const SPOTS: readonly HidingSpot[] = [
     position: { x: 8, y: 3.6, z: -7 },
     approach: { x: 6.6, y: 0, z: -5.6 },
     cameraPreset: "spot:high-branch",
-    acceptedFoodTypes: ["branch"],
+    acceptedFoodTypes: ["branch", "grass"],
     elephantBehavior: "break-branch",
     difficulty: 3,
     snapRadius: 1.8
