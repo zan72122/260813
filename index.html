@@ -66,6 +66,12 @@
   #powerBtn .ringFill { stroke:#ff5470; }
   @keyframes powerPulse { 0%,100%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 30px rgba(255,60,90,.4);}
     50%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 60px rgba(255,80,110,.75);} }
+  /* トーチのスイッチ（加熱ボタン）: 火は職人が持つ道具、子どもはこのスイッチだけ操作する */
+  #torchBtn { box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 36px rgba(255,150,60,.5);
+    animation:torchPulse 1.5s ease-in-out infinite; }
+  #torchBtn .ringFill { stroke:#ffa040; }
+  @keyframes torchPulse { 0%,100%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 26px rgba(255,150,60,.4);}
+    50%{ box-shadow:0 8px 30px rgba(0,0,0,.6), 0 0 52px rgba(255,170,90,.72);} }
   #againBtn { width:min(16vmin,88px); height:min(16vmin,88px);
     left:auto; right:max(4vw, env(safe-area-inset-right,0px) + 2vw); transform:none;
     bottom:max(5vh, env(safe-area-inset-bottom,0px) + 3vh); }
@@ -81,6 +87,10 @@
   @keyframes tapRing { 0%{opacity:.9; transform:scale(.2);} 70%{opacity:0; transform:scale(1.5);} 100%{opacity:0;} }
   #hand.press .handBody { animation:pressBob 1.1s ease-in-out infinite; }
   @keyframes pressBob { 0%,100%{transform:translateY(0)} 35%{transform:translateY(5px)} }
+  /* 安全マイクロレッスン: 手のひらを向けた「ストップ」ジェスチャ */
+  #hand .stopPalm { display:none; }
+  #hand.stop .handBody { display:none; }
+  #hand.stop .stopPalm { display:block; }
 
   #vignette { position:fixed; inset:0; pointer-events:none;
     background:radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) 58%, rgba(0,0,0,.42) 100%); }
@@ -117,6 +127,20 @@
     </div>
   </div>
 
+  <button id="torchBtn" class="bigBtn hidden" aria-label="torch switch">
+    <svg class="ring" viewBox="0 0 100 100"><circle class="ringBg" cx="50" cy="50" r="48"/><circle class="ringFill" cx="50" cy="50" r="48"/></svg>
+    <svg class="icon" viewBox="0 0 100 100">
+      <path fill="none" stroke="#b3763f" stroke-width="9" stroke-linecap="round"
+        d="M36 90 L58 46"/>
+      <path fill="#8c5a2a" stroke="#6b4322" stroke-width="3" stroke-linejoin="round"
+        d="M50 52 L68 36 L76 44 L60 60 Z"/>
+      <g style="filter:drop-shadow(0 0 8px #ff8a3a)">
+        <path fill="#ffa040" d="M71 16 C64 23 64 33 71 38 C78 33 78 23 71 16 Z"/>
+        <path fill="#ffd27a" d="M71 24 C67 27.5 67 32.5 71 35 C75 32.5 75 27.5 71 24 Z"/>
+      </g>
+    </svg>
+  </button>
+
   <button id="darkBtn" class="bigBtn hidden" aria-label="lights off">
     <svg class="ring" viewBox="0 0 100 100"><circle class="ringBg" cx="50" cy="50" r="48"/><circle class="ringFill" cx="50" cy="50" r="48"/></svg>
     <svg class="icon" viewBox="0 0 100 100">
@@ -151,6 +175,16 @@
       <g class="handBody">
         <path fill="#ffe3c8" stroke="#3a2a20" stroke-width="2.2" stroke-linejoin="round"
           d="M20 10 C20 6.7 26 6.7 26 10 L26 30 L30 28 C30 24.5 36 24.5 36 28 L36 32 L39 31 C39 27.5 44 28 44 31.5 L44 42 C44 52 38 60 29 60 C21 60 16 56 12 48 L7 38 C5.4 34.6 10 31.8 12.4 34.6 L17 40 L17 13 C17 9.7 20 9.7 20 10 Z"/>
+      </g>
+      <g class="stopPalm">
+        <rect x="10" y="30" width="24" height="26" rx="10" fill="#fff6f0" stroke="#ff6b6b" stroke-width="2.2"/>
+        <g fill="#fff6f0" stroke="#ff6b6b" stroke-width="2.2" stroke-linecap="round">
+          <rect x="6"  y="16" width="7" height="20" rx="3.5" transform="rotate(-18 9.5 26)"/>
+          <rect x="14" y="8"  width="7" height="26" rx="3.5" transform="rotate(-7 17.5 21)"/>
+          <rect x="22" y="5"  width="7" height="28" rx="3.5"/>
+          <rect x="30" y="8"  width="7" height="26" rx="3.5" transform="rotate(7 33.5 21)"/>
+          <rect x="37" y="16" width="7" height="20" rx="3.5" transform="rotate(18 40.5 26)"/>
+        </g>
       </g>
     </svg>
   </div>

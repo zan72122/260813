@@ -81,20 +81,37 @@ await page.waitForTimeout(1900); // カメラ接写の到着待ち
 await shot('2-heat-arrive');
 
 // 長押しで加熱（HEAT/SOFTENを抜けるまで押し続ける）
+// 加熱は #torchBtn（バーナーのスイッチ）専用。炎そのものは職人が持ち、
+// canvas への直接タッチでは加熱しない（安全マイクロレッスンの対象になる）。
 async function heatUntilSoft() {
-  const cx = vp.width / 2, cy = vp.height / 2;
-  await page.touchscreen.tap; // noop reference
-  await page.evaluate(() => {}); // flush
-  // pointerdownを維持するために mouse を使用（pointer events互換）
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
+  const torch = page.locator('#torchBtn');
+  await torch.dispatchEvent('pointerdown', { pointerId: 9 });
   try {
     await waitState(['SOFTEN', 'BEND'], 30000);
   } finally {
-    await page.mouse.up();
+    await torch.dispatchEvent('pointerup', { pointerId: 9 });
   }
   await waitState('BEND', 30000);
 }
+
+// 安全マイクロレッスン: 加熱中に炎が当たる場所（曲げ点）の近くを直接タッチすると
+// 職人がサッと火を引く「ストップ」反応が起きる。罰・失敗扱いにはならず、HEATに留まる。
+async function verifySafetyReaction() {
+  const bp = await page.evaluate(() => window.__neon.bendScreen());
+  await page.mouse.move(bp.x, bp.y);
+  await page.mouse.down();
+  await page.waitForTimeout(200);
+  await page.mouse.up();
+  const count = await page.evaluate(() => window.__neon.safetyCount);
+  const st = await state();
+  console.log(`  [safety] safetyCount=${count} state=${st}`);
+  if (count < 1) throw new Error(`safety reaction did not fire, safetyCount=${count}`);
+  if (st !== 'HEAT') throw new Error(`state left HEAT during safety reaction: ${st}`);
+  await shot('2b-safety');
+  await page.waitForTimeout(1500); // safetyT消化を待ってから通常の加熱へ
+}
+await verifySafetyReaction();
+
 await heatUntilSoft();
 await shot('3-heated');
 

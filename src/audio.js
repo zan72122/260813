@@ -83,6 +83,19 @@ export function igniteSound() {
   hum.start(t + 0.5); hum.stop(t + 6.2);
 }
 
+// 安全マイクロレッスン: 「あぶない」を怖くなく伝えるやさしい2音（下降）
+export function cautionSound() {
+  const c = ac(); if (!c) return;
+  const t = c.currentTime;
+  [440, 330].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    env(g, t + i * 0.14, 0.015, 0.09, 0.12);
+    o.connect(g).connect(c.destination);
+    o.start(t + i * 0.14); o.stop(t + i * 0.14 + 0.3);
+  });
+}
+
 export function chime() {
   const c = ac(); if (!c) return;
   const t = c.currentTime;

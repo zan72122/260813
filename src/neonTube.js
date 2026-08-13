@@ -67,7 +67,7 @@ void main(){
   // 彩度の高い管色 + 中心軸だけ白熱（本物のネオンの見え方）
   float center = pow(edge, 7.0);
   vec3 col = (pow(grad(s), vec3(1.25)) * 1.05 + vec3(0.85) * center * 0.55) * uNeon * body;
-  float d = abs(s - uT);
+  float d = abs(s - (uT - 0.025));
   float h = exp(-d*d/(uHeatW*uHeatW)) * uHeat;
   col += mix(vec3(1.0,0.28,0.03), vec3(1.0,0.85,0.55), h) * h * 3.0 * body;
   col *= tail;
@@ -87,7 +87,7 @@ void main(){
   float body = pow(edge, 2.0);
   float tail = 1.0 - smoothstep(uVis - 0.05, uVis, s) * step(uVis, 0.999);
   vec3 col = pow(grad(s), vec3(1.5)) * (uNeon * 0.8) * body; // 彩度を残した色のにじみ
-  float d = abs(s - uT);
+  float d = abs(s - (uT - 0.025));
   float h = exp(-d*d/(uHeatW*uHeatW*4.0)) * uHeat;
   col += vec3(1.0, 0.42, 0.08) * h * 1.3 * body;
   col *= tail;

@@ -328,6 +328,7 @@ export class World {
     this.scene.add(blob);
 
     this._armRest = new THREE.Vector3(-0.55, 0.95, -0.35); // 待機時に向ける位置
+    this._safetyRest = new THREE.Vector3(-0.9, 1.25, -0.75); // 安全反応: 職人の胸元近くまでサッと引く位置
     this._armTarget = this._armRest.clone();
     this._armLen = 1.28;
   }
@@ -448,6 +449,8 @@ export class World {
     this.head.rotation.y = Math.max(-0.9, Math.min(0.9, this.head.rotation.y));
   }
   restTorch(dt) { this.aimTorch(this._armRest, dt * 0.6); }
+  // 安全マイクロレッスン: 子どもの指が炎に近づいたら、大人がサッと火を引く
+  retreatTorch(dt) { this.aimTorch(this._safetyRest, dt * 2.2); }
 
   torchTipWorld(target = new THREE.Vector3()) {
     this.torchTip.updateWorldMatrix(true, false);

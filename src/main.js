@@ -10,7 +10,7 @@ import { buildShape, gradColorAt } from './shapes.js';
 import { NeonTube } from './neonTube.js';
 import { World } from './world.js';
 import { FX } from './fx.js';
-import { initAudio, popSound, hissOn, hissOff, igniteSound, chime } from './audio.js';
+import { initAudio, popSound, hissOn, hissOff, igniteSound, chime, cautionSound } from './audio.js';
 
 // ---------- 基本セットアップ ----------
 const canvas = document.getElementById('gl');
@@ -143,11 +143,12 @@ const rig = new Rig();
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
 const ui = {
-  title: $('title'), darkBtn: $('darkBtn'), powerBtn: $('powerBtn'),
+  title: $('title'), torchBtn: $('torchBtn'), darkBtn: $('darkBtn'), powerBtn: $('powerBtn'),
   againBtn: $('againBtn'), hand: $('hand'),
 };
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
+const torchRing = ui.torchBtn.querySelector('.ringFill');
 
 // 長押しボタン（リングが満ちたら発火）
 function holdButton(el, seconds, onComplete) {
@@ -178,14 +179,17 @@ function holdButton(el, seconds, onComplete) {
 }
 
 // 手のヒント
-const handState = { mode: 'hidden', world: new THREE.Vector3() };
-function setHand(mode) {
-  if (mode === handState.mode) return;
+// mode: 'hidden' | 'press'(DOM要素の上を指差し) | 'drag'(3D投影・曲げガイドをなぞる) | 'stop'(安全反応)
+const handState = { mode: 'hidden', domEl: null };
+function setHand(mode, domEl = null) {
+  if (mode === handState.mode && domEl === handState.domEl) return;
   handState.mode = mode;
-  if (mode === 'hidden') { hide(ui.hand); ui.hand.classList.remove('press'); }
+  handState.domEl = domEl;
+  if (mode === 'hidden') { hide(ui.hand); ui.hand.classList.remove('press', 'stop'); }
   else {
     show(ui.hand);
     ui.hand.classList.toggle('press', mode === 'press');
+    ui.hand.classList.toggle('stop', mode === 'stop');
   }
 }
 const _proj = new THREE.Vector3();
@@ -199,19 +203,27 @@ function worldToScreen(v) {
 }
 function updateHand(time) {
   if (handState.mode === 'hidden') return;
-  let wp;
-  if (handState.mode === 'press') {
-    wp = tube.bendPointWorld(new THREE.Vector3());
-  } else {
-    // ガイド上を先へなぞるループアニメ
-    const cyc = (time % 1.6) / 1.6;
-    const s = Math.min(game.t + 0.015 + cyc * 0.11, 1);
-    wp = tube.pointWorldAt(s, new THREE.Vector3());
-  }
-  const sp = worldToScreen(wp);
   const w = ui.hand.offsetWidth;
-  ui.hand.style.transform =
-    `translate(${sp.x - w * 0.5}px, ${sp.y - w * 0.33}px)`;
+  if (handState.mode === 'stop') {
+    // タッチした場所の少し上に「ストップ」の手を出す（火はもう職人が引いている）
+    const t = game.safetyTouch || { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
+    ui.hand.style.transform = `translate(${t.x - w * 0.5}px, ${t.y - w * 0.85}px)`;
+    return;
+  }
+  if (handState.mode === 'press' && handState.domEl) {
+    // DOMアンカー: 安全なスイッチボタンの上を指差す（炎には触れさせない）
+    const r = handState.domEl.getBoundingClientRect();
+    const cx = r.left + r.width * 0.5;
+    const cy = r.top + r.height * 0.55;
+    ui.hand.style.transform = `translate(${cx - w * 0.5}px, ${cy - w * 0.33}px)`;
+    return;
+  }
+  // 'drag': ガイド上を先へなぞるループアニメ（3D投影アンカー）
+  const cyc = (time % 1.6) / 1.6;
+  const s = Math.min(game.t + 0.035 + cyc * 0.11, 1);
+  const wp = tube.pointWorldAt(s, new THREE.Vector3());
+  const sp = worldToScreen(wp);
+  ui.hand.style.transform = `translate(${sp.x - w * 0.5}px, ${sp.y - w * 0.33}px)`;
 }
 
 // ---------- ゲーム状態機械 ----------
@@ -221,13 +233,17 @@ const game = {
   t: 0,          // 曲げ進捗 0..1
   soft: 0,       // 柔らかさ 0..1
   heat: 0,       // 加熱ゲージ 0..1
-  pressing: false,
+  pressing: false,   // BEND中のドラッグ入力（canvas）
+  torchHeld: false,  // #torchBtn 長押し中（加熱の唯一の入力）
   pointerId: null,
   darkness: 0,
   igniteT: 0,
   neon: 0,
   stateT: 0,
   hintTimer: 0,
+  safetyT: 0,        // 安全マイクロレッスン反応の残り秒数
+  safetyCount: 0,    // デバッグ用: 反応が発火した回数
+  safetyTouch: null, // 反応発火時のタッチ画面座標
 };
 
 const raycaster = new THREE.Raycaster();
@@ -276,6 +292,7 @@ async function selectShape(name) {
   await wait(0.5);
   await rig.goTo(POSES.heatClose, 1.7);       // 加熱接写
   setState('HEAT');
+  show(ui.torchBtn);
 }
 
 function wait(sec) {
@@ -288,6 +305,8 @@ async function onHeatComplete(first) {
   chime();
   game.soft = 1;
   game.heat = 0;
+  game.safetyT = 0;
+  hide(ui.torchBtn);
   hissOff();
   fx.setFlame(null, 0);
   if (first) {
@@ -389,15 +408,38 @@ function loadGallery() {
 }
 loadGallery();
 
+// ---------- 安全マイクロレッスン ----------
+// 加熱中に「炎が当たる場所」の近くを直接タッチしたら、罰ではなく
+// 大人（職人）がサッと火を引いて教える。デバウンス: 反応中は再発火しない。
+function maybeTriggerSafety(x, y) {
+  if (!game.shape || game.safetyT > 0) return;
+  const sp = worldToScreen(tube.bendPointWorld(new THREE.Vector3()));
+  const dist = Math.hypot(x - sp.x, y - sp.y);
+  const threshold = Math.min(window.innerWidth, window.innerHeight) * 0.22;
+  if (dist > threshold) return;
+  game.safetyT = 1.2;
+  game.safetyCount += 1;
+  game.safetyTouch = { x, y };
+  cautionSound();
+}
+
 // ---------- 入力（一指のみ・強い補正） ----------
+// 加熱の入力は #torchBtn 専用（下の holdButton系リスナー群を参照）。
+// canvas への入力は「曲げ」（BEND中のドラッグ）と「安全マイクロレッスン」の検知のみ。
 let lastDragWorld = null;
 function onPointerDown(e) {
   if (game.pointerId !== null) return; // 2本目以降は無視
-  game.pointerId = e.pointerId;
-  game.pressing = true;
-  initAudio();
-  if (game.state === 'HEAT' || game.state === 'REHEAT') hissOn();
-  if (game.state === 'BEND') lastDragWorld = pointerToWorldOnPlane(e.clientX, e.clientY);
+  const st = game.state;
+  if (st === 'BEND') {
+    game.pointerId = e.pointerId;
+    game.pressing = true;
+    initAudio();
+    lastDragWorld = pointerToWorldOnPlane(e.clientX, e.clientY);
+  } else if (st === 'HEAT' || st === 'REHEAT') {
+    initAudio();
+    maybeTriggerSafety(e.clientX, e.clientY);
+  }
+  // SOFTEN等その他の状態では何もしない
 }
 function onPointerMove(e) {
   if (e.pointerId !== game.pointerId) return;
@@ -411,12 +453,27 @@ function onPointerUp(e) {
   game.pointerId = null;
   game.pressing = false;
   lastDragWorld = null;
-  hissOff();
 }
 canvas.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', onPointerUp);
+
+// トーチのスイッチ（加熱の唯一の入力）。押している間ずっと加熱するので holdButton は使わない。
+function onTorchDown(e) {
+  e.stopPropagation(); e.preventDefault();
+  try { ui.torchBtn.setPointerCapture?.(e.pointerId); } catch (err) { /* 合成イベント等 */ }
+  initAudio();
+  if (game.state === 'HEAT' || game.state === 'REHEAT') hissOn();
+  game.torchHeld = true;
+}
+function onTorchUp() {
+  game.torchHeld = false;
+  hissOff();
+}
+ui.torchBtn.addEventListener('pointerdown', onTorchDown);
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
+  ui.torchBtn.addEventListener(ev, onTorchUp));
 
 // ボタン
 document.querySelectorAll('.shapeBtn').forEach((btn) => {
@@ -439,20 +496,30 @@ function tick(dt, time) {
   // トーチと加熱の共通処理
   const heatingState = st === 'HEAT' || st === 'REHEAT';
   if (heatingState) {
-    const bp = tube.bendPointWorld(new THREE.Vector3());
-    world.aimTorch(bp, dt);
-    const tip = world.torchTipWorld();
-    if (game.pressing) {
-      game.heat = Math.min(1, game.heat + dt * HEAT_RATE);
-      fx.setFlame(tip, 1);
-      if (Math.random() < 0.6) fx.burstSparks(bp, 2);
-      setHand('hidden');
-    } else {
+    if (game.safetyT > 0) {
+      // 安全マイクロレッスン中: 職人がサッと火を引く。加熱は進まない（罰・失敗なし）
+      game.safetyT = Math.max(0, game.safetyT - dt);
+      world.retreatTorch(dt);
+      fx.setFlame(world.torchTipWorld(), 0.05);
       game.heat = Math.max(0, game.heat - dt * HEAT_DECAY);
-      fx.setFlame(tip, 0.18); // 種火
-      setHand('press');
+      setHand('stop');
+    } else {
+      const bp = tube.bendPointWorld(new THREE.Vector3());
+      world.aimTorch(bp, dt);
+      const tip = world.torchTipWorld();
+      if (game.torchHeld) {
+        game.heat = Math.min(1, game.heat + dt * HEAT_RATE);
+        fx.setFlame(tip, 1);
+        if (Math.random() < 0.6) fx.burstSparks(bp, 2);
+        setHand('hidden');
+      } else {
+        game.heat = Math.max(0, game.heat - dt * HEAT_DECAY);
+        fx.setFlame(tip, 0.18); // 種火
+        setHand('press', ui.torchBtn);
+      }
     }
     tube.setHeat(Math.max(game.heat, game.soft * 0.75));
+    if (torchRing) torchRing.style.strokeDashoffset = 302 * (1 - game.heat);
     if (game.heat >= 1) onHeatComplete(st === 'HEAT');
   } else if (st === 'BEND') {
     world.restTorch(dt);
@@ -484,7 +551,7 @@ function tick(dt, time) {
       setHand('drag');
     }
     if (game.t >= 0.993) { onBendComplete(); }
-    else if (game.soft <= 0.02) { game.heat = 0; setState('REHEAT'); }
+    else if (game.soft <= 0.02) { game.heat = 0; setState('REHEAT'); show(ui.torchBtn); }
   } else if (st === 'DARKEN') {
     game.darkness = Math.min(1, game.darkness + dt / 2.0);
     world.setDarkness(smooth(game.darkness));
@@ -573,6 +640,8 @@ window.__neon = {
   get soft() { return game.soft; },
   get neon() { return game.neon; },
   get darkness() { return game.darkness; },
+  get safetyCount() { return game.safetyCount; },
+  get torchHeld() { return game.torchHeld; },
   guideScreen(s) {
     const wp = tube.pointWorldAt(s, new THREE.Vector3());
     return worldToScreen(wp);
