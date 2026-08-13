@@ -14,6 +14,7 @@ export interface GameHarness {
   readonly seed: number;
   readonly drawCalls: number;
   readonly shadowSlotsUsed: number;
+  readonly debugCamera: { fov: number; aspect: number; position: number[]; shot: string };
   readonly muted: boolean;
   readonly reducedMotion: boolean;
   advancePhase: () => void;
@@ -70,6 +71,9 @@ export function installTestHarness(fsm: GameFsm, sceneRoot: SceneRoot, audio: Au
     },
     get shadowSlotsUsed() {
       return sceneRoot.shadowSlotsUsed;
+    },
+    get debugCamera() {
+      return sceneRoot.debugCamera;
     },
     get muted() {
       return audio.isMuted;

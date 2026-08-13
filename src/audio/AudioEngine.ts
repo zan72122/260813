@@ -27,7 +27,18 @@ export class AudioEngine {
   setMuted(muted: boolean): void {
     this.muted = muted;
     saveMuted(muted);
-    if (this.master) this.master.gain.value = muted ? 0 : 1;
+    // m1 fix (fix-round-1): a hard `gain.value = 0/1` step creates an
+    // audible click/pop (a discontinuity in the waveform at that exact
+    // sample). Ramping over ~30ms is inaudible as a transition but long
+    // enough to avoid the click.
+    if (this.master && this.ctx) {
+      const t0 = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(t0);
+      this.master.gain.setValueAtTime(this.master.gain.value, t0);
+      this.master.gain.linearRampToValueAtTime(muted ? 0 : 1, t0 + 0.03);
+    } else if (this.master) {
+      this.master.gain.value = muted ? 0 : 1;
+    }
   }
 
   toggleMuted(): boolean {

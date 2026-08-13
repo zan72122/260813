@@ -37,11 +37,17 @@ const SHOTS: ShotTable = {
   overview: {
     phone: {
       portrait: shot(0, 1.75, 4.6, 0, 0.58, -0.1, 27),
-      landscape: shot(0, 2.85, 3.55, 0, 0.6, -0.1, 40),
+      // m2 fix (fix-round-1): target/position nudged +0.35 in x (was 0) — at
+      // x=0 the chair stack (world x=-1.25) sat right behind the dead-centered
+      // (by CSS) play button. Shifting the framing right pushes the stack
+      // further left on screen, clear of the button, without moving the
+      // chair-stack game object itself (which the 'transform' shot's framing
+      // depends on).
+      landscape: shot(0.35, 2.85, 3.55, 0.35, 0.6, -0.1, 40),
     },
     tablet: {
       portrait: shot(0, 1.8, 4.5, 0, 0.6, -0.05, 25),
-      landscape: shot(0, 2.7, 3.85, 0, 0.6, -0.1, 34),
+      landscape: shot(0.35, 2.7, 3.85, 0.35, 0.6, -0.1, 34),
     },
   },
   cleanup: {
@@ -56,11 +62,11 @@ const SHOTS: ShotTable = {
   },
   transform: {
     phone: {
-      portrait: shot(0.02, 6.0, 4.7, 0.02, 0.8, -0.3, 30),
+      portrait: shot(-0.35, 5.5, 4.3, -0.35, 0.85, -0.35, 42),
       landscape: shot(-0.08, 3.0, 3.15, -0.08, 0.4, -0.55, 42),
     },
     tablet: {
-      portrait: shot(-0.08, 2.8, 4.6, -0.08, 0.75, -0.3, 29),
+      portrait: shot(-0.35, 3.0, 4.2, -0.35, 0.8, -0.35, 38),
       landscape: shot(-0.08, 2.85, 3.5, -0.08, 0.45, -0.55, 36),
     },
   },

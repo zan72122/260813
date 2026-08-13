@@ -1302,6 +1302,12 @@ export class SceneRoot {
     return this.shadows.usedCount;
   }
 
+  /** Debug-only: raw camera state for diagnosing shot framing (test mode only). */
+  get debugCamera(): { fov: number; aspect: number; position: number[]; shot: string } {
+    const c = this.cameraDirector.camera;
+    return { fov: c.fov, aspect: c.aspect, position: c.position.toArray(), shot: this.cameraDirector.shot };
+  }
+
   simulateStoreAllToys(): void {
     for (const toy of this.fsm.seedConfig.toys) {
       const visual = this.toys.toys.get(toy.id);
