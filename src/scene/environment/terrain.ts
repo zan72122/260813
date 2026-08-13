@@ -32,9 +32,10 @@ function buildGroundGeometry(rings: number, segments: number): THREE.BufferGeome
       uvs.push(0.5 + Math.cos(theta) * t * 0.5, 0.5 + Math.sin(theta) * t * 0.5);
     }
   }
+  // 注意: 上(+Y)から見て表になる巻き方向(CCW)にする。逆にすると地面が裏面カリングで消える。
   const indices: number[] = [];
   for (let s = 0; s < segments; s++) {
-    indices.push(0, 1 + s, 1 + ((s + 1) % segments));
+    indices.push(0, 1 + ((s + 1) % segments), 1 + s);
   }
   for (let r = 1; r < rings; r++) {
     const a0 = 1 + (r - 1) * segments;
@@ -44,8 +45,8 @@ function buildGroundGeometry(rings: number, segments: number): THREE.BufferGeome
       const b = a0 + ((s + 1) % segments);
       const c = b0 + s;
       const d = b0 + ((s + 1) % segments);
-      indices.push(a, c, b);
-      indices.push(b, c, d);
+      indices.push(a, b, c);
+      indices.push(b, d, c);
     }
   }
   const geo = new THREE.BufferGeometry();

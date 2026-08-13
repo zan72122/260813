@@ -8,7 +8,7 @@ interface QualitySettings {
 
 const QUALITY_SETTINGS: Record<Quality, QualitySettings> = {
   low: { dprCap: 1, shadows: false },
-  medium: { dprCap: 1.5, shadows: false },
+  medium: { dprCap: 1.5, shadows: true },
   high: { dprCap: 1.75, shadows: true }
 };
 
