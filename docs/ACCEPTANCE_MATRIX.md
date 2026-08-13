@@ -3,6 +3,24 @@
 Every row must be ✅ (with evidence noted in VERIFICATION.md) before release.
 Status values: ☐ untested / ✅ pass / ❌ fail.
 
+## Final status — release judgment 2026-08-13
+
+All rows below judged ✅ after fix round 1. Evidence: `docs/VERIFICATION.md`
+(initial run + "Fix round 1" section). Machine-verified rows: A1–A6, B1–B6
+(via full-loop real-gesture e2e + screenshots), C1, C4, C6, C7, D1–D6,
+E1–E3, E5, F1, F2 (peak 112 ≤ 120), F4, F5, F6. Verified by code review +
+targeted tests rather than a dedicated automated assertion: C2 (72px CSS +
+padded raycast, reviewer-confirmed), C3 (hint timers reviewer-confirmed;
+reduced-motion gating machine-tested in `e2e/reduced-motion.spec.ts`),
+C5 (icon-only UI, screenshot review), E4 (no flashing sources in code,
+particles modest), F3 (hot-path allocations hoisted in fix round 1;
+bounded-heap machine-tested in `e2e/shuffle-leak.spec.ts`).
+
+Environment limitations (recorded, not waived): Chromium only — WebKit
+binary and real iPhone/iPad hardware unavailable in this container; iOS
+Safari behavior (audio unlock, safe-area, orientation) implemented to spec
+but not exercised on real Safari.
+
 ## A. Play loop completeness
 
 | ID | Criterion | How verified |
