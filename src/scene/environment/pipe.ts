@@ -12,6 +12,8 @@ const INNER_R = 0.46;
 export interface Pipe {
   readonly group: THREE.Group;
   setPipeXray(on: boolean): void;
+  /** 両端の開口部のワールド座標(reach-pipe行動が「どちらの開口が手前か」を判定する用)。 */
+  getOpeningPositions(): [THREE.Vector3, THREE.Vector3];
 }
 
 export function createPipe(): Pipe {
@@ -57,5 +59,12 @@ export function createPipe(): Pipe {
     outerMat.depthWrite = !on;
   }
 
-  return { group, setPipeXray };
+  function getOpeningPositions(): [THREE.Vector3, THREE.Vector3] {
+    group.updateWorldMatrix(true, false);
+    const a = group.localToWorld(new THREE.Vector3(0, LENGTH / 2, 0));
+    const b = group.localToWorld(new THREE.Vector3(0, -LENGTH / 2, 0));
+    return [a, b];
+  }
+
+  return { group, setPipeXray, getOpeningPositions };
 }

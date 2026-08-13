@@ -5,7 +5,7 @@ import type { Rng, SpotKind, Vec3 } from "../../core/types";
 import { getSpot } from "../../game/spots";
 import { groundHeight } from "../environment/terrain";
 import { Gait } from "./gait";
-import { buildElephantModel, type ElephantModel } from "./model";
+import { buildElephantModel, type ElephantModel, type LegRig } from "./model";
 import { Trunk } from "./trunk";
 
 // ゲート開口部(terrain.tsのisGateArc)の外側。ゲートz=-12.6より奥(-Z側)から入場する。
@@ -51,6 +51,20 @@ export class Elephant {
   /** シーンに追加するObject3D。 */
   get object3D(): THREE.Object3D {
     return this.model.group;
+  }
+
+  /** S3b(behaviors)が個々の脚(股関節/膝ピボット)を直接動かすためのアクセサ(掘る仕草の前脚等)。
+   * gait.update()は非移動中も毎フレームsettleLegs()でhip/knee.rotation.xを0へ寄せるため、
+   * behaviorがこれらを操作する場合はelephant.update(dt)より後(同一フレーム内)に上書きし続けること。 */
+  get legs(): readonly LegRig[] {
+    return this.model.legs;
+  }
+
+  /** S3b向け: 体幹ピボット(呼吸/歩行ボブが掛かる親)。break-branchの重心後方シフト等の微傾斜に使う。
+   * legsと同様、gait.applyBodyMotion()が毎フレームposition.y/rotation.zを設定し直すため、
+   * behaviorが操作する場合はelephant.update(dt)より後で上書きし続けること。 */
+  get bodyPivot(): THREE.Group {
+    return this.model.bodyPivot;
   }
 
   get visible(): boolean {
@@ -173,11 +187,13 @@ export class Elephant {
     });
   }
 
-  /** その場idle(呼吸の微動、耳、瞬き、尻尾)。posを渡すとその位置へ即座に移動して佇む。 */
-  idleAt(pos: Vec3 | null): void {
+  /** その場idle(呼吸の微動、耳、瞬き、尻尾)。posを渡すとその位置へ即座に移動して佇む。
+   * headingRad省略時は現在の向きを保つ(WorldApi.elephantIdleAtの既存契約通り)。S3bのbehaviors実行前
+   * (world.ts側)がheadingRadを明示して「対象(隙間/砂場/土管/根元/高木)の方を向かせる」用途に使う。 */
+  idleAt(pos: Vec3 | null, headingRad?: number): void {
     this.gait.stop();
     if (pos) {
-      this.gait.snapTo(pos, this.model.group.rotation.y);
+      this.gait.snapTo(pos, headingRad ?? this.model.group.rotation.y);
     }
     this.state = "idle";
     this.trunk.relax();

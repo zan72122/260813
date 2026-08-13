@@ -14,6 +14,9 @@ const RIM_RADIUS = RADIUS + 0.16;
 export interface SandPit {
   readonly group: THREE.Group;
   setMound(on: boolean): void;
+  /** 連続レベル(0=平ら/掘り切った状態 .. 1=盛り上げ)。dig-sand行動が掘り進む段階演出に使う。
+   * flat/moundは同トポロジ(頂点数・順序一致)なので、位置属性を線形補間して1メッシュに焼き込む。 */
+  setMoundLevel(t: number): void;
   /** 平ら/盛り上げ両方のgeometryを解放する(現在メッシュにセットされていない方はdisposeObject3Dの走査で拾えないため個別提供)。 */
   disposeGeometries(): void;
 }
@@ -91,8 +94,15 @@ export function createSandPit(): SandPit {
   const moundGeo = buildMoundGeometry(6, 28, 0.32);
   paintVertexAO(moundGeo, SAND_COLOR, rng, { aoStrength: 0.1, hueJitter: 0.04 });
 
+  // dig-sand行動が段階的にレベルを下げられるよう、flat/moundを線形補間した専用の可変geometryを
+  // メッシュの実体として使う(flatGeo/moundGeoはソースデータとして保持、disposeGeometriesで解放)。
+  const liveGeo = flatGeo.clone();
+  const flatPos = flatGeo.getAttribute("position");
+  const moundPos = moundGeo.getAttribute("position");
+  const livePos = liveGeo.getAttribute("position");
+
   const material = standardMaterial({ color: 0xffffff, roughness: 0.92 });
-  const mesh = new THREE.Mesh(flatGeo, material);
+  const mesh = new THREE.Mesh(liveGeo, material);
   mesh.name = "sand-pit-surface";
   mesh.receiveShadow = true;
   mesh.position.y = 0.01;
@@ -101,17 +111,28 @@ export function createSandPit(): SandPit {
 
   group.position.set(spot.position.x, 0, spot.position.z);
 
-  let mounded = false;
-  function setMound(on: boolean): void {
-    if (on === mounded) return;
-    mounded = on;
-    mesh.geometry = on ? moundGeo : flatGeo;
+  function setMoundLevel(t: number): void {
+    const clamped = THREE.MathUtils.clamp(t, 0, 1);
+    for (let i = 0; i < livePos.count; i++) {
+      const fy = flatPos.getY(i);
+      const my = moundPos.getY(i);
+      livePos.setY(i, THREE.MathUtils.lerp(fy, my, clamped));
+    }
+    livePos.needsUpdate = true;
+    liveGeo.computeVertexNormals();
   }
+
+  function setMound(on: boolean): void {
+    setMoundLevel(on ? 1 : 0);
+  }
+  // 既定(未使用時)はflatGeoそのまま(=level 0)。従来の見た目を変えない。
+  setMoundLevel(0);
 
   function disposeGeometries(): void {
     flatGeo.dispose();
     moundGeo.dispose();
+    liveGeo.dispose();
   }
 
-  return { group, setMound, disposeGeometries };
+  return { group, setMound, setMoundLevel, disposeGeometries };
 }

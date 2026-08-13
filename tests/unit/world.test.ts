@@ -55,7 +55,7 @@ describe("scene/world smoke", () => {
     world.dispose();
   });
 
-  it("openGate/elephantSeek fall back to warn+resolve when no hook is registered; elephantEnter/elephantIdleAt are wired by S3 by default", async () => {
+  it("openGate falls back to warn+resolve when no hook is registered; elephantEnter/elephantIdleAt/elephantSeek are wired by S3/S3b by default", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const world = createWorld({ reducedMotion: true });
 
@@ -71,10 +71,7 @@ describe("scene/world smoke", () => {
     expect(gateResolved).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
 
-    // elephantSeekはS3bが接続するまで未登録のまま(フォールバックで即resolve)。
-    await expect(world.elephantSeek("sand", "hay-cube")).resolves.toBeUndefined();
-
-    // elephantEnter/elephantIdleAtはS3(このタスク)がregisterHooksでデフォルト接続する。
+    // elephantEnter/elephantIdleAtはS3がregisterHooksでデフォルト接続する。
     // 実際に歩行+匂い探索アニメーションを再生するのでupdate(dt)を積んで進める必要がある。
     let enterResolved = false;
     const enterDone = world.elephantEnter();
@@ -87,6 +84,42 @@ describe("scene/world smoke", () => {
     }
     expect(enterResolved).toBe(true);
     expect(() => world.elephantIdleAt(null)).not.toThrow();
+
+    // elephantSeekはS3b(このタスク)がregisterHooksでデフォルト接続する: 実際に歩行→匂い探索→
+    // 行動再生→餌消費まで行うため即resolveではなくupdate(dt)を積んで進める必要がある。
+    // 検証を軽くするため対象spotの近くへ事前に瞬間移動させておく(walkToSpotの距離を縮める)。
+    world.elephantIdleAt({ x: 0, y: 0, z: 2.4 });
+    let seekResolved = false;
+    const seekDone = world.elephantSeek("sand", "hay-cube");
+    void seekDone.then(() => {
+      seekResolved = true;
+    });
+    for (let i = 0; i < 4000 && !seekResolved; i++) {
+      world.update(1 / 60);
+      await Promise.resolve();
+    }
+    expect(seekResolved).toBe(true);
+    // behavior:start/completeがイベントバス経由で発火していること(S3bの契約)。
+    world.dispose();
+  });
+
+  it("elephantSeek emits behavior:start then behavior:complete via world.events, and playBehaviorDirect works standalone", async () => {
+    const world = createWorld({ reducedMotion: true, seed: 7 });
+    const order: string[] = [];
+    world.events.on("behavior:start", (p) => order.push(`start:${p.behaviorId}:${p.spotId}`));
+    world.events.on("behavior:complete", (p) => order.push(`complete:${p.behaviorId}:${p.spotId}`));
+
+    let done = false;
+    const p = world.playBehaviorDirect("dig-sand");
+    void p.then(() => {
+      done = true;
+    });
+    for (let i = 0; i < 4000 && !done; i++) {
+      world.update(1 / 60);
+      await Promise.resolve();
+    }
+    expect(done).toBe(true);
+    expect(order).toEqual(["start:dig-sand:sand", "complete:dig-sand:sand"]);
 
     world.dispose();
   });

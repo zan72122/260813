@@ -9,7 +9,7 @@ const LEAF_COLOR_B = new THREE.Color("#2e6b45");
 const ROPE_COLOR = new THREE.Color("#a68a5c");
 const BASKET_COLOR = new THREE.Color("#8a6a3c");
 
-const BRANCH_LENGTH = 2.3;
+export const BRANCH_LENGTH = 2.3;
 const BRANCH_ATTACH_Y = 2.7;
 
 export interface TallTree {
@@ -21,6 +21,12 @@ export interface TallTree {
   /** 枝先に掛かる吊りフィーダー(籠)。branchTipBoneの子なので枝と一緒に動く。 */
   readonly feeder: THREE.Object3D;
   readonly leafClusters: THREE.Object3D[];
+  /** 折れる用の枝メッシュそのもの(break-branch行動が「折れた後」に非表示にする用)。 */
+  readonly branchMesh: THREE.SkinnedMesh;
+  /** 枝先の葉クラスタ(branchMeshと一緒に非表示にする用、幹側canopyとは別)。 */
+  readonly branchLeaves: THREE.Object3D;
+  /** 幹の付け根ワールド座標(枝が折れ落ちた後の着地目安に使う)。 */
+  readonly trunkBase: THREE.Vector3;
 }
 
 function buildTrunk(rng: () => number): THREE.Mesh {
@@ -144,5 +150,16 @@ export function createTallTree(): TallTree {
 
   group.position.set(spot.position.x, 0, spot.position.z);
 
-  return { group, branchRootBone: rootBone, branchTipBone: tipBone, feeder, leafClusters: [canopy, branchLeaves] };
+  const trunkBase = new THREE.Vector3(spot.position.x, 0, spot.position.z);
+
+  return {
+    group,
+    branchRootBone: rootBone,
+    branchTipBone: tipBone,
+    feeder,
+    leafClusters: [canopy, branchLeaves],
+    branchMesh,
+    branchLeaves,
+    trunkBase
+  };
 }

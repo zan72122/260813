@@ -64,6 +64,53 @@ function v3(p: { x: number; y: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, p.y, p.z);
 }
 
+/** 水平(XZ)ベクトルをY軸回りにrad回転する。behaviorShot()が「approach→anchorの正面方向」から
+ * 狙った角度だけ回して(横から/斜めから等の)専用アングルを組み立てるのに使う。 */
+function rotateY(v: THREE.Vector3, rad: number): THREE.Vector3 {
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return new THREE.Vector3(v.x * c + v.z * s, v.y, -v.x * s + v.z * c);
+}
+
+/** S3b: 5固有行動の専用接写を組み立てる。lookShot()と同じ「approach→anchor」の水平方向を基準に、
+ * rotateDeg分だけ回した向きから anchor を distance/height で狙う(=常にanchorから一定距離を保つので、
+ * approach(ゾウの立ち位置)付近にカメラがめり込むlookShotとは違う失敗をしない)。 */
+function behaviorShot(
+  spot: { position: { x: number; y: number; z: number }; approach: { x: number; y: number; z: number } },
+  opts: {
+    rotateDeg: number;
+    distance: number;
+    height: number; // anchor.yからの相対高さ(負可: break-branchの見上げ用)
+    targetOffset?: THREE.Vector3;
+    portraitScale?: number;
+    portraitHeightMul?: number;
+    fovLandscape: number;
+    fovPortrait: number;
+  }
+): CameraPresetDef {
+  const anchor = v3(spot.position);
+  const approach = v3(spot.approach);
+  const baseDir = new THREE.Vector3(anchor.x - approach.x, 0, anchor.z - approach.z);
+  if (baseDir.lengthSq() < 1e-6) baseDir.set(0, 0, 1);
+  baseDir.normalize();
+  const dir = rotateY(baseDir, THREE.MathUtils.degToRad(opts.rotateDeg));
+  const targetOffset = opts.targetOffset ?? new THREE.Vector3(0, 0.15, 0);
+  const target = anchor.clone().add(targetOffset);
+  const landscape: CameraPresetVariant = {
+    position: anchor.clone().addScaledVector(dir, opts.distance).add(new THREE.Vector3(0, opts.height, 0)),
+    target,
+    fov: opts.fovLandscape
+  };
+  const portraitDistance = opts.distance * (opts.portraitScale ?? 0.82);
+  const portraitHeight = opts.height * (opts.portraitHeightMul ?? 1.3);
+  const portrait: CameraPresetVariant = {
+    position: anchor.clone().addScaledVector(dir, portraitDistance).add(new THREE.Vector3(0, portraitHeight, 0)),
+    target,
+    fov: opts.fovPortrait
+  };
+  return { landscape, portrait };
+}
+
 export function createCameraRig(initial?: { orientation?: "portrait" | "landscape" }): CameraRig {
   const camera = new THREE.PerspectiveCamera(46, 16 / 9, 0.1, 200);
 
@@ -113,11 +160,94 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
       `spot:${spot.id}`,
       lookShot(anchor, approach, { distance: 3.2, height: 1.9, fovLandscape: 38, fovPortrait: 56 })
     );
+    // 汎用の接写(spot:*より寄っただけ)を仮登録。5行動固有の狙った角度は直後にS3bが上書きする。
     presets.set(
       `behavior:${spot.elephantBehavior}`,
       lookShot(anchor, approach, { distance: 1.9, height: 1.15, fovLandscape: 40, fovPortrait: 58 })
     );
   }
+
+  // --- S3b: 5固有行動それぞれの姿勢が最もよく見える専用接写("behavior:<id>"を上書き登録)。
+  // 汎用lookShot()(常に正面/引いた画)ではどの行動も同じ構図に見えてしまうため、各行動ごとに
+  // 狙った軸(横から/低い斜め/断面が見える横/手前斜め/見上げ)で個別に組む。behaviorShot()は常にanchor
+  // からdistance分だけ離れた位置にカメラを置くので(approach=ゾウの立ち位置の近くにめり込まない)。 ---
+  function spotOf(id: (typeof SPOTS)[number]["id"]): (typeof SPOTS)[number] {
+    const found = SPOTS.find((s) => s.id === id);
+    if (!found) throw new Error(`[cameras] behavior preset override: unknown spot "${id}"`);
+    return found;
+  }
+
+  // probe-gap(石垣): 隙間の横から。壁はワールドX方向に長い1枚の平面に近いため、
+  // approach→anchorの回転ではなく世界X方向への大きなオフセットで「壁の脇から見渡す」角度を作る
+  // (回転方式だと壁面とほぼ平行に見てしまい、接写がブロックの質感で埋まってしまうため専用計算)。
+  {
+    // approach-anchor間が近い(ゾウが鼻を伸ばして届く距離)ため、ゾウの胴体(全長~2.6)がanchor
+    // 付近まで張り出しうる。カメラは大きめに離し、狙点もanchor寄り(ゾウの顔にめり込まない)にする。
+    const spot = spotOf("stone-gap");
+    const anchor = v3(spot.position);
+    const approach = v3(spot.approach);
+    const target = anchor.clone().lerp(approach, 0.28).add(new THREE.Vector3(0, 0.05, 0));
+    const side = new THREE.Vector3(1, 0, 0); // +X: マップ中央寄り(-X側は放飼場の外縁に近い)
+    const landscapePos = anchor.clone().addScaledVector(side, 5.8).add(new THREE.Vector3(0, 1.9, 1.6));
+    const portraitPos = anchor.clone().addScaledVector(side, 4.6).add(new THREE.Vector3(0, 2.5, 1.3));
+    presets.set("behavior:probe-gap", {
+      landscape: { position: landscapePos, target, fov: 40 },
+      portrait: { position: portraitPos, target, fov: 56 }
+    });
+  }
+  // dig-sand(砂場): やや低い斜め(65°)から、掘れていく砂面が広く見える角度。
+  presets.set(
+    "behavior:dig-sand",
+    behaviorShot(spotOf("sand"), {
+      rotateDeg: 65,
+      distance: 3.1,
+      height: 0.95,
+      targetOffset: new THREE.Vector3(0, 0.15, 0),
+      fovLandscape: 42,
+      fovPortrait: 58
+    })
+  );
+  // reach-pipe(土管): 横から(85°)、開口部越しに内部(xray)が見える角度。
+  presets.set(
+    "behavior:reach-pipe",
+    behaviorShot(spotOf("pipe"), {
+      rotateDeg: 85,
+      distance: 2.8,
+      height: 1.0,
+      targetOffset: new THREE.Vector3(0, 0.25, 0),
+      fovLandscape: 40,
+      fovPortrait: 58
+    })
+  );
+  // peel-banana(ガジュマル根元): 斜め手前から。ゾウが鼻を伸ばして幹に届く演出のため、実際の見た目上の
+  // 占有域(頭+伸びた鼻)はbbox実測で対角~5.6ユニットにも達する(体長2.6+鼻の伸び+ears等)。
+  // distanceを1.9〜3.8程度に取っていた初期案は軒並みこの占有域に食い込み、頭やゾウの一部が
+  // 画面いっぱいに映ってしまっていた(実機スクリーンショットで確認して発覚)。distanceを
+  // 5.2まで大きく取ることでゾウ全体+ガジュマル+バナナ茎を画面に収める。
+  presets.set(
+    "behavior:peel-banana",
+    behaviorShot(spotOf("banyan-root"), {
+      rotateDeg: 55,
+      distance: 7.0,
+      height: 2.4,
+      targetOffset: new THREE.Vector3(0, 0.2, 0.1),
+      fovLandscape: 44,
+      fovPortrait: 60
+    })
+  );
+  // break-branch(高木): 見上げ。anchor(spot位置=枝の高さ付近)より低い位置(height負)から見上げる。
+  presets.set(
+    "behavior:break-branch",
+    behaviorShot(spotOf("high-branch"), {
+      rotateDeg: 15,
+      distance: 3.2,
+      height: -2.3,
+      targetOffset: new THREE.Vector3(0, -0.3, 0),
+      portraitHeightMul: 1.05, // 縦画面でも十分低い位置を保つ(height*1.3だと持ち上がりすぎるため)
+      fovLandscape: 44,
+      fovPortrait: 60
+    })
+  );
 
   const currentTarget = new THREE.Vector3(0, 0.5, -1);
   {
@@ -214,5 +344,14 @@ export function createCameraRig(initial?: { orientation?: "portrait" | "landscap
     reducedMotion = on;
   }
 
-  return { camera, goTo, setOrientation, update, registerPreset, setFollowTarget, setReducedMotion };
+  const rig: CameraRig = { camera, goTo, setOrientation, update, registerPreset, setFollowTarget, setReducedMotion };
+
+  // QA向けの一時的な橋渡し: main.ts(編集禁止)がworld.tsへCameraRigを配線するまでの間、
+  // world.tsのelephantSeek(S3b)がbehavior:<id>への実カメラカットを行えるようにwindow経由で公開する
+  // (world.ts側のsetCameraRig()で明示接続されればそちらが優先される)。?qa=1時のみ。
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("qa") === "1") {
+    (window as unknown as { __cameraRigDebug?: CameraRig }).__cameraRigDebug = rig;
+  }
+
+  return rig;
 }
