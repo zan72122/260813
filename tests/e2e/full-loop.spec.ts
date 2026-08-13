@@ -32,7 +32,24 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
     }
 
     const captured = new Set<string>();
+    // Gate B round 2: judge whether the pipe-run water slug (src/vfx/pipeFlow.ts)
+    // stays visible near arrival, not just at its single on-entry capture —
+    // snapshot explicitly at waterProgress ~0.5 (mid) and ~0.85 (late/near
+    // arrival), independent of the once-per-phase KEY_STATES capture below.
+    let pipeRunMidCaptured = false;
+    let pipeRunLateCaptured = false;
     const visited = await driveGameLoop(page, {
+      onTick: async (debug) => {
+        if (debug.phase !== 'pipe-run') return;
+        if (!pipeRunMidCaptured && debug.waterProgress >= 0.5) {
+          pipeRunMidCaptured = true;
+          await captureState(page, '390x844', 'pipe-run-t50');
+        }
+        if (!pipeRunLateCaptured && debug.waterProgress >= 0.85) {
+          pipeRunLateCaptured = true;
+          await captureState(page, '390x844', 'pipe-run-t85');
+        }
+      },
       onPhaseEnter: async (phase) => {
         if ((KEY_STATES as readonly string[]).includes(phase) && !captured.has(phase)) {
           captured.add(phase);
@@ -62,12 +79,13 @@ test.describe('full loop (A1 / A4 / A7 / screenshot matrix)', () => {
     expect(console_.pageErrors, `unhandled page errors: ${console_.pageErrors.join('\n')}`).toEqual([]);
   });
 
-  // Gate B landscape/tablet re-check (Wave 5): garden-idle + valve-turn +
-  // fountain-reveal at each non-primary viewport, rather than just one
-  // representative state — stops as soon as all three are captured instead
-  // of driving the whole loop to replay-choice, since only the first
-  // fountain's cycle is needed for this evidence.
-  const LANDSCAPE_KEY_STATES = ['garden-idle', 'valve-turn', 'fountain-reveal'] as const;
+  // Gate B landscape/tablet re-check (Wave 5) + pipe-run at 844x390 (Gate B
+  // round 2): garden-idle + valve-turn + pipe-run + fountain-reveal at each
+  // non-primary viewport, rather than just one representative state — stops
+  // as soon as all four are captured instead of driving the whole loop to
+  // replay-choice, since only the first fountain's cycle is needed for this
+  // evidence.
+  const LANDSCAPE_KEY_STATES = ['garden-idle', 'valve-turn', 'pipe-run', 'fountain-reveal'] as const;
 
   for (const viewport of ACCEPTANCE_VIEWPORTS.filter((v) => v.label !== '390x844')) {
     test(`key states at ${viewport.label}`, async ({ page }) => {

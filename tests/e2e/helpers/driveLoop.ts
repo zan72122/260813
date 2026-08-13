@@ -5,13 +5,17 @@
 
 import type { Page } from '@playwright/test';
 import type { GamePhase } from '../../../src/contracts';
-import { readDebug } from './debugApi';
+import { readDebug, type VersaillesDebug } from './debugApi';
 import { synthesizeCircularDrag, synthesizeTap } from './gestures';
 
 export interface DriveLoopOptions {
   maxSteps?: number;
   /** Invoked the first time each phase is entered (e.g. to capture a screenshot). */
   onPhaseEnter?: (phase: GamePhase) => Promise<void> | void;
+  /** Invoked every iteration with the latest debug snapshot, before the
+   * phase's own input dispatch — e.g. to capture screenshots at specific
+   * waterProgress thresholds during 'pipe-run' rather than only on entry. */
+  onTick?: (debug: VersaillesDebug) => Promise<void> | void;
   /** Stop as soon as 'replay-choice' is reached. Default true. */
   stopAtReplayChoice?: boolean;
 }
@@ -35,6 +39,8 @@ export async function driveGameLoop(page: Page, options: DriveLoopOptions = {}):
         await options.onPhaseEnter?.(phase);
       }
     }
+
+    await options.onTick?.(debug);
 
     if (phase === 'replay-choice' && (options.stopAtReplayChoice ?? true)) {
       return visited;
@@ -65,9 +71,18 @@ export async function driveGameLoop(page: Page, options: DriveLoopOptions = {}):
         }
         break;
       }
+      case 'pipe-run': {
+        // Finer-grained than the other auto-advancing phases, and finer
+        // still once waterProgress is closing in on 1.0: onTick callers
+        // (e.g. capturing screenshots at specific waterProgress thresholds)
+        // need enough resolution to land a capture before this short phase
+        // (PIPE_RUN_MIN_SEC = 1.8s) has already moved on to water-arrived —
+        // the t:0.85->1.0 window alone can be under 300ms of real time.
+        await page.waitForTimeout(debug.waterProgress > 0.6 ? 50 : 150);
+        break;
+      }
       case 'garden-idle':
       case 'valve-approach':
-      case 'pipe-run':
       case 'fountain-reveal':
       case 'finale':
       default: {
