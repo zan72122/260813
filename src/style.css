@@ -192,8 +192,8 @@ canvas {
 /* ---------------- おほしさま ---------------- */
 .stars {
   position: absolute;
-  right: var(--padr);
-  top: calc(var(--pad) + 54px);
+  right: calc(var(--padr) + 6px);
+  top: calc(var(--pad) + 58px);
   z-index: 6;
   display: none;
   flex-direction: column;
@@ -420,6 +420,8 @@ canvas {
 .title.is-gone {
   opacity: 0;
   visibility: hidden;
+  /* 消えかけの 0.5 秒に タップを 吸われないように、当たり判定は すぐ切る */
+  pointer-events: none;
 }
 .title__rings {
   position: absolute;
@@ -436,7 +438,8 @@ canvas {
   margin: auto;
   border-radius: 50%;
   border: clamp(6px, 1.8vmin, 14px) solid;
-  opacity: 0.5;
+  opacity: 0.7;
+  filter: drop-shadow(0 0 12px currentColor);
   animation: ringBreath 4.5s ease-in-out infinite;
 }
 .title__rings i:nth-child(1) {
@@ -467,11 +470,11 @@ canvas {
   0%,
   100% {
     transform: scale(0.94);
-    opacity: 0.32;
+    opacity: 0.5;
   }
   50% {
     transform: scale(1.06);
-    opacity: 0.62;
+    opacity: 0.85;
   }
 }
 .title__main {
@@ -496,7 +499,7 @@ canvas {
 }
 .start {
   position: relative;
-  margin-top: clamp(8px, 3vmin, 26px);
+  margin-top: clamp(14px, 5vmin, 40px);
   width: clamp(84px, 22vmin, 138px);
   aspect-ratio: 1;
   border: 0;
@@ -528,6 +531,27 @@ canvas {
   }
 }
 
+/* 横向きは たてが せまいので、おおきさボタンを 右はしへ 逃がす */
+@media (orientation: landscape) {
+  .sizebar {
+    left: auto;
+    right: var(--padr);
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    flex-direction: column-reverse;
+  }
+  .sizebar__gauge {
+    display: none;
+  }
+  .stars {
+    top: 50%;
+    right: auto;
+    left: var(--padl);
+    transform: translateY(-50%);
+  }
+}
+
 /* 画面が低いとき(横向き iPhone)は 余白を つめる */
 @media (max-height: 460px) {
   :root {
@@ -539,6 +563,13 @@ canvas {
   .sizebar {
     padding: 5px 10px;
   }
+}
+
+.no-anim *,
+.no-anim *::before,
+.no-anim *::after {
+  animation: none !important;
+  transition: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

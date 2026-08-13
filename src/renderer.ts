@@ -20,6 +20,7 @@ export interface SceneUniforms {
   ghostHit: number
   ringR: number
   flash: number
+  spot: number
 }
 
 const UNIFORM_NAMES = [
@@ -41,6 +42,7 @@ const UNIFORM_NAMES = [
   'uGhostHit',
   'uRingR',
   'uFlash',
+  'uSpot',
 ] as const
 
 type UniformName = (typeof UNIFORM_NAMES)[number]
@@ -185,6 +187,7 @@ export class Renderer {
     gl.uniform1f(L.uGhostHit, u.ghostHit)
     gl.uniform1f(L.uRingR, u.ringR)
     gl.uniform1f(L.uFlash, u.flash)
+    gl.uniform1f(L.uSpot, u.spot)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
   }
 

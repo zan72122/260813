@@ -12,7 +12,7 @@ const SIZE_STEPS = [0.52, 0.64, 0.76, 0.88, 1.0]
  * チャレンジの目標。「押した輪をこの線まで届かせる」だけ。
  * ちょんと触れば 1 つめ、ぎゅっと長く押せば 3 つめ、という段差にしてある。
  */
-const CHALLENGE_TARGETS = [0.44, 0.52, 0.585]
+const CHALLENGE_TARGETS = [0.56, 0.64, 0.72]
 const STAR_GOAL = CHALLENGE_TARGETS.length
 
 interface Options {
@@ -180,23 +180,31 @@ export class Game {
     const hCss = window.innerHeight
     const pxCss = 0.5 * Math.min(wCss, hCss)
 
-    // ランプと おおきさボタンの ぶんを よけた たての すきま
+    // ランプと おおきさボタンを よけた すきまを はかる。
+    // おおきさボタンは 横向きだと 右はしに 回るので、どちら側かを 見てから よける。
     const lampBottom = this.el.lamp.getBoundingClientRect().bottom || hCss * 0.18
-    const barRect = this.el.sizeBar.getBoundingClientRect()
-    const barTop = barRect.height > 0 ? barRect.top : hCss * 0.86
+    const bar = this.el.sizeBar.getBoundingClientRect()
+    const barLaidOut = bar.width > 0
+    const barAtBottom = barLaidOut && bar.left > wCss * 0.18 && bar.right < wCss * 0.82
+
     const top = clamp(lampBottom + hCss * 0.012, 0, hCss * 0.5)
-    const bottom = clamp(barTop - hCss * 0.012, hCss * 0.5, hCss)
+    const bottom = barAtBottom
+      ? clamp(bar.top - hCss * 0.012, hCss * 0.5, hCss)
+      : hCss - Math.max(10, hCss * 0.02)
+    // 横向きは 左右対称に よけて、レンズが 画面の 真ん中に 来るようにする
+    const side = !barLaidOut || barAtBottom ? 0 : wCss - bar.left + wCss * 0.012
 
     const bandMidCss = (top + bottom) / 2
     const bandH = Math.max(hCss * 0.28, bottom - top)
 
     const centerY = (hCss / 2 - bandMidCss) / pxCss
     const availH = bandH / pxCss
-    const availW = wCss / pxCss
+    const availW = Math.max(wCss * 0.4, wCss - 2 * side) / pxCss
 
-    const plateHY = (availH / 2 / SQUASH) * 0.97
-    const plateHX = Math.min(availW * 0.47, plateHY * 1.18)
-    const maxLensR = Math.min(plateHX * 0.74, plateHY * 0.72)
+    const hBudget = availH / 2 / SQUASH
+    const maxLensR = Math.min(availW * 0.38, hBudget * 0.70)
+    const plateHY = Math.min(maxLensR * 1.48, hBudget * 0.99)
+    const plateHX = Math.min(availW * 0.46, plateHY * 1.30)
 
     this.layout = { pxCss, wCss, hCss, centerY, plateHX, plateHY, maxLensR }
 
@@ -233,13 +241,20 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- 干渉のかたち
+  private sizeNorm(): number {
+    return this.sizeStep / (SIZE_STEPS.length - 1)
+  }
+
   /** レンズいっぱいに見える赤い縞の本数 (押すと減る = 輪が広がる) */
   private baseRings(): number {
-    return 5.5 + 9.0 * (this.sizeStep / (SIZE_STEPS.length - 1))
+    return 3.4 + 3.6 * this.sizeNorm()
   }
 
   private ringK(): number {
-    return this.baseRings() / (1 + 1.55 * clamp(this.pressValue, 0, 1.2))
+    // 小さいレンズは もともと縞が少ないので、広がり方も 控えめにする。
+    // そうしないと 押した瞬間に 縞が 1 本も残らず、ただの色のにじみになる。
+    const spread = 1.15 + 0.5 * this.sizeNorm()
+    return this.baseRings() / (1 + spread * clamp(this.pressValue, 0, 1.2))
   }
 
   private contactR(): number {
@@ -434,6 +449,9 @@ export class Game {
         this.setHint(true, 'おして')
         this.syncHintPosition()
       }
+    } else {
+      // 消したときは また さそう (消したこと自体は 失敗ではない)
+      this.el.lamp.classList.add('is-wanted')
     }
   }
 
@@ -515,15 +533,14 @@ export class Game {
   }
 
   private syncHintPosition(): void {
-    let ux = this.lensX
-    let uy = this.lensY
-    if (this.phase === 'place') {
-      ux = 0
-      uy = this.layout.centerY
-    }
+    // 置くときは ガラスの真ん中を指し、遊ぶときは リングに かぶらないよう 下へ
+    const placing = this.phase === 'place'
+    const ux = placing ? 0 : this.lensX
+    const uy = placing ? this.layout.centerY : this.lensY
     const c = this.unitToCss(ux, uy)
+    const drop = placing ? 0 : this.lensR() * this.layout.pxCss * 0.78
     this.el.hint.style.left = `${c.x}px`
-    this.el.hint.style.top = `${c.y + this.lensR() * this.layout.pxCss * 0.35}px`
+    this.el.hint.style.top = `${c.y + drop}px`
   }
 
   private toast(text: string): void {
@@ -699,6 +716,7 @@ export class Game {
       ghostHit: showChallenge ? reach * reach : 0,
       ringR: showChallenge ? this.ringRadius() : 0,
       flash: this.flash,
+      spot: this.phase === 'place' && !this.placing ? this.lensR() * 1.06 : 0,
     }
     this.r.draw(u)
     this.fx.draw()

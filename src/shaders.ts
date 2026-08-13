@@ -44,6 +44,7 @@ uniform float uGhostR;   // チャレンジの目標リング半径 (0 で非表
 uniform float uGhostHit; // 目標にどれだけ近いか 0..1
 uniform float uRingR;    // いま光っている一番内側のリング半径 (0 で非表示)
 uniform float uFlash;    // 成功時の光 0..1
+uniform float uSpot;     // 「ここに置いてね」の目印の半径 (0 で非表示)
 
 const float PI = 3.14159265;
 
@@ -59,6 +60,12 @@ float sinsq(float x) {
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453);
+}
+
+// 3 波長の合成だけだと白っぽくなるので、彩度を持ち上げて「にじ」に見せる
+vec3 vivid(vec3 c, float s) {
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  return max(vec3(0.0), mix(vec3(l), c, s));
 }
 
 // ---------- 机 ----------
@@ -96,6 +103,15 @@ vec3 plate(vec3 c, vec2 p) {
   float rim = smoothstep(px * 3.0, 0.0, abs(d + px * 1.5));
   c += vec3(0.30, 0.40, 0.56) * rim * (0.25 + 0.65 * uLight);
 
+  // 「ここに置いてね」の わっか
+  if (uSpot > 0.001) {
+    float rr = length(q) / uSpot;
+    float pulse = 0.55 + 0.45 * sin(uTime * 2.6);
+    float line = smoothstep(0.13, 0.0, abs(rr - 1.0));
+    float fill = smoothstep(1.0, 0.15, rr);
+    c += vec3(0.42, 0.55, 0.90) * (line * 0.55 + fill * 0.14) * pulse * inside;
+  }
+
   return c;
 }
 
@@ -117,7 +133,7 @@ vec3 lens(vec3 c, vec2 p) {
   float body = smoothstep(1.0 + aaw, 1.0 - aaw, r);
 
   // --- ガラスの下地 ---
-  vec3 col = mix(vec3(0.052, 0.058, 0.098), vec3(0.098, 0.112, 0.166),
+  vec3 col = mix(vec3(0.070, 0.078, 0.125), vec3(0.150, 0.170, 0.240),
                  clamp(d.y / R * 0.5 + 0.5, 0.0, 1.0));
 
   // --- 干渉のしま ---
@@ -130,7 +146,8 @@ vec3 lens(vec3 c, vec2 p) {
   float aa = smoothstep(0.46, 0.10, fpp);
 
   vec3 I = vec3(sinsq(ph), sinsq(ph * 1.18), sinsq(ph * 1.44));
-  I = mix(vec3(0.5), I, aa);
+  I = vivid(I, 1.55);
+  I = mix(vec3(0.20), I, aa);
   vec3 ring = I * vec3(1.06, 1.00, 1.10);
 
   // 外側ほど少し落とす + 点灯時に中心から広がる
@@ -138,7 +155,7 @@ vec3 lens(vec3 c, vec2 p) {
   float rev = smoothstep(uReveal, uReveal - 0.32, r);
   float mask = uLight * rev * env;
 
-  col += ring * mask * 1.55;
+  col += ring * mask * 1.32;
 
   // 接触面 (中央の黒い点) のふちを光らせる
   float cb = smoothstep(0.040, 0.0, abs(r - rc)) * step(0.015, rc);
@@ -147,31 +164,33 @@ vec3 lens(vec3 c, vec2 p) {
 
   // チャレンジの めやすの輪
   if (uGhostR > 0.001) {
-    float g = smoothstep(0.050, 0.006, abs(r - uGhostR));
+    float band = abs(r - uGhostR);
+    // まず虹に「みぞ」を彫る。そこへ点線を置くと、虹の上でも必ず見える。
+    col *= 1.0 - 0.82 * smoothstep(0.115, 0.028, band);
     float ang = atan(d.y, d.x);
-    float dash = smoothstep(0.42, 0.52, fract(ang * 2.55 + uTime * 0.16));
-    float pulse = 0.62 + 0.38 * sin(uTime * 3.4);
-    vec3 gc = mix(vec3(1.0, 0.98, 0.90), vec3(0.50, 1.0, 0.82), uGhostHit);
-    col += gc * g * dash * pulse * (0.55 + 0.95 * uGhostHit);
+    float dash = smoothstep(0.34, 0.50, fract(ang * 2.0 + uTime * 0.10));
+    float g = smoothstep(0.060, 0.018, band);
+    vec3 gc = mix(vec3(1.0, 0.97, 0.80), vec3(0.40, 1.0, 0.72), uGhostHit);
+    col += gc * g * dash * (1.05 + 1.30 * uGhostHit);
   }
 
   // いま広がっている輪の位置
   if (uRingR > 0.001) {
     float w = smoothstep(0.026, 0.0, abs(r - uRingR));
-    col += vec3(1.0) * w * 0.45 * uLight;
+    col += vec3(1.0) * w * 0.60 * uLight;
   }
 
   // ドームのてかり
   vec2 h1 = d / R - vec2(-0.30, 0.33);
-  col += vec3(1.0, 0.98, 0.94) * exp(-dot(h1, h1) * 6.5) * (0.14 + 0.42 * uLight);
+  col += vec3(1.0, 0.98, 0.94) * exp(-dot(h1, h1) * 9.0) * (0.22 + 0.20 * uLight);
   vec2 h2 = d / R - vec2(-0.43, 0.46);
-  col += vec3(1.0) * exp(-dot(h2, h2) * 95.0) * (0.35 + 0.65 * uLight);
+  col += vec3(1.0) * exp(-dot(h2, h2) * 95.0) * (0.55 + 0.45 * uLight);
 
   // ふち
-  col += vec3(0.45, 0.55, 0.78) * smoothstep(0.84, 1.0, r) * (0.22 + 0.45 * uLight);
-  col += vec3(0.85, 0.92, 1.0) * smoothstep(1.0 - aaw * 4.0, 1.0 - aaw, r) * 0.45;
+  col += vec3(0.45, 0.55, 0.78) * smoothstep(0.86, 1.0, r) * (0.26 + 0.20 * uLight);
+  col += vec3(0.85, 0.92, 1.0) * smoothstep(1.0 - aaw * 4.0, 1.0 - aaw, r) * 0.42;
 
-  col += vec3(1.0, 0.95, 0.98) * uFlash * 0.9;
+  col += vec3(1.0, 0.95, 0.98) * uFlash * 0.42;
 
   return mix(c, col, body);
 }

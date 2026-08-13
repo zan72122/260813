@@ -6,6 +6,9 @@ const fast = params.get('fast') === '1' || import.meta.env.VITE_E2E_FAST === '1'
 const test = params.get('test') === '1'
 const seed = Number(params.get('seed') ?? '12345') || 12345
 
+// テスト中は アニメーションを止めて、毎回おなじ絵・おなじ判定にする
+if (test) document.documentElement.classList.add('no-anim')
+
 const game = new Game({ fast, test, seed })
 
 // iOS の 2本指ズーム / ダブルタップズームを止める
