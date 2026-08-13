@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0908">
+<title>らでん きらきら</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23120f0c'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%23a8e6e0'/%3E%3Ccircle cx='27' cy='27' r='6' fill='%23e8c8f0'/%3E%3C/svg%3E">
+<style>
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0b0908;
+  touch-action:none;-webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none;overscroll-behavior:none}
+canvas{position:fixed;left:0;top:0;display:block}
+#fx{pointer-events:none}
+#nogl{display:none;position:fixed;inset:0;color:#d8cfc0;background:#0b0908;
+  font-family:sans-serif;text-align:center;padding-top:40vh}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="fx"></canvas>
+<div id="nogl">このブラウザでは遊べません（WebGLが必要です）</div>
+<script src="js/shapes.js"></script>
+<script src="js/shaders.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/overlay.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
