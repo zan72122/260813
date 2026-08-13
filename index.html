@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>にじいろ霧吹き</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#8fd3f4" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="description" content="ゆびで きりを ふいて にじを つくろう" />
+<link rel="stylesheet" href="./styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 26a12 12 0 0 1 24 0' fill='none' stroke='%23ff8a8a' stroke-width='3'/%3E%3Cpath d='M8 26a8 8 0 0 1 16 0' fill='none' stroke='%23ffd36e' stroke-width='3'/%3E%3Cpath d='M12 26a4 4 0 0 1 8 0' fill='none' stroke='%237ec8f0' stroke-width='3'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <canvas id="stage" aria-label="にじいろ霧吹き"></canvas>
+
+  <!-- ことばの読めない子でもわかるように、UIは絵だけ -->
+  <div id="ui">
+    <div id="hint" class="hint" aria-hidden="true">
+      <div class="hint-ring"></div>
+      <div class="hint-hand">
+        <svg viewBox="0 0 64 82" width="64" height="82" aria-hidden="true">
+          <path d="M20 52V20a6 6 0 0 1 12 0v18V12a6 6 0 0 1 12 0v26V22a6 6 0 0 1 11 0v34c0 14-9 24-22 24S20 70 20 60l-9-14a6 6 0 0 1 10-6z"
+                fill="#fffdf6" stroke="#5b4a3a" stroke-width="3" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="hint-sweep">
+        <span class="arrow left">◀</span><span class="dots">• • •</span><span class="arrow right">▶</span>
+      </div>
+    </div>
+
+    <button id="again" class="again" type="button" aria-label="もういちど">
+      <svg viewBox="0 0 72 72" width="46" height="46" aria-hidden="true">
+        <path d="M10 46a26 26 0 0 1 52 0" fill="none" stroke="#ff8d8d" stroke-width="7" stroke-linecap="round"/>
+        <path d="M19 46a17 17 0 0 1 34 0" fill="none" stroke="#ffd06b" stroke-width="7" stroke-linecap="round"/>
+        <path d="M28 46a8 8 0 0 1 16 0" fill="none" stroke="#7fc9ef" stroke-width="7" stroke-linecap="round"/>
+        <circle cx="58" cy="20" r="6" fill="#fff"/>
+        <circle cx="14" cy="17" r="4" fill="#fff"/>
+      </svg>
+    </button>
+
+    <button id="sound" class="sound" type="button" aria-label="おと">
+      <svg viewBox="0 0 48 48" width="26" height="26" aria-hidden="true">
+        <path d="M10 19h8l10-8v26l-10-8h-8z" fill="#fff"/>
+        <path class="wave" d="M33 17a11 11 0 0 1 0 14M38 12a18 18 0 0 1 0 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
+        <path class="slash" d="M12 12l24 24" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0"/>
+      </svg>
+    </button>
+
+    <div id="debug" class="debug" hidden></div>
+  </div>
+
+  <noscript><p style="color:#fff;font-family:sans-serif;padding:2em">JavaScript をオンにしてください。</p></noscript>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
