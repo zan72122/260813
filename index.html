@@ -28,6 +28,9 @@
     top: 0; left: 0;
     width: 100%; height: 100%;
     display: block;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
   #gl { z-index: 0; }
   #ui { z-index: 1; }
@@ -1396,7 +1399,7 @@ function drawResearcher(c, s, night) {
 }
 
 function drawLantern(c, lx, ly, s) {
-  const glow = S.lantern.glow * (S.lantern.on ? (1 - S.lantern.dim*0.75) : 1) * (S.lantern.on || S.lantern.glow > 0 ? 1 : 0);
+  const glow = S.lantern.glow;
   const lw = s*0.46, lh = s*0.60;
   c.save();
   c.translate(lx, ly + Math.sin(S.time*1.4)*2);
