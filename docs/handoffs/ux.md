@@ -249,3 +249,87 @@ src/styles/animations.css     keyframes (all reduced-motion-aware)
 src/styles/components.css     every screen/widget's visual language
 src/styles/layout.css         orientation-specific spacing beyond components.css
 ```
+
+## Visual repair round (VISUAL ACCEPTANCE fixes)
+
+Two accepted visual defects fixed, `src/styles/components.css` only — no
+other file in my exclusive paths changed.
+
+### U1 — title screen hid the 3D scene (MEDIUM)
+
+`.screen-title` used a fully opaque top-to-bottom iron gradient, so the
+tower/crane behind it (PRODUCT_SPEC row `title`: "塔+クレーン+大きな▶レバー")
+never showed. Reworked to:
+
+- `.screen-title` background is now two stacked, mostly-transparent
+  gradients: a radial vignette (transparent through ~42% of the distance
+  to the farthest corner, darkening toward the corners) plus a thin
+  top/bottom linear scrim band. The center ~50% of the frame is
+  essentially untouched — the scene reads clearly through it.
+- Layout switched from `flex-direction:column; gap:...` centered as one
+  block to `justify-content: space-between` with exactly two children:
+  the logotype (top) and `.title-plate`/start lever (bottom). This holds
+  in every orientation now — the old landscape media query that flipped
+  `.screen-title` to a left/right row (`flex-direction:row;
+  justify-content:space-evenly`) was removed since column top/bottom reads
+  correctly at all 4 target viewports without it (verified in
+  screenshots below).
+- `.logotype` is now a compact plaque (own translucent rounded backdrop,
+  smaller clamp() font range, `pointer-events:none` since it's decorative
+  and must never be the thing that eats a child's tap) instead of a bare
+  full-size text block. `max-width` switched from `ch` units (calibrated
+  against latin digit width, which under-measures full-width
+  kana/kanji and wrapped the title mid-word — "エッフェル塔をのぼ / る" —
+  on wider viewports) to `em`, sized to the actual glyph run.
+- `title-plate` (the brass lever button) itself is unchanged — already
+  well above the 72px hit-area minimum and it was already legible against
+  the (now transparent) scene thanks to its existing strong drop shadow /
+  inset highlight.
+- Verified with a throwaway Playwright script at all 4 QA viewports
+  (390×844, 844×390, 820×1180, 1180×820) via `?test=1&seed=42` +
+  `window.__game.setPhase('title')`: tower, crane, workers and the Paris
+  skyline are all clearly visible behind the title in every shot; the
+  lever stays lower-center and fully on-screen; the logotype stays a
+  single line and never overlaps the lever.
+
+### U2 — error-fallback pictogram (LOW)
+
+The generic distressed-face-reading SVG (circle + vertical stroke + dot,
+built as an exclamation/warning glyph) is inline markup created by
+`showErrorOverlay()` in `src/app/index.ts` — Integrator-owned, frozen, and
+outside my exclusive paths (`src/ui/**`, `src/audio/**`, `src/styles/**`),
+so I could not edit that string directly. Fixed it visually instead,
+entirely from my own paths:
+
+- `[data-testid='error-fallback'] svg { display: none; }` hides the old
+  glyph without touching its markup.
+- A new `[data-testid='error-fallback']::before` pseudo-element paints a
+  small procedural "drooping crane + steam puff" pictogram as an inline
+  SVG data-URI background (brass mast/boom, iron hook, three overlapping
+  steam-puff circles in paper tone) — on-theme with the rest of the game's
+  iron/brass/paper palette, no raster assets.
+- `data-testid="error-fallback"` and the reload `<button>` (still created
+  and wired by `app/index.ts`) are untouched, so reload behavior is
+  unaffected.
+- Verified by dispatching a synthetic `window` `error` event in the same
+  throwaway Playwright harness (this is how `installErrorOverlay()` in
+  `app/index.ts` triggers `showErrorOverlay()`) at all 4 viewports: the
+  crane-with-steam pictogram renders above the reload button, correctly
+  sized and centered, no distressed-face artifact left.
+
+### Verification run for this round
+
+- `npx tsc --noEmit` — clean.
+- `npx eslint src/ui src/audio` — clean (`src/styles` is CSS-only and not
+  part of the eslint glob, same as before this round).
+- `npx vitest run src/ui src/audio` — 41/41 passing, unchanged (this round
+  was CSS-only, no unit-testable logic touched).
+- `npx vite build` + `vite preview` + throwaway Playwright screenshots at
+  390×844 / 844×390 / 820×1180 / 1180×820 for both the `title` phase and
+  the error-fallback overlay — all visually reviewed with the Read tool.
+- `npx playwright test full-loop --project=phone-portrait` — 2/2 passing
+  (title → opening → … → complete gesture loop, and the replay/playRivet/
+  playClimb loop from complete), zero console errors. No anchor geometry
+  was touched this round (CSS-only), so no anchors() re-check was needed
+  beyond what this E2E run already exercises.
+```
