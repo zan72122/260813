@@ -1,8 +1,11 @@
+import { PITCH_MAX, PITCH_MIN } from '../core/field';
+
 /**
  * The card is drawn as a single quad rotated in 3D. The fragment shader fakes a
- * security hologram: an angle-dependent diffraction rainbow, a directional
- * highlight that sweeps across the foil, micro-glints, and a hidden emblem that
- * parallaxes and flips between bright and dark as the card turns.
+ * security hologram: an angle-dependent diffraction rainbow whose grooves run
+ * whichever way the child rolled them, a directional highlight that sweeps
+ * across the foil, micro-glints, a four-frame kinegram that plays as the card
+ * turns, and a UV lamp mode that reveals invisible ink.
  *
  * None of this is real holography - it just has to feel like the sticker on a
  * passport when a 4-year-old tips it toward the light.
@@ -62,44 +65,24 @@ out vec4 outColor;
 uniform sampler2D uBase;      // card artwork, alpha = rounded corners
 uniform sampler2D uRelief;    // R = emboss height, G = decorative shape mask
 uniform sampler2D uFoil;      // R = foil coverage painted by the roller
-uniform sampler2D uHidden;    // R = secret picture mask
+uniform sampler2D uField;     // RG = director (cos2t, sin2t), B = ruling pitch
+uniform sampler2D uKine;      // 2x2 atlas of the secret picture's four frames
 
 uniform float uEmboss;        // 0..1, how deeply the micro-pattern is pressed
 uniform float uTime;
-uniform int   uPattern;       // 0 burst, 1 rings, 2 diagonal
 uniform float uQuality;       // 1 = full, 0 = reduced (E2E / low power)
 uniform float uReveal;        // 0..1 extra shine on the finished card
+uniform float uUvMode;        // 0..1 blend into the UV lamp view
+uniform vec3  uLight;         // uv.xy of the lamp, z = radius
 
 const float TAU = 6.28318530718;
+const float PITCH_MIN = ${PITCH_MIN.toFixed(1)};
+const float PITCH_MAX = ${PITCH_MAX.toFixed(1)};
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
   p += dot(p, p + 45.32);
   return fract(p.x * p.y);
-}
-
-// Spatial phase of the ruling plus the in-plane grating vector.
-// The phase must advance by a whole number of cycles around any seam,
-// otherwise a hard colour break shows up.
-void grating(vec2 uv, out float phase, out vec2 dir) {
-  vec2 d = uv - 0.5;
-  d.x *= 0.7;                       // card is taller than wide - keep rings round
-  float r = length(d);
-  float a = atan(d.y, d.x);
-
-  // Chunky rulings on purpose: bold bands read as "rainbow" to a small child,
-  // where a fine grating just shimmers into grey.
-  if (uPattern == 0) {
-    phase = a * (16.0 / TAU) + r * 6.0;
-    dir = normalize(vec2(-d.y, d.x) + 1e-5);
-  } else if (uPattern == 1) {
-    phase = r * 30.0;
-    dir = normalize(d + 1e-5);
-  } else {
-    vec2 g = normalize(vec2(0.62, 0.78));
-    phase = dot(uv, g) * 22.0;
-    dir = g;
-  }
 }
 
 void main() {
@@ -135,23 +118,34 @@ void main() {
 
   vec3 col = base.rgb * (0.84 + 0.3 * diff) + vec3(spec) * 0.4 * relief;
 
-  // ---- diffraction rainbow --------------------------------------------
-  float phase;
-  vec2 gdir;
-  grating(vUv, phase, gdir);
+  // ---- the ruling the child rolled ------------------------------------
+  // The field stores the groove direction as a doubled angle, because a groove
+  // is an axis and not an arrow. The blended length is the local coherence:
+  // strokes that agree give a crisp grating, crossed strokes give silver.
+  vec3 fld = texture(uField, vUv).rgb;
+  vec2 dbl = fld.rg * 2.0 - 1.0;
+  float coh = clamp(length(dbl), 0.0, 1.0);
+  vec2 axis = dbl / max(length(dbl), 1e-3);
+  float theta = 0.5 * atan(axis.y, axis.x);
+  vec2 gdir = vec2(cos(theta), sin(theta));
+  float pitch = mix(PITCH_MIN, PITCH_MAX, fld.b);
 
-  float order = phase + dot(ev, gdir) * 5.5;
+  // Recovering the axis leaves gdir's sign arbitrary, so 'order' may flip sign
+  // from pixel to pixel. That is harmless as long as it is only ever consumed
+  // by cosines, which are even - so never put it in an odd function, and
+  // never add a phase offset to it.
+  float order = dot(vUv - 0.5, gdir) * pitch + dot(ev, gdir) * 5.5;
 
-  // Once the ruling gets finer than a pixel the fringes alias into muddy moire.
-  // Fading them toward neutral silver is both stable and physically right:
-  // a grating you cannot resolve just reflects white light.
-  float aa = clamp(1.0 - fwidth(order) * 1.15, 0.0, 1.0);
+  // Bands-per-pixel, estimated from the ruling rather than from fwidth(order):
+  // order jumps across the curve where the axis flips sign, and fwidth would
+  // read that as infinite frequency and paint a false seam along it.
+  float pxUv = max(fwidth(vUv.x), fwidth(vUv.y));
+  float aa = clamp(1.0 - pitch * pxUv * 2.4, 0.0, 1.0) * smoothstep(0.05, 0.32, coh);
 
   // Each channel stands in for a wavelength, and they diffract at slightly
   // different rates. That drift is what smears white light into a spectrum -
   // tinting one shared band envelope only ever yields two alternating hues.
-  vec3 orders = order * vec3(1.0, 1.13, 1.28) + uTime * 0.01;
-  vec3 fringes = pow(0.5 + 0.5 * cos(TAU * orders), vec3(1.55));
+  vec3 fringes = pow(0.5 + 0.5 * cos(TAU * order * vec3(1.0, 1.13, 1.28)), vec3(1.55));
   fringes = mix(vec3(0.42), fringes, aa);
   float bandLum = dot(fringes, vec3(0.3333));
 
@@ -162,6 +156,8 @@ void main() {
 
   // Individual foil facets catching the light. Each cell holds one round
   // sparkle at a random spot - flashing whole cells reads as blocky noise.
+  // Incoherent, scribbled areas sparkle harder, which is what makes a scribble
+  // read as glitter rather than as a mistake.
   float glint = 0.0;
   if (uQuality > 0.5) {
     vec2 gscale = vec2(24.0, 34.0);   // ~square cells given the card's aspect
@@ -173,23 +169,26 @@ void main() {
     float dot0 = smoothstep(0.32, 0.02, length(f - pt));
     vec2 gd = normalize(vec2(hash21(cell + 3.1) - 0.5, hash21(cell + 7.7) - 0.5) + 1e-4);
     float sp = dot(ev, gd) * 5.0 + h1 * TAU + uTime * 0.4;
-    glint = dot0 * pow(max(cos(sp), 0.0), 40.0);
+    glint = dot0 * pow(max(cos(sp), 0.0), 40.0) * (0.55 + 0.9 * (1.0 - coh));
   }
 
-  // ---- hidden picture --------------------------------------------------
-  // Parallax shift plus a tilt window: bright on one side, dark on the other.
-  vec2 hidUv = clamp(vUv + ev * 0.05, 0.0, 1.0);
-  float hid = texture(uHidden, hidUv).r;
-  vec2 hidDir = normalize(vec2(0.7, 0.72));
-  float hidMix = smoothstep(0.08, 0.5, dot(ev, hidDir))
-               - smoothstep(0.08, 0.5, dot(-ev, hidDir)) * 0.9;
+  // ---- kinegram --------------------------------------------------------
+  // Tilting left to right steps the frames; tilting up and down swings the
+  // picture between glowing and sunk-dark, the way a real switch effect does.
+  float fsel = clamp(ev.x * 0.8 + 0.5, 0.0, 0.9999);
+  float fi = floor(fsel * 4.0);
+  vec2 quad = vec2(mod(fi, 2.0), floor(fi * 0.5));
+  vec2 kuv = clamp(vUv + ev * 0.05, 0.004, 0.996);
+  float hid = texture(uKine, (quad + kuv) * 0.5).r;
+
+  float appear = smoothstep(0.04, 0.38, length(ev));
+  float pol = clamp(ev.y * 2.4, -1.0, 1.0);
+  float hidMix = appear * (0.35 + 0.65 * max(pol, 0.0) - 1.2 * max(-pol, 0.0));
 
   // ---- composite -------------------------------------------------------
   float lit = 0.5 + 0.5 * smoothstep(0.0, 0.8, length(ev));
 
-  // Near-black gaps between the fringes are what make this read as a ruled
-  // grating rather than a pastel wash.
-  vec3 holo = (0.05 + 0.95 * fringes) * (0.72 + 0.28 * shape) * (0.55 + 0.55 * lit);
+  vec3 holo = (0.04 + 1.05 * fringes) * (0.72 + 0.28 * shape) * (0.55 + 0.55 * lit);
   holo += vec3(1.0, 0.98, 0.92) * sweep * 0.3;
   holo += vec3(1.0) * glint * 0.9;
 
@@ -199,9 +198,9 @@ void main() {
   // to stay recognisable underneath, or the child loses the card they picked.
   // Letting it show through the dark gaps keeps the fringes saturated, and the
   // artwork peeks in and out as the bands travel.
-  vec3 underArt = base.rgb * 0.75 * (1.0 - 0.8 * bandLum);
+  vec3 underArt = base.rgb * 0.62 * (1.0 - 0.85 * bandLum);
   vec3 foilCol = underArt + foilSilver * 0.5 + holo;
-  foilCol += fringes.zyx * hid * hidMix * 0.8;
+  foilCol += fringes.zyx * hid * hidMix * 0.9;
   foilCol *= 1.0 + 0.18 * uReveal;
 
   // Filmic roll-off. Additive shine stacks well past 1.0 wherever a band peak
@@ -219,6 +218,23 @@ void main() {
   vec2 q = abs(vUv - 0.5) * 2.0;
   float edge = smoothstep(0.9, 1.0, max(q.x, q.y));
   col += vec3(1.0) * edge * 0.12 * (0.4 + 0.6 * sweep);
+
+  // ---- secret lamp ------------------------------------------------------
+  // Security documents carry ink that only shows under UV. Here the ink is the
+  // child's own rolled path, so their handiwork comes back a second way.
+  if (uUvMode > 0.001) {
+    vec2 dl = (vUv - uLight.xy) * vec2(0.7, 1.0);
+    float lamp = smoothstep(uLight.z, uLight.z * 0.18, length(dl));
+    float ink = smoothstep(0.12, 0.55, texture(uFoil, vUv).r) * 0.8
+              + shape * 0.7
+              + hid * 0.45;
+    ink *= patchMask;
+    vec3 glow = mix(vec3(0.3, 0.62, 1.0), vec3(0.85, 0.45, 1.0), clamp(ink, 0.0, 1.0));
+    vec3 uvCol = base.rgb * 0.07
+               + glow * clamp(ink, 0.0, 1.4) * lamp * 1.35
+               + vec3(0.06, 0.08, 0.2) * lamp * 0.6;
+    col = mix(col, uvCol, uUvMode);
+  }
 
   outColor = vec4(clamp(col, 0.0, 1.0), base.a);
 }

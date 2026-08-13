@@ -2,8 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * One full trip through the factory, driven the way a child would drive it
- * (taps and drags), plus a check that tilting the finished card really does
- * change the pixels - that being the whole point of the game.
+ * (taps and drags), plus the checks that matter most: tilting the finished card
+ * really changes the pixels, and two different rolls really make two different
+ * cards.
  *
  * `?fast=1` drops to dpr 1 and disables the glint noise and confetti so this
  * stays cheap under SwiftShader. Nothing here judges visual quality.
@@ -12,10 +13,13 @@ import { expect, test, type Page } from '@playwright/test';
 interface DebugState {
   phase: string;
   card: number;
-  pattern: number;
+  motif: number;
   presses: number;
+  points: number;
   emboss: number;
   coverage: number;
+  uv: boolean;
+  albumCount: number;
   rect: { x: number; y: number; w: number; h: number };
 }
 
@@ -24,11 +28,19 @@ declare global {
     __GAME__: {
       ready: boolean;
       state(): DebugState;
+      start(): void;
+      chooseCard(i: number): void;
+      chooseStamp(i: number): void;
+      press(u?: number, v?: number): void;
+      stroke(points: [number, number][], pitch?: number): void;
+      fillFoil(): void;
+      finishFoil(): void;
+      toggleUv(): void;
+      openAlbum(): void;
       tilt(x: number, y: number): void;
       releaseTilt(): void;
       sample(): [number, number, number];
-      press(): void;
-      fillFoil(): void;
+      pixels(): number[];
     };
   }
 }
@@ -48,6 +60,45 @@ async function boot(page: Page): Promise<void> {
 // child, so click through it.
 const tap = (page: Page, selector: string) => page.locator(selector).click({ force: true });
 
+/** Build a card with a given roll and return the card's pixels. */
+async function buildCard(
+  page: Page,
+  card: number,
+  motif: number,
+  stamps: [number, number][],
+  roll: [number, number][],
+): Promise<number[]> {
+  await page.evaluate(() => window.__GAME__.start());
+  await page.evaluate((i) => window.__GAME__.chooseCard(i), card);
+  await page.evaluate((i) => window.__GAME__.chooseStamp(i), motif);
+  await page.evaluate((pts) => {
+    for (const [u, v] of pts) window.__GAME__.press(u, v);
+  }, stamps);
+  await expect.poll(async () => (await state(page)).phase, { timeout: 6000 }).toBe('foil');
+  await page.evaluate((pts) => window.__GAME__.stroke(pts), roll);
+  await page.evaluate(() => window.__GAME__.tilt(0.45, -0.2));
+  return page.evaluate(() => {
+    // let the damped tilt settle, then read the pixels back
+    for (let i = 0; i < 50; i++) window.__GAME__.sample();
+    return window.__GAME__.pixels();
+  });
+}
+
+function meanChannelDelta(a: number[], b: number[]): number {
+  expect(a.length).toBe(b.length);
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+  }
+  return sum / (a.length / 4) / 3;
+}
+
+const LINE = (from: [number, number], to: [number, number], n = 40): [number, number][] =>
+  Array.from({ length: n + 1 }, (_, i) => [
+    from[0] + ((to[0] - from[0]) * i) / n,
+    from[1] + ((to[1] - from[1]) * i) / n,
+  ]);
+
 test('a whole card gets made, and tilting it changes what is on screen', async ({ page }) => {
   await boot(page);
   expect((await state(page)).phase).toBe('title');
@@ -56,65 +107,77 @@ test('a whole card gets made, and tilting it changes what is on screen', async (
   await expect.poll(async () => (await state(page)).phase).toBe('pickCard');
 
   await tap(page, '[data-card="1"]');
-  await expect.poll(async () => (await state(page)).phase).toBe('pickPattern');
+  await expect.poll(async () => (await state(page)).phase).toBe('pickStamp');
   expect((await state(page)).card).toBe(1);
 
-  await tap(page, '[data-pattern="2"]');
+  await tap(page, '[data-stamp="2"]');
   await expect.poll(async () => (await state(page)).phase).toBe('press');
-  expect((await state(page)).pattern).toBe(2);
+  expect((await state(page)).motif).toBe(2);
 
-  // --- press the micro-pattern in by tapping the card ---
+  // --- press the micro-pattern in by tapping three different spots ---
   const before = await state(page);
   expect(before.emboss).toBeLessThan(0.1);
-  for (let i = 0; i < 3; i++) {
-    await page.mouse.click(before.rect.x, before.rect.y);
+  for (const [u, v] of [
+    [0.35, 0.3],
+    [0.66, 0.5],
+    [0.42, 0.74],
+  ]) {
+    await page.mouse.click(
+      before.rect.x + (u - 0.5) * before.rect.w,
+      before.rect.y + (v - 0.5) * before.rect.h,
+    );
     await page.waitForTimeout(250);
   }
   await expect.poll(async () => (await state(page)).presses).toBe(3);
   await expect.poll(async () => (await state(page)).emboss, { timeout: 5000 }).toBeGreaterThan(0.9);
 
   // --- roll the foil on with a single continuous drag ---
-  await expect.poll(async () => (await state(page)).phase, { timeout: 5000 }).toBe('foil');
-  const card = (await state(page)).rect;
-  const left = card.x - card.w * 0.4;
-  const right = card.x + card.w * 0.4;
-  const top = card.y - card.h * 0.42;
-  const bottom = card.y + card.h * 0.42;
+  await expect.poll(async () => (await state(page)).phase, { timeout: 6000 }).toBe('foil');
+  await expect(page.locator('[data-action="done"]')).toBeHidden();
 
-  await page.mouse.move(left, top);
+  const card = (await state(page)).rect;
+  const px = (u: number, v: number): [number, number] => [
+    card.x + (u - 0.5) * card.w,
+    card.y + (v - 0.5) * card.h,
+  ];
+  await page.mouse.move(...px(0.12, 0.15));
   await page.mouse.down();
-  for (let r = 0; r < 8; r++) {
-    const y = top + ((bottom - top) * r) / 7;
-    const [a, b] = r % 2 === 0 ? [left, right] : [right, left];
-    await page.mouse.move(a, y, { steps: 3 });
-    await page.mouse.move(b, y, { steps: 12 });
+  for (let r = 0; r < 7; r++) {
+    const v = 0.15 + (r / 6) * 0.7;
+    const [a, b] = r % 2 === 0 ? [0.12, 0.88] : [0.88, 0.12];
+    await page.mouse.move(...px(a, v), { steps: 3 });
+    await page.mouse.move(...px(b, v), { steps: 14 });
   }
   await page.mouse.up();
 
-  // --- the finished card ---
-  await expect.poll(async () => (await state(page)).phase, { timeout: 15000 }).toBe('finish');
-  expect((await state(page)).coverage).toBeGreaterThan(0.6);
+  const rolled = await state(page);
+  expect(rolled.points, 'the roll must be recorded, not thrown away').toBeGreaterThan(20);
+  expect(rolled.coverage).toBeGreaterThan(0.1);
+
+  // --- the child decides when it is finished ---
+  await expect(page.locator('[data-action="done"]')).toBeVisible();
+  await tap(page, '[data-action="done"]');
+  await expect.poll(async () => (await state(page)).phase, { timeout: 8000 }).toBe('finish');
   await expect(page.locator('[data-action="again"]')).toBeVisible();
 
-  // Tilting has to visibly change the card, not just the numbers.
-  const sampleAt = (tx: number, ty: number) =>
+  // Tilting has to visibly change the card. Compared per pixel, not on the
+  // average: averaging a travelling rainbow over the whole card comes out
+  // almost constant however far the bands actually move.
+  const pixelsAt = (tx: number, ty: number) =>
     page.evaluate(
       ([x, y]) => {
         window.__GAME__.tilt(x, y);
-        // let the damped tilt settle, then read the pixels back
         for (let i = 0; i < 60; i++) window.__GAME__.sample();
-        return window.__GAME__.sample();
+        return window.__GAME__.pixels();
       },
       [tx, ty],
     );
-
-  const leftTilt = await sampleAt(-0.9, 0.1);
-  const rightTilt = await sampleAt(0.9, -0.1);
-  const delta =
-    Math.abs(leftTilt[0] - rightTilt[0]) +
-    Math.abs(leftTilt[1] - rightTilt[1]) +
-    Math.abs(leftTilt[2] - rightTilt[2]);
-  expect(delta, 'tilting the card must change its colour').toBeGreaterThan(12);
+  const leftTilt = await pixelsAt(-0.9, 0.1);
+  const rightTilt = await pixelsAt(0.9, -0.1);
+  expect(
+    meanChannelDelta(leftTilt, rightTilt),
+    'tilting the card must change what is on screen',
+  ).toBeGreaterThan(8);
 
   // --- and it must be instantly replayable ---
   await page.evaluate(() => window.__GAME__.releaseTilt());
@@ -124,40 +187,125 @@ test('a whole card gets made, and tilting it changes what is on screen', async (
   expect((await state(page)).coverage).toBe(0);
 });
 
-test('every base card and every pattern can be chosen', async ({ page }) => {
+test('the same choices with a different roll make a different card', async ({ page }) => {
+  await boot(page);
+  const stamps: [number, number][] = [
+    [0.5, 0.32],
+    [0.5, 0.52],
+    [0.5, 0.72],
+  ];
+
+  // Identical card, identical stamps, identical press head - only the direction
+  // the foil was rolled in differs. That has to be enough to tell them apart.
+  const across = await buildCard(page, 0, 0, stamps, LINE([0.08, 0.5], [0.92, 0.5]));
+  const down = await buildCard(page, 0, 0, stamps, LINE([0.5, 0.08], [0.5, 0.92]));
+  expect(
+    meanChannelDelta(across, down),
+    'rolling across vs down must not produce the same card',
+  ).toBeGreaterThan(4);
+
+  // ...and rolling the very same path twice must reproduce it exactly, or the
+  // album could not restore what the child made.
+  const againA = await buildCard(page, 0, 0, stamps, LINE([0.08, 0.5], [0.92, 0.5]));
+  expect(meanChannelDelta(across, againA), 'the same roll must be reproducible').toBeLessThan(1);
+});
+
+test('every base card and every press head can be chosen', async ({ page }) => {
   await boot(page);
   await tap(page, '#screen-title .big-btn');
 
   for (const card of [0, 1, 2]) {
-    for (const pattern of [0, 1, 2]) {
+    for (const motif of [0, 1, 2]) {
       await expect.poll(async () => (await state(page)).phase).toBe('pickCard');
       await tap(page, `[data-card="${card}"]`);
-      await tap(page, `[data-pattern="${pattern}"]`);
+      await tap(page, `[data-stamp="${motif}"]`);
       await expect.poll(async () => (await state(page)).phase).toBe('press');
 
       const s = await state(page);
       expect(s.card).toBe(card);
-      expect(s.pattern).toBe(pattern);
+      expect(s.motif).toBe(motif);
 
-      // shortcut the making so this stays a coverage check, not nine playthroughs
       await page.evaluate(() => {
-        window.__GAME__.press();
-        window.__GAME__.press();
-        window.__GAME__.press();
+        window.__GAME__.press(0.4, 0.35);
+        window.__GAME__.press(0.6, 0.55);
+        window.__GAME__.press(0.45, 0.75);
       });
-      await expect.poll(async () => (await state(page)).phase, { timeout: 5000 }).toBe('foil');
+      await expect.poll(async () => (await state(page)).phase, { timeout: 6000 }).toBe('foil');
       await page.evaluate(() => window.__GAME__.fillFoil());
-      await expect.poll(async () => (await state(page)).phase, { timeout: 5000 }).toBe('finish');
+      await expect.poll(async () => (await state(page)).phase, { timeout: 6000 }).toBe('finish');
       await tap(page, '[data-action="again"]');
     }
   }
+});
+
+test('finished cards land on the shelf and can be opened again', async ({ page }) => {
+  await boot(page);
+  const stamps: [number, number][] = [
+    [0.4, 0.35],
+    [0.6, 0.6],
+    [0.45, 0.78],
+  ];
+  await buildCard(page, 2, 1, stamps, LINE([0.1, 0.2], [0.9, 0.8]));
+  await page.evaluate(() => window.__GAME__.finishFoil());
+  await expect.poll(async () => (await state(page)).phase, { timeout: 8000 }).toBe('finish');
+  await expect.poll(async () => (await state(page)).albumCount).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__GAME__.openAlbum());
+  await expect.poll(async () => (await state(page)).phase).toBe('album');
+  const items = page.locator('[data-album-item]');
+  await expect(items.first()).toBeVisible();
+
+  await items.first().click({ force: true });
+  await expect.poll(async () => (await state(page)).phase, { timeout: 8000 }).toBe('finish');
+  expect((await state(page)).card).toBe(2);
+
+  // The shelf survives a reload, because it stores the materials, not a picture.
+  const beforeReload = (await state(page)).albumCount;
+  await page.reload();
+  await page.waitForFunction(() => window.__GAME__?.ready === true);
+  await page.evaluate(() => window.__GAME__.openAlbum());
+  expect((await state(page)).albumCount).toBe(beforeReload);
+});
+
+test('the secret lamp turns on and off', async ({ page }) => {
+  await boot(page);
+  await buildCard(
+    page,
+    0,
+    0,
+    [
+      [0.4, 0.4],
+      [0.6, 0.6],
+      [0.5, 0.75],
+    ],
+    LINE([0.1, 0.5], [0.9, 0.5]),
+  );
+  await page.evaluate(() => window.__GAME__.finishFoil());
+  await expect.poll(async () => (await state(page)).phase, { timeout: 8000 }).toBe('finish');
+
+  const lit = await page.evaluate(() => {
+    for (let i = 0; i < 40; i++) window.__GAME__.sample();
+    return window.__GAME__.sample();
+  });
+  await tap(page, '.screen.is-active [data-action="uv"]');
+  await expect.poll(async () => (await state(page)).uv).toBe(true);
+  const dark = await page.evaluate(() => {
+    for (let i = 0; i < 60; i++) window.__GAME__.sample();
+    return window.__GAME__.sample();
+  });
+  expect(dark[0] + dark[1] + dark[2], 'the lamp view must be darker').toBeLessThan(
+    lit[0] + lit[1] + lit[2],
+  );
+
+  await tap(page, '.screen.is-active [data-action="uv"]');
+  await expect.poll(async () => (await state(page)).uv).toBe(false);
 });
 
 test('the card stays on screen when the device is rotated', async ({ page }) => {
   await boot(page);
   await tap(page, '#screen-title .big-btn');
   await tap(page, '[data-card="0"]');
-  await tap(page, '[data-pattern="0"]');
+  await tap(page, '[data-stamp="0"]');
   await expect.poll(async () => (await state(page)).phase).toBe('press');
 
   for (const size of [

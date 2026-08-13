@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   FOIL_TARGET,
+  MIN_FOIL_TO_FINISH,
   PHASE_ORDER,
   PRESS_TARGET,
   Phase,
+  canFinishFoil,
   embossFor,
-  emptyBuild,
-  foilDone,
   foilProgress,
   nextPhase,
   showsCard,
 } from '../../src/game/flow';
 
 describe('phase order', () => {
-  it('walks title -> pickCard -> pickPattern -> press -> foil -> finish', () => {
+  it('walks title -> pickCard -> pickStamp -> press -> foil -> finish', () => {
     let p: Phase = 'title';
     const seen: Phase[] = [p];
     for (let i = 0; i < PHASE_ORDER.length - 1; i++) {
@@ -27,13 +27,19 @@ describe('phase order', () => {
     expect(nextPhase('finish')).toBe('pickCard');
   });
 
-  it('shows the 3D card everywhere except the picker screens', () => {
+  it('keeps the album out of the making order', () => {
+    expect(PHASE_ORDER).not.toContain('album');
+    expect(nextPhase('album')).toBe('pickCard');
+  });
+
+  it('shows the 3D card everywhere except the picker and shelf screens', () => {
     expect(showsCard('title')).toBe(true);
     expect(showsCard('press')).toBe(true);
     expect(showsCard('foil')).toBe(true);
     expect(showsCard('finish')).toBe(true);
     expect(showsCard('pickCard')).toBe(false);
-    expect(showsCard('pickPattern')).toBe(false);
+    expect(showsCard('pickStamp')).toBe(false);
+    expect(showsCard('album')).toBe(false);
   });
 });
 
@@ -56,32 +62,20 @@ describe('emboss', () => {
 });
 
 describe('foil', () => {
-  it('reports progress against the target and clamps at 1', () => {
+  it('reports pip progress against the target and clamps at 1', () => {
     expect(foilProgress(0)).toBe(0);
     expect(foilProgress(FOIL_TARGET)).toBe(1);
     expect(foilProgress(1)).toBe(1);
     expect(foilProgress(FOIL_TARGET / 2)).toBeCloseTo(0.5, 5);
   });
 
-  it('is done only once the target is reached', () => {
-    expect(foilDone(FOIL_TARGET - 0.01)).toBe(false);
-    expect(foilDone(FOIL_TARGET)).toBe(true);
+  it('lets the child finish long before the pips are full - stopping early is a style', () => {
+    expect(canFinishFoil(0)).toBe(false);
+    expect(canFinishFoil(MIN_FOIL_TO_FINISH)).toBe(true);
+    expect(MIN_FOIL_TO_FINISH).toBeLessThan(FOIL_TARGET / 2);
   });
 
-  it('leaves enough of the card to still be worth rolling', () => {
-    expect(FOIL_TARGET).toBeGreaterThan(0.5);
-    expect(FOIL_TARGET).toBeLessThan(1);
-  });
-});
-
-describe('emptyBuild', () => {
-  it('starts from the first card, first pattern, nothing pressed', () => {
-    expect(emptyBuild()).toEqual({ card: 0, pattern: 0, presses: 0 });
-  });
-
-  it('returns a fresh object each time', () => {
-    const a = emptyBuild();
-    a.presses = 3;
-    expect(emptyBuild().presses).toBe(0);
+  it('never forces a finish: the threshold only gates the button', () => {
+    expect(canFinishFoil(1)).toBe(true);
   });
 });

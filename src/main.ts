@@ -22,15 +22,17 @@ if (!canvas) {
       state: () => game.debugState(),
       start: () => game.startRun(),
       chooseCard: (i: number) => game.chooseCard(i),
-      choosePattern: (i: number) => game.choosePattern(i),
-      press: () => {
-        const s = game.debugState().rect as { x: number; y: number };
-        game.doPress(s.x, s.y);
-      },
+      chooseStamp: (i: number) => game.chooseStamp(i),
+      press: (u?: number, v?: number) => game.debugPress(u, v),
+      stroke: (pts: [number, number][], pitch?: number) => game.debugStroke(pts, pitch),
       fillFoil: () => game.fillFoil(),
+      finishFoil: () => game.finishFoil(),
+      toggleUv: () => game.toggleUv(),
+      openAlbum: () => game.openAlbum(),
       tilt: (x: number, y: number) => game.debugTilt(x, y),
       releaseTilt: () => game.debugReleaseTilt(),
       sample: () => game.debugSample(),
+      pixels: () => game.debugPixels(),
       layout: () => game.layout(),
     };
   } catch (e) {

@@ -1,7 +1,14 @@
 import { CARD_THEMES, renderCard, renderCardThumb } from '../art/cards';
-import { PATTERNS, renderHidden, renderPatternThumb, renderRelief } from '../art/patterns';
+import { renderKinegram } from '../art/kinegram';
+import { STAMP_MOTIFS } from '../art/stamps';
+import { StampPlacement, renderRelief, renderStampThumb } from '../art/relief';
 import { PRESS_SVG, ROLLER_SVG } from '../art/sprites';
 import { sfx } from '../core/audio';
+import {
+  Director,
+  gratingDirectorFromStroke,
+  pitchFromSpeed,
+} from '../core/field';
 import {
   Rect,
   SafeArea,
@@ -13,16 +20,26 @@ import {
   rectTop,
 } from '../core/layout';
 import { clamp, damp, easeOutBack, lerp } from '../core/math';
-import { TiltController, deviceTiltSupported, mapDragToTilt } from '../core/tilt';
+import { TiltController, deviceTiltNeedsPermission, mapDragToTilt } from '../core/tilt';
 import { Renderer } from '../gl/renderer';
 import {
-  Build,
+  CardRecord,
+  addPoint,
+  addStamp,
+  beginStroke,
+  loadAlbum,
+  newRecord,
+  pointCount,
+  saveToAlbum,
+  stampsOf,
+  strokePoints,
+} from './album';
+import {
   FOIL_TARGET,
   PRESS_TARGET,
   Phase,
-  emptyBuild,
+  canFinishFoil,
   embossFor,
-  foilDone,
   showsCard,
 } from './flow';
 import { burst, confetti, shockRing } from './fx';
@@ -35,13 +52,17 @@ const FAST =
   (typeof location !== 'undefined' && location.search.includes('fast=1')) ||
   import.meta.env?.VITE_E2E_FAST === '1';
 
+/** Roller half-width, in card uv. */
+const ROLLER_RADIUS = 0.11;
+
 interface Screens {
   title: HTMLElement;
   pickCard: HTMLElement;
-  pickPattern: HTMLElement;
+  pickStamp: HTMLElement;
   press: HTMLElement;
   foil: HTMLElement;
   finish: HTMLElement;
+  album: HTMLElement;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -81,7 +102,12 @@ export class Game {
   private screens: Screens;
 
   phase: Phase = 'title';
-  build: Build = emptyBuild();
+
+  /** The card being made, in the exact form it gets stored and replayed. */
+  private record: CardRecord = newRecord(0, 0);
+  private album: CardRecord[] = [];
+  /** True while looking at a card from the album, so it is not saved twice. */
+  private viewingSaved = false;
 
   private tilt = new TiltController();
   private rect: Rect = { x: 0, y: 0, w: 10, h: 14 };
@@ -102,9 +128,15 @@ export class Game {
   private coverTimer = 0;
   private busy = false;
 
+  // UV lamp
+  private uvOn = false;
+  private uvMode = 0;
+  private light = { u: 0.5, v: 0.5, r: 0.3 };
+
+  // rolling
   private dragging = false;
   private dragStart = { x: 0, y: 0 };
-  private lastPoint: { x: number; y: number } | null = null;
+  private lastPaintUv: { u: number; v: number } | null = null;
   private lastMoveTime = 0;
 
   private rollerEl: HTMLElement;
@@ -112,7 +144,12 @@ export class Game {
   private pressPips: HTMLElement[] = [];
   private foilPips: HTMLElement[] = [];
   private tiltBtn: HTMLButtonElement | null = null;
+  private doneBtn!: HTMLButtonElement;
+  private foilHint!: HTMLElement;
+  private uvBtn!: HTMLButtonElement;
   private finishMsg!: HTMLElement;
+  private albumGrid!: HTMLElement;
+  private albumEmpty!: HTMLElement;
   private msgTimer = 0;
 
   private belowEls: HTMLElement[] = [];
@@ -137,7 +174,7 @@ export class Game {
 
     this.safe = readSafeArea();
     this.layout();
-    this.loadCardAssets();
+    this.album = loadAlbum();
     this.showTitleDemo();
     this.setPhase('title');
   }
@@ -162,7 +199,11 @@ export class Game {
     const startBand = el('div', 'band');
     const startBtn = el('button', 'big-btn', '▶️ はじめる');
     startBtn.addEventListener('click', () => this.startRun());
-    startBand.append(startBtn);
+    const titleAlbumBtn = el('button', 'mini-btn', '🗄');
+    titleAlbumBtn.setAttribute('data-action', 'album');
+    titleAlbumBtn.setAttribute('aria-label', 'たな');
+    titleAlbumBtn.addEventListener('click', () => this.openAlbum());
+    startBand.append(startBtn, titleAlbumBtn);
     title.append(titleBand, startBand);
     this.aboveEls.push(titleBand);
     this.belowEls.push(startBand);
@@ -175,32 +216,31 @@ export class Game {
       const b = el('button', 'choice');
       b.setAttribute('data-card', String(i));
       b.setAttribute('aria-label', theme.name);
-      const thumb = renderCardThumb(i, 240);
-      b.append(thumb, el('div', 'choice-name', `${theme.emoji} ${theme.name}`));
+      b.append(renderCardThumb(i, 240), el('div', 'choice-name', `${theme.emoji} ${theme.name}`));
       b.addEventListener('click', () => this.chooseCard(i));
       cardRow.append(b);
     });
     pickCard.append(cardRow);
 
-    // --- pick hologram pattern ---
-    const pickPattern = el('div', 'screen picker');
-    pickPattern.append(el('div', 'picker-head', 'どの きらきら に する？'));
-    const patRow = el('div', 'picker-row');
-    PATTERNS.forEach((p, i) => {
+    // --- pick press head ---
+    const pickStamp = el('div', 'screen picker');
+    pickStamp.append(el('div', 'picker-head', 'どの はんこ に する？'));
+    const stampRow = el('div', 'picker-row');
+    STAMP_MOTIFS.forEach((m, i) => {
       const b = el('button', 'choice');
-      b.setAttribute('data-pattern', String(i));
-      b.setAttribute('aria-label', p.name);
-      b.append(renderPatternThumb(i, 240), el('div', 'choice-name', p.name));
-      b.addEventListener('click', () => this.choosePattern(i));
-      patRow.append(b);
+      b.setAttribute('data-stamp', String(i));
+      b.setAttribute('aria-label', m.name);
+      b.append(renderStampThumb(i, 240), el('div', 'choice-name', `${m.emoji} ${m.name}`));
+      b.addEventListener('click', () => this.chooseStamp(i));
+      stampRow.append(b);
     });
-    pickPattern.append(patRow);
+    pickStamp.append(stampRow);
 
     // --- press ---
     const press = el('div', 'screen is-passthrough');
     const pressBand = el('div', 'band');
     const pressHint = el('div', 'hint');
-    pressHint.append(el('span', 'hint-emoji', '👆'), el('span', undefined, 'ぺたっ！'));
+    pressHint.append(el('span', 'hint-emoji', '👆'), el('span', undefined, 'すきな ところに ぺたっ！'));
     const pressPipBox = el('div', 'pips');
     for (let i = 0; i < PRESS_TARGET; i++) {
       const pip = el('div', 'pip');
@@ -210,15 +250,14 @@ export class Game {
     pressHint.append(pressPipBox);
     pressBand.append(pressHint);
     press.append(pressBand);
-    // Below the card: out of the way of the working hand, and it fills the
-    // space the finish screen's buttons will occupy, so the card never jumps.
     this.belowEls.push(pressBand);
 
     // --- foil ---
     const foil = el('div', 'screen is-passthrough');
     const foilBand = el('div', 'band');
     const foilHint = el('div', 'hint');
-    foilHint.append(el('span', 'hint-emoji', '👉'), el('span', undefined, 'ころころ〜'));
+    this.foilHint = foilHint;
+    foilHint.append(el('span', 'hint-emoji', '👉'), el('span', 'hint-text', 'ころころ〜'));
     const foilPipBox = el('div', 'pips');
     for (let i = 0; i < 5; i++) {
       const pip = el('div', 'pip');
@@ -226,13 +265,15 @@ export class Game {
       foilPipBox.append(pip);
     }
     foilHint.append(foilPipBox);
-    foilBand.append(foilHint);
+    this.doneBtn = el('button', 'big-btn', '✨ できた！');
+    this.doneBtn.setAttribute('data-action', 'done');
+    this.doneBtn.hidden = true;
+    this.doneBtn.addEventListener('click', () => this.finishFoil());
+    foilBand.append(foilHint, this.doneBtn);
     foil.append(foilBand);
     this.belowEls.push(foilBand);
 
     // --- finish ---
-    // One message slot rather than a banner plus a hint: the card is the star
-    // here, and stacking two text bands would squeeze it.
     const finish = el('div', 'screen is-passthrough');
     const bannerBand = el('div', 'band');
     this.finishMsg = el('div', 'finish-banner', '✨ できた！ ✨');
@@ -242,9 +283,17 @@ export class Game {
     const again = el('button', 'big-btn', '↺ もういちど');
     again.setAttribute('data-action', 'again');
     again.addEventListener('click', () => this.startRun());
-    actions.append(again);
+    this.uvBtn = el('button', 'mini-btn', '🔦');
+    this.uvBtn.setAttribute('data-action', 'uv');
+    this.uvBtn.setAttribute('aria-label', 'ひみつライト');
+    this.uvBtn.addEventListener('click', () => this.toggleUv());
+    const albumBtn = el('button', 'mini-btn', '🗄');
+    albumBtn.setAttribute('data-action', 'album');
+    albumBtn.setAttribute('aria-label', 'たな');
+    albumBtn.addEventListener('click', () => this.openAlbum());
+    actions.append(again, this.uvBtn, albumBtn);
 
-    if (deviceTiltSupported()) {
+    if (deviceTiltNeedsPermission()) {
       const tiltBtn = el('button', 'mini-btn', '📱');
       tiltBtn.setAttribute('data-action', 'tilt');
       tiltBtn.setAttribute('aria-label', 'かたむけて あそぶ');
@@ -256,35 +305,82 @@ export class Game {
     this.aboveEls.push(bannerBand);
     this.belowEls.push(actions);
 
-    const screens: Screens = { title, pickCard, pickPattern, press, foil, finish };
+    // --- album ---
+    const album = el('div', 'screen picker');
+    album.append(el('div', 'picker-head', '🗄 たな'));
+    this.albumGrid = el('div', 'album-grid');
+    this.albumEmpty = el('div', 'album-empty', 'まだ ないよ');
+    const albumActions = el('div', 'picker-row');
+    const makeBtn = el('button', 'big-btn', '＋ つくる');
+    makeBtn.setAttribute('data-action', 'make');
+    makeBtn.addEventListener('click', () => this.startRun());
+    albumActions.append(makeBtn);
+    album.append(this.albumGrid, this.albumEmpty, albumActions);
+
+    const screens: Screens = { title, pickCard, pickStamp, press, foil, finish, album };
     Object.values(screens).forEach((s) => this.ui.append(s));
     return screens;
   }
 
   /* ------------------------------------------------------------------ *
-   * Assets
+   * Building a card from a record
    * ------------------------------------------------------------------ */
 
-  private loadCardAssets(): void {
-    this.renderer.setBase(renderCard(this.build.card));
-    this.renderer.setRelief(renderRelief(this.build.pattern));
-    this.renderer.setHidden(renderHidden(this.build.card));
+  /** Push a record into the renderer, replaying every stroke it holds. */
+  private applyRecord(rec: CardRecord): void {
+    const stamps: StampPlacement[] = stampsOf(rec);
+    this.renderer.setBase(renderCard(rec.card));
+    this.renderer.setRelief(renderRelief(rec.motif, stamps));
+    this.renderer.setKinegram(renderKinegram(rec.motif, stamps));
+    this.renderer.clearFoil();
+
+    for (const stroke of rec.strokes) {
+      const pts = strokePoints(stroke);
+      let prev = pts[0];
+      if (!prev) continue;
+      this.paintSegment(prev.u, prev.v, prev.u, prev.v, prev.pitch);
+      for (let i = 1; i < pts.length; i++) {
+        const p = pts[i];
+        this.paintSegment(prev.u, prev.v, p.u, p.v, p.pitch);
+        prev = p;
+      }
+    }
+    this.coverage = this.renderer.foilCoverage();
+  }
+
+  /** Only place the stamps have influence over the ruling is via what the child rolls. */
+  private paintSegment(u0: number, v0: number, u1: number, v1: number, pitch01: number): void {
+    const dir: Director = gratingDirectorFromStroke(u1 - u0, v1 - v0);
+    this.renderer.paintStroke(u0, v0, u1, v1, ROLLER_RADIUS, dir, pitch01);
+  }
+
+  /** Rebuild the relief + secret picture after a stamp lands. */
+  private refreshStampArt(): void {
+    const stamps = stampsOf(this.record);
+    this.renderer.setRelief(renderRelief(this.record.motif, stamps));
+    this.renderer.setKinegram(renderKinegram(this.record.motif, stamps));
   }
 
   /** Title screen shows an already-finished card so the magic is visible up front. */
   private showTitleDemo(): void {
-    this.build = { card: 0, pattern: 0, presses: PRESS_TARGET };
-    this.loadCardAssets();
-    this.renderer.clearFoil();
-    // Inset, so the printed border still frames the foil patch.
-    for (let y = 0.13; y <= 0.88; y += 0.07) {
-      for (let x = 0.14; x <= 0.87; x += 0.1) {
-        this.renderer.paintFoil(x, y, 0.19);
-      }
+    const demo = newRecord(0, 0);
+    addStamp(demo, 0.5, 0.34);
+    addStamp(demo, 0.3, 0.66);
+    addStamp(demo, 0.72, 0.72);
+    // A hand-rolled looking serpentine, so the title card reads as made, not generated.
+    beginStroke(demo);
+    for (let i = 0; i <= 90; i++) {
+      const t = i / 90;
+      const u = 0.16 + 0.68 * (0.5 - 0.5 * Math.cos(t * Math.PI * 5));
+      const v = 0.1 + 0.8 * t;
+      addPoint(demo, u, v, 0.6);
     }
+    this.record = demo;
+    this.applyRecord(demo);
     this.emboss = 1;
     this.embossTarget = 1;
     this.reveal = 1;
+    this.viewingSaved = true;
   }
 
   /* ------------------------------------------------------------------ *
@@ -300,6 +396,7 @@ export class Game {
     this.pressEl.hidden = true;
     this.dragging = false;
     this.tilt.endDrag();
+    if (p !== 'finish') this.setUv(false);
     this.layout();
   }
 
@@ -310,7 +407,9 @@ export class Game {
     // on a deliberate button press, means physical tilt is already working by
     // the time the finished card appears - no small button to hunt for.
     if (!this.tilt.deviceEnabled) void this.enableDeviceTilt();
-    this.build = emptyBuild();
+
+    this.record = newRecord(0, 0);
+    this.viewingSaved = false;
     this.renderer.clearFoil();
     this.coverage = 0;
     this.emboss = 0;
@@ -318,7 +417,9 @@ export class Game {
     this.reveal = 0;
     this.spin = 0;
     this.spinTarget = 0;
+    this.entrance = 1;
     this.busy = false;
+    this.doneBtn.hidden = true;
     this.updatePips();
     this.setPhase('pickCard');
   }
@@ -326,31 +427,36 @@ export class Game {
   chooseCard(i: number): void {
     sfx.unlock();
     sfx.tap();
-    this.build.card = i;
+    this.record.card = i;
     this.renderer.setBase(renderCard(i));
-    this.renderer.setHidden(renderHidden(i));
-    this.setPhase('pickPattern');
+    this.setPhase('pickStamp');
   }
 
-  choosePattern(i: number): void {
+  chooseStamp(i: number): void {
     sfx.unlock();
     sfx.sparkle(3, 2);
-    this.build.pattern = i;
-    this.renderer.setRelief(renderRelief(i));
-    this.build.presses = 0;
+    this.record.motif = i;
+    this.record.stamps = [];
+    this.refreshStampArt();
     this.emboss = 0;
     this.embossTarget = 0;
     this.updatePips();
     this.setPhase('press');
   }
 
-  /** One stamp of the press. Never fails; extra taps are simply ignored. */
+  private stampCount(): number {
+    return this.record.stamps.length / 2;
+  }
+
+  /** One press of the stamp, wherever the finger landed. Extra taps are ignored. */
   doPress(px: number, py: number): void {
-    if (this.busy || this.build.presses >= PRESS_TARGET) return;
+    if (this.busy || this.stampCount() >= PRESS_TARGET) return;
     sfx.unlock();
-    const step = this.build.presses;
-    this.build.presses++;
-    this.embossTarget = embossFor(this.build.presses);
+    const { u, v } = pointToCardUv(px, py, this.rect);
+    const step = this.stampCount();
+    addStamp(this.record, clamp(u, 0.12, 0.88), clamp(v, 0.1, 0.9));
+    this.refreshStampArt();
+    this.embossTarget = embossFor(this.stampCount());
     this.punch = 1;
     sfx.stamp(step);
     this.updatePips();
@@ -369,10 +475,10 @@ export class Game {
       this.pressEl.hidden = true;
     };
 
-    shockRing(this.fxLayer, px, py, this.rect.w * 0.9);
-    burst(this.fxLayer, px, py, 10, this.rect.w * 0.5);
+    shockRing(this.fxLayer, px, py, this.rect.w * 0.7);
+    burst(this.fxLayer, px, py, 10, this.rect.w * 0.45);
 
-    if (this.build.presses >= PRESS_TARGET) {
+    if (this.stampCount() >= PRESS_TARGET) {
       this.busy = true;
       sfx.sparkle(5, 3);
       burst(this.fxLayer, this.rect.x, this.rect.y, 20, this.rect.w * 0.9);
@@ -383,46 +489,34 @@ export class Game {
     }
   }
 
-  private paintAt(px: number, py: number): void {
-    const { u, v } = pointToCardUv(px, py, this.rect);
-    if (u < -0.25 || u > 1.25 || v < -0.25 || v > 1.25) return;
-    this.renderer.paintFoil(u, v, 0.2);
-  }
-
-  /** Fill the whole card in one go - used by the test hooks. */
+  /** Roll foil in a straight machine pass - used by the test hooks. */
   fillFoil(): void {
-    this.sweepFoil();
-    this.coverage = this.renderer.foilCoverage();
-    this.checkFoilDone();
-  }
-
-  /** One machine-neat pass of foil over the entire card. */
-  private sweepFoil(): void {
-    for (let y = 0.04; y <= 0.97; y += 0.055) {
-      for (let x = 0.03; x <= 0.97; x += 0.08) {
-        this.renderer.paintFoil(x, y, 0.2);
+    beginStroke(this.record);
+    let prev: { u: number; v: number } | null = null;
+    for (let row = 0; row < 9; row++) {
+      const v = 0.06 + (row / 8) * 0.88;
+      for (let k = 0; k <= 12; k++) {
+        const t = row % 2 === 0 ? k / 12 : 1 - k / 12;
+        const u = 0.05 + t * 0.9;
+        if (addPoint(this.record, u, v, 0.5) && prev) this.paintSegment(prev.u, prev.v, u, v, 0.5);
+        prev = { u, v };
       }
     }
+    this.coverage = this.renderer.foilCoverage();
+    this.updatePips();
+    this.finishFoil();
   }
 
-  private checkFoilDone(): void {
+  /** The child decides the card is done. There is no minimum standard. */
+  finishFoil(): void {
     if (this.phase !== 'foil' || this.busy) return;
-    this.updatePips();
-    if (foilDone(this.coverage)) {
-      this.busy = true;
-      sfx.rollStop();
-      sfx.sparkle(4, 3);
-      // The machine finishes the last corners itself, so a 4-year-old's
-      // scribble still comes out as a clean, fully stamped card.
-      this.sweepFoil();
-      this.coverage = 1;
-      this.updatePips();
-      burst(this.fxLayer, this.rect.x, this.rect.y, 16, this.rect.w * 0.8);
-      globalThis.setTimeout(() => {
-        this.busy = false;
-        this.enterFinish();
-      }, 420);
-    }
+    this.busy = true;
+    sfx.rollStop();
+    this.rollerEl.hidden = true;
+    globalThis.setTimeout(() => {
+      this.busy = false;
+      this.enterFinish();
+    }, 180);
   }
 
   private enterFinish(): void {
@@ -435,12 +529,16 @@ export class Game {
     confetti(this.fxLayer, this.vw, this.vh, FAST ? 0 : 26);
     burst(this.fxLayer, this.rect.x, this.rect.y, 26, this.rect.w);
 
-    // Celebrate first, then tell them what to do - the same slot, so the card
-    // keeps all the room it can get.
+    if (!this.viewingSaved) {
+      this.record.t = Date.now();
+      this.album = saveToAlbum(this.record);
+    }
+
+    // Celebrate first, then say what to do - one slot, so the card keeps the room.
     this.finishMsg.textContent = '✨ できた！ ✨';
     globalThis.clearTimeout(this.msgTimer);
     this.msgTimer = globalThis.setTimeout(() => {
-      if (this.phase !== 'finish') return;
+      if (this.phase !== 'finish' || this.uvOn) return;
       this.finishMsg.textContent = '🌈 かたむけて みてね';
       this.finishMsg.animate(
         [
@@ -453,8 +551,85 @@ export class Game {
     }, 1700) as unknown as number;
   }
 
-  /** Ask for motion access. Safe to call more than once; a refusal just leaves
-   *  the finger-drag tilt in charge, which works everywhere. */
+  /* ------------------------------------------------------------------ *
+   * UV lamp
+   * ------------------------------------------------------------------ */
+
+  toggleUv(): void {
+    this.setUv(!this.uvOn);
+  }
+
+  private setUv(on: boolean): void {
+    if (this.uvOn === on) return;
+    this.uvOn = on;
+    this.uvBtn.textContent = on ? '🌈' : '🔦';
+    document.body.classList.toggle('is-uv', on);
+    if (on) {
+      sfx.sparkle(2, 5);
+      this.finishMsg.textContent = '🔦 なぞって さがしてね';
+      this.light = { u: 0.5, v: 0.5, r: 0.3 };
+    } else if (this.phase === 'finish') {
+      this.finishMsg.textContent = '🌈 かたむけて みてね';
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Album
+   * ------------------------------------------------------------------ */
+
+  openAlbum(): void {
+    sfx.unlock();
+    sfx.tap();
+    this.album = loadAlbum();
+    this.albumGrid.replaceChildren();
+    this.albumEmpty.hidden = this.album.length > 0;
+
+    const live = this.record;
+    for (const rec of this.album) {
+      const btn = el('button', 'album-item');
+      btn.setAttribute('data-album-item', String(rec.t));
+      btn.append(this.renderThumb(rec));
+      btn.addEventListener('click', () => this.openSaved(rec));
+      this.albumGrid.append(btn);
+    }
+    // Put the card that was on screen back, so leaving the album is seamless.
+    this.applyRecord(live);
+    this.setPhase('album');
+  }
+
+  /** Rebuild a stored card and grab a picture of it for the shelf. */
+  private renderThumb(rec: CardRecord): HTMLCanvasElement {
+    this.applyRecord(rec);
+    const w = 150;
+    const h = w / 0.7;
+    this.renderer.render({
+      rect: { x: this.vw / 2, y: this.vh / 2, w: w * 0.86, h: h * 0.86 },
+      tilt: { x: 0.34, y: -0.16 },
+      emboss: 1,
+      reveal: 1,
+      spin: 0,
+      time: 0,
+      uvMode: 0,
+      light: this.light,
+    });
+    const img = this.renderer.readRegionRGBA(this.vw / 2, this.vh / 2, w, h);
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext('2d')?.putImageData(img, 0, 0);
+    return c;
+  }
+
+  private openSaved(rec: CardRecord): void {
+    sfx.unlock();
+    this.record = rec;
+    this.viewingSaved = true;
+    this.applyRecord(rec);
+    this.emboss = 1;
+    this.embossTarget = 1;
+    this.enterFinish();
+  }
+
   async enableDeviceTilt(): Promise<void> {
     const ok = await this.tilt.enableDeviceTilt();
     if (ok && this.tiltBtn) {
@@ -464,16 +639,56 @@ export class Game {
   }
 
   private updatePips(): void {
-    this.pressPips.forEach((p, i) => p.classList.toggle('on', i < this.build.presses));
-    const filled = Math.round(
-      clamp(this.coverage / FOIL_TARGET, 0, 1) * this.foilPips.length,
-    );
+    const stamped = this.stampCount();
+    this.pressPips.forEach((p, i) => p.classList.toggle('on', i < stamped));
+    const filled = Math.round(clamp(this.coverage / FOIL_TARGET, 0, 1) * this.foilPips.length);
     this.foilPips.forEach((p, i) => p.classList.toggle('on', i < filled));
+    // Once "done" appears the instruction has done its job, so the hint drops
+    // its words - otherwise the two together overflow a narrow phone.
+    const canFinish = canFinishFoil(this.coverage);
+    if (this.doneBtn.hidden === canFinish) this.doneBtn.hidden = !canFinish;
+    this.foilHint.classList.toggle('is-compact', canFinish);
   }
 
   /* ------------------------------------------------------------------ *
    * Input
    * ------------------------------------------------------------------ */
+
+  private beginRoll(x: number, y: number): void {
+    this.dragging = true;
+    this.rollerEl.hidden = false;
+    this.rollerEl.style.transform = `translate(${x}px, ${y}px)`;
+    const { u, v } = pointToCardUv(x, y, this.rect);
+    beginStroke(this.record);
+    if (addPoint(this.record, u, v, 0.5)) {
+      this.paintSegment(u, v, u, v, 0.5);
+      this.lastPaintUv = { u, v };
+    }
+    this.lastMoveTime = performance.now();
+    sfx.roll(0.5);
+  }
+
+  /**
+   * Paint only the points that were recorded, so a replayed card is identical
+   * to the one the child rolled - which is what makes the album exact.
+   */
+  private continueRoll(x: number, y: number): void {
+    this.rollerEl.style.transform = `translate(${x}px, ${y}px)`;
+    const { u, v } = pointToCardUv(x, y, this.rect);
+    const prev = this.lastPaintUv;
+    const now = performance.now();
+    const dt = Math.max(0.008, (now - this.lastMoveTime) / 1000);
+    const dist = prev ? Math.hypot(u - prev.u, v - prev.v) : 0;
+    const pitch = pitchFromSpeed(dist / dt);
+
+    if (addPoint(this.record, u, v, pitch)) {
+      if (prev) this.paintSegment(prev.u, prev.v, u, v, pitch);
+      this.lastPaintUv = { u, v };
+      this.lastMoveTime = now;
+      sfx.roll(clamp(dist / dt / 1.2, 0.12, 1));
+      if (Math.random() < 0.3) burst(this.fxLayer, x, y, 3, 60);
+    }
+  }
 
   private bindInput(): void {
     const onDown = (e: PointerEvent) => {
@@ -481,22 +696,21 @@ export class Game {
       if ((e.target as HTMLElement | null)?.closest('button')) return;
       const x = e.clientX;
       const y = e.clientY;
-      this.lastPoint = { x, y };
 
       if (this.phase === 'press') {
         if (isInsideCard(x, y, this.rect, 0.15)) this.doPress(x, y);
         return;
       }
-      if (this.phase === 'foil') {
-        this.dragging = true;
-        this.rollerEl.hidden = false;
-        this.rollerEl.style.transform = `translate(${x}px, ${y}px)`;
-        this.paintAt(x, y);
-        sfx.roll(0.5);
+      if (this.phase === 'foil' && !this.busy) {
+        this.beginRoll(x, y);
         return;
       }
       if (this.phase === 'finish' || this.phase === 'title') {
         this.dragging = true;
+        if (this.uvOn) {
+          this.moveLamp(x, y);
+          return;
+        }
         this.dragStart = { x, y };
         this.tilt.beginDrag();
         this.tilt.setDrag({ x: 0, y: 0 });
@@ -504,42 +718,35 @@ export class Game {
     };
 
     const onMove = (e: PointerEvent) => {
+      if (!this.dragging) return;
       const x = e.clientX;
       const y = e.clientY;
 
-      if (this.phase === 'foil' && this.dragging) {
-        this.rollerEl.style.transform = `translate(${x}px, ${y}px)`;
-        const prev = this.lastPoint ?? { x, y };
-        const dist = Math.hypot(x - prev.x, y - prev.y);
-        const steps = Math.max(1, Math.ceil(dist / (this.rect.w * 0.06)));
-        for (let i = 1; i <= steps; i++) {
-          this.paintAt(lerp(prev.x, x, i / steps), lerp(prev.y, y, i / steps));
-        }
-        const now = performance.now();
-        const dt = Math.max(16, now - this.lastMoveTime);
-        sfx.roll(clamp((dist / dt) * 8, 0.1, 1));
-        this.lastMoveTime = now;
-        if (Math.random() < 0.35) burst(this.fxLayer, x, y, 3, 60);
-        this.lastPoint = { x, y };
+      if (this.phase === 'foil') {
+        this.continueRoll(x, y);
         return;
       }
-
-      if (this.dragging && (this.phase === 'finish' || this.phase === 'title')) {
+      if (this.phase === 'finish' || this.phase === 'title') {
+        if (this.uvOn) {
+          this.moveLamp(x, y);
+          return;
+        }
         this.tilt.setDrag(
           mapDragToTilt(x - this.dragStart.x, y - this.dragStart.y, this.rect.w, this.rect.h),
         );
       }
-      this.lastPoint = { x, y };
     };
 
     const onUp = () => {
       if (this.phase === 'foil') {
         sfx.rollStop();
         this.rollerEl.hidden = true;
+        this.coverage = this.renderer.foilCoverage();
+        this.updatePips();
       }
       this.dragging = false;
+      this.lastPaintUv = null;
       this.tilt.endDrag();
-      this.lastPoint = null;
     };
 
     document.addEventListener('pointerdown', onDown, { passive: true });
@@ -551,6 +758,11 @@ export class Game {
     (document as EventTarget).addEventListener('gesturestart', (e) => e.preventDefault());
   }
 
+  private moveLamp(x: number, y: number): void {
+    const { u, v } = pointToCardUv(x, y, this.rect);
+    this.light = { u: clamp(u, -0.2, 1.2), v: clamp(v, -0.2, 1.2), r: 0.3 };
+  }
+
   /* ------------------------------------------------------------------ *
    * Layout + loop
    * ------------------------------------------------------------------ */
@@ -559,8 +771,6 @@ export class Game {
     this.vw = globalThis.innerWidth || 375;
     this.vh = globalThis.innerHeight || 667;
     const landscape = isLandscape(this.vw, this.vh);
-    // The title screen needs a headline above the card, but only in portrait -
-    // in landscape the headline sits in the side column and costs no height.
     const titleish = this.phase === 'title' && !landscape;
     this.rect = computeCardRect(this.vw, this.vh, this.safe, {
       top: titleish ? Math.max(70, this.vh * 0.13) : 0,
@@ -569,8 +779,6 @@ export class Game {
     });
     this.renderer.resize(this.vw, this.vh, FAST ? 1 : 2);
 
-    // Bands hug the card rather than using fixed offsets, so nothing ever
-    // overlaps it regardless of orientation or notch size.
     for (const a of this.aboveEls) this.placeBand(a, 'above', landscape);
     for (const b of this.belowEls) this.placeBand(b, 'below', landscape);
   }
@@ -612,20 +820,21 @@ export class Game {
 
     // Tilt is lively on the finish/title screens and calm while working.
     const interactive = this.phase === 'finish' || this.phase === 'title';
-    const tilt = this.tilt.update(dt, interactive ? 1 : 0.28);
+    const tilt = this.tilt.update(dt, interactive && !this.uvOn ? 1 : 0.28);
 
     this.emboss = damp(this.emboss, this.embossTarget, 9, dt);
     this.punch = damp(this.punch, 0, 9, dt);
     this.reveal = damp(this.reveal, this.phase === 'finish' ? 1 : 0, 3, dt);
     this.spin = damp(this.spin, this.spinTarget, 4.5, dt);
+    this.uvMode = damp(this.uvMode, this.uvOn ? 1 : 0, 8, dt);
     this.entrance = clamp(this.entrance + dt / 0.7, 0, 1);
 
-    if (this.phase === 'foil' && !this.busy) {
+    if (this.phase === 'foil' && !this.busy && this.dragging) {
       this.coverTimer += dt;
-      if (this.coverTimer > 0.12) {
+      if (this.coverTimer > 0.15) {
         this.coverTimer = 0;
         this.coverage = this.renderer.foilCoverage();
-        this.checkFoilDone();
+        this.updatePips();
       }
     }
 
@@ -635,9 +844,7 @@ export class Game {
     }
 
     // Squash on each press; a springy pop when the finished card appears.
-    const squash = 1 - this.punch * 0.07;
-    const pop = lerp(0.78, 1, easeOutBack(this.entrance));
-    const scale = squash * pop;
+    const scale = (1 - this.punch * 0.07) * lerp(0.78, 1, easeOutBack(this.entrance));
     this.renderer.render({
       rect: {
         x: this.rect.x,
@@ -647,10 +854,11 @@ export class Game {
       },
       tilt,
       emboss: this.emboss,
-      pattern: PATTERNS[this.build.pattern].kind,
       reveal: this.reveal,
       spin: this.spin,
       time: this.clock,
+      uvMode: this.uvMode,
+      light: this.light,
     });
   }
 
@@ -667,15 +875,21 @@ export class Game {
     globalThis.visualViewport?.addEventListener('resize', relayout);
   }
 
-  /* Exposed for the E2E smoke test. */
+  /* ------------------------------------------------------------------ *
+   * Exposed for the E2E smoke test
+   * ------------------------------------------------------------------ */
+
   debugState(): Record<string, unknown> {
     return {
       phase: this.phase,
-      card: this.build.card,
-      pattern: this.build.pattern,
-      presses: this.build.presses,
+      card: this.record.card,
+      motif: this.record.motif,
+      presses: this.stampCount(),
+      points: pointCount(this.record),
       emboss: Number(this.emboss.toFixed(3)),
       coverage: Number(this.coverage.toFixed(3)),
+      uv: this.uvOn,
+      albumCount: this.album.length,
       tilt: { x: Number(this.tilt.value.x.toFixed(3)), y: Number(this.tilt.value.y.toFixed(3)) },
       rect: this.rect,
     };
@@ -690,6 +904,26 @@ export class Game {
     this.tilt.endDrag();
   }
 
+  /** Press at a card-uv position, so a test can place stamps deterministically. */
+  debugPress(u = 0.5, v = 0.5): void {
+    this.doPress(this.rect.x + (u - 0.5) * this.rect.w, this.rect.y + (v - 0.5) * this.rect.h);
+  }
+
+  /** Roll a given path in card uv, exactly as if a finger had traced it. */
+  debugStroke(points: [number, number][], pitch = 0.5): void {
+    beginStroke(this.record);
+    let prev: { u: number; v: number } | null = null;
+    for (const [u, v] of points) {
+      if (addPoint(this.record, u, v, pitch)) {
+        if (prev) this.paintSegment(prev.u, prev.v, u, v, pitch);
+        else this.paintSegment(u, v, u, v, pitch);
+        prev = { u, v };
+      }
+    }
+    this.coverage = this.renderer.foilCoverage();
+    this.updatePips();
+  }
+
   /**
    * Force a frame and read back the average colour at the centre of the card.
    * Lets the smoke test prove that tilting really does change what is on screen.
@@ -697,5 +931,17 @@ export class Game {
   debugSample(): [number, number, number] {
     this.frame(performance.now());
     return this.renderer.readRegion(this.rect.x, this.rect.y, this.rect.w * 0.6, this.rect.h * 0.4);
+  }
+
+  /** Full-resolution pixels of the card, for comparing two builds. */
+  debugPixels(): number[] {
+    this.frame(performance.now());
+    const img = this.renderer.readRegionRGBA(
+      this.rect.x,
+      this.rect.y,
+      this.rect.w * 0.7,
+      this.rect.h * 0.5,
+    );
+    return Array.from(img.data);
   }
 }

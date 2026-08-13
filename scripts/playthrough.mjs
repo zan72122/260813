@@ -48,83 +48,160 @@ const shot = async (name) => {
   console.log(`  shot: ${DEVICE}-${name}`);
 };
 const state = () => page.evaluate(() => window.__GAME__.state());
+const click = (sel) => page.locator(sel).click({ force: true });
 
 await page.goto(URL, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__GAME__?.ready === true, { timeout: 15000 });
 await page.waitForTimeout(1200);
-console.log('boot state:', JSON.stringify(await state()));
+console.log('boot:', JSON.stringify(await state()));
 await shot('1-title');
 
-// --- start ---
-await page.getByRole('button', { name: /はじめる/ }).click({ force: true });
-await page.waitForTimeout(500);
+await click('#screen-title .big-btn');
+await page.waitForTimeout(450);
 await shot('2-pick-card');
 
-// --- pick base card (real tap on the 3rd choice) ---
-await page.locator('[data-card="2"]').click({ force: true });
-await page.waitForTimeout(450);
-await shot('3-pick-pattern');
+await click('[data-card="0"]');
+await page.waitForTimeout(400);
+await shot('3-pick-stamp');
 
-// --- pick pattern ---
-await page.locator('[data-pattern="1"]').click({ force: true });
-await page.waitForTimeout(500);
+await click('[data-stamp="2"]');
+await page.waitForTimeout(450);
 await shot('4-press-empty');
 
-// --- press 3 times, tapping the card ---
+// --- place three stamps by tapping different spots on the card ---
 let s = await state();
-for (let i = 0; i < 3; i++) {
-  await page.mouse.click(s.rect.x + (i - 1) * 40, s.rect.y + (i - 1) * 50);
-  await page.waitForTimeout(420);
+const spots = [
+  [0.32, 0.28],
+  [0.68, 0.46],
+  [0.42, 0.72],
+];
+for (let i = 0; i < spots.length; i++) {
+  const [u, v] = spots[i];
+  await page.mouse.click(
+    s.rect.x + (u - 0.5) * s.rect.w,
+    s.rect.y + (v - 0.5) * s.rect.h,
+  );
+  await page.waitForTimeout(400);
   if (i === 1) await shot('5-press-mid');
 }
 await page.waitForTimeout(1100);
 console.log('after press:', JSON.stringify(await state()));
 await shot('6-foil-start');
 
-// --- roll the foil on with a serpentine drag ---
+// --- roll the foil on: a swirl, so the grooves clearly curve ---
 s = await state();
-const left = s.rect.x - s.rect.w * 0.42;
-const right = s.rect.x + s.rect.w * 0.42;
-const top = s.rect.y - s.rect.h * 0.42;
-const bottom = s.rect.y + s.rect.h * 0.42;
-const rows = 7;
-await page.mouse.move(left, top);
+const toPx = (u, v) => [s.rect.x + (u - 0.5) * s.rect.w, s.rect.y + (v - 0.5) * s.rect.h];
+const path = [];
+for (let i = 0; i <= 150; i++) {
+  const t = i / 150;
+  const a = t * Math.PI * 3.4;
+  const r = 0.06 + t * 0.42;
+  path.push([0.5 + Math.cos(a) * r * 0.9, 0.5 + Math.sin(a) * r * 1.25]);
+}
+const [sx, sy] = toPx(...path[0]);
+await page.mouse.move(sx, sy);
 await page.mouse.down();
-for (let r = 0; r < rows; r++) {
-  const y = top + ((bottom - top) * r) / (rows - 1);
-  const xs = r % 2 === 0 ? [left, right] : [right, left];
-  await page.mouse.move(xs[0], y, { steps: 4 });
-  await page.mouse.move(xs[1], y, { steps: 14 });
-  if (r === 2) await shot('7-foil-mid');
+for (let i = 1; i < path.length; i++) {
+  const [x, y] = toPx(...path[i]);
+  await page.mouse.move(x, y);
+  if (i === 60) await shot('7-foil-mid');
 }
 await page.mouse.up();
-await page.waitForTimeout(1400);
-console.log('after foil:', JSON.stringify(await state()));
-await shot('8-finish');
+await page.waitForTimeout(300);
+console.log('after roll:', JSON.stringify(await state()));
+await shot('8-foil-done-button');
+
+await click('[data-action="done"]');
+await page.waitForTimeout(1500);
+console.log('finish:', JSON.stringify(await state()));
+await shot('9-finish');
 
 // --- tilt the finished card ---
 for (const [name, tx, ty] of [
-  ['left', -0.85, 0.2],
-  ['right', 0.85, -0.2],
+  ['left', -0.85, 0.25],
+  ['right', 0.85, -0.25],
   ['up', 0.1, 0.9],
 ]) {
   await page.evaluate(([x, y]) => window.__GAME__.tilt(x, y), [tx, ty]);
   await page.waitForTimeout(700);
-  await shot(`9-tilt-${name}`);
+  await shot(`10-tilt-${name}`);
 }
 await page.evaluate(() => window.__GAME__.releaseTilt());
 
-// --- colour response check ---
-const samples = [];
-for (const [tx, ty] of [[-0.9, 0], [-0.3, 0], [0.3, 0], [0.9, 0]]) {
-  const c = await page.evaluate(([x, y]) => {
-    window.__GAME__.tilt(x, y);
+// --- secret lamp ---
+await click('[data-action="uv"]');
+await page.waitForTimeout(500);
+const [lx, ly] = toPx(0.45, 0.4);
+await page.mouse.move(lx, ly);
+await page.mouse.down();
+await page.mouse.move(...toPx(0.55, 0.55), { steps: 8 });
+await page.waitForTimeout(400);
+await shot('11-uv-lamp');
+await page.mouse.up();
+await click('[data-action="uv"]');
+await page.waitForTimeout(400);
+
+// --- second card with a completely different roll, then the shelf ---
+await click('[data-action="again"]');
+await page.waitForTimeout(350);
+await click('[data-card="1"]');
+await click('[data-stamp="0"]');
+await page.waitForTimeout(350);
+await page.evaluate(() => {
+  window.__GAME__.press(0.5, 0.3);
+  window.__GAME__.press(0.35, 0.62);
+  window.__GAME__.press(0.68, 0.75);
+});
+await page.waitForTimeout(1000);
+await page.evaluate(() => {
+  const pts = [];
+  for (let i = 0; i <= 60; i++) {
+    const t = i / 60;
+    pts.push([0.08 + t * 0.84, 0.12 + t * 0.76]);
+  }
+  window.__GAME__.stroke(pts, 0.85);
+});
+await page.waitForTimeout(200);
+await page.evaluate(() => window.__GAME__.finishFoil());
+await page.waitForTimeout(1400);
+await page.evaluate(() => window.__GAME__.tilt(0.6, -0.3));
+await page.waitForTimeout(700);
+await shot('12-second-card');
+
+await click('.screen.is-active [data-action="album"]');
+await page.waitForTimeout(700);
+console.log('album:', JSON.stringify(await state()));
+await shot('13-album');
+
+// --- does a different roll actually make a different card? ---
+const build = async (pts) => {
+  await page.evaluate(() => window.__GAME__.start());
+  await page.evaluate(() => window.__GAME__.chooseCard(0));
+  await page.evaluate(() => window.__GAME__.chooseStamp(0));
+  await page.evaluate(() => {
+    window.__GAME__.press(0.5, 0.35);
+    window.__GAME__.press(0.5, 0.55);
+    window.__GAME__.press(0.5, 0.75);
+  });
+  await page.waitForTimeout(900);
+  await page.evaluate((p) => window.__GAME__.stroke(p, 0.5), pts);
+  await page.evaluate(() => window.__GAME__.tilt(0.4, -0.2));
+  return page.evaluate(() => {
     for (let i = 0; i < 40; i++) window.__GAME__.sample();
-    return window.__GAME__.sample();
-  }, [tx, ty]);
-  samples.push({ tilt: tx, rgb: c.map((v) => Math.round(v)) });
+    return window.__GAME__.pixels();
+  });
+};
+const horiz = [];
+const vert = [];
+for (let i = 0; i <= 40; i++) {
+  horiz.push([0.06 + (i / 40) * 0.88, 0.5]);
+  vert.push([0.5, 0.06 + (i / 40) * 0.88]);
 }
-console.log('tilt colour response:', JSON.stringify(samples));
+const a = await build(horiz);
+const b = await build(vert);
+let diff = 0;
+for (let i = 0; i < a.length; i += 4) diff += Math.abs(a[i] - b[i]);
+console.log(`different rolls -> mean red delta: ${(diff / (a.length / 4)).toFixed(1)} / 255`);
 
 await browser.close();
 console.log('done');
