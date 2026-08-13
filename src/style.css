@@ -1,0 +1,443 @@
+/* ぺたっ！きらっ！ひみつホログラム工場
+   Mobile-first, one-finger, portrait + landscape. */
+
+:root {
+  --ink: #fff6ff;
+  --bg-0: #150c2b;
+  --bg-1: #241344;
+  --bg-2: #3a1a5e;
+  --hot: #ff5fd2;
+  --cool: #45e0ff;
+  --gold: #ffd85e;
+  --mint: #7dffc2;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --tap: 96px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--bg-0);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Maru Gothic ProN',
+    'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif;
+  font-weight: 800;
+  touch-action: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100%;
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--bg-2) 0%, transparent 60%),
+    radial-gradient(100% 70% at 20% 100%, #2a1250 0%, transparent 65%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#ui-layer,
+#tool-layer,
+#fx-layer {
+  position: absolute;
+  inset: 0;
+}
+
+#ui-layer {
+  padding: calc(var(--safe-t) + 6px) calc(var(--safe-r) + 6px)
+    calc(var(--safe-b) + 6px) calc(var(--safe-l) + 6px);
+}
+
+/* ---------- screens ---------- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms ease;
+}
+
+.screen.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A screen whose card must stay visible only claims the panel band, so touches
+   fall through to the card. Children re-enable hits, but only while active -
+   otherwise a hidden screen's buttons keep swallowing taps. */
+.screen.is-passthrough {
+  pointer-events: none;
+}
+
+.screen.is-passthrough.is-active > * {
+  pointer-events: auto;
+}
+
+/* Horizontal band pinned above/below the card. Centring lives here rather than
+   on the content, because the content's own keyframes animate `transform`. */
+.band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3vmin;
+  pointer-events: none;
+}
+
+.screen.is-passthrough.is-active > .band > * {
+  pointer-events: auto;
+}
+
+/* ---------- title ---------- */
+
+#screen-title {
+  flex-direction: column;
+  gap: 4vmin;
+  text-align: center;
+}
+
+.title-mark {
+  font-size: clamp(26px, 8.5vmin, 62px);
+  line-height: 1.2;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 0 18px rgba(255, 95, 210, 0.65),
+    0 4px 0 #6a1f7a;
+  background: linear-gradient(92deg, #fff 0%, var(--gold) 35%, var(--hot) 65%, var(--cool) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 4.5s ease-in-out infinite;
+  background-size: 220% 100%;
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.title-sub {
+  font-size: clamp(15px, 3.6vmin, 26px);
+  opacity: 0.9;
+}
+
+/* ---------- big round buttons ---------- */
+
+.big-btn {
+  appearance: none;
+  border: none;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 2.4vmin 4.4vmin;
+  border-radius: 999px;
+  font: inherit;
+  font-size: clamp(20px, 5.2vmin, 40px);
+  color: #3d0b3a;
+  background: linear-gradient(180deg, #fff3b0 0%, var(--gold) 55%, #ff9f43 100%);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.5),
+    0 10px 0 #b3651a,
+    0 16px 30px rgba(0, 0, 0, 0.45);
+  transition: transform 90ms ease, box-shadow 90ms ease;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.big-btn:active {
+  transform: translateY(7px);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.5),
+    0 3px 0 #b3651a,
+    0 6px 14px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.mini-btn {
+  appearance: none;
+  border: none;
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  font-size: 30px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.mini-btn:active {
+  transform: scale(0.92);
+}
+
+/* ---------- pickers (base cards / patterns) ---------- */
+
+.picker {
+  flex-direction: column;
+  gap: 2.5vmin;
+}
+
+.picker-head {
+  font-size: clamp(19px, 4.6vmin, 34px);
+  text-shadow: 0 2px 0 #59147a, 0 0 16px rgba(69, 224, 255, 0.5);
+}
+
+.picker-row {
+  display: flex;
+  gap: 3vmin;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+.choice {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 6vmin;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1vmin;
+  transition: transform 120ms ease;
+  animation: bob 3s ease-in-out infinite;
+}
+
+.choice:nth-child(2) {
+  animation-delay: 0.25s;
+}
+.choice:nth-child(3) {
+  animation-delay: 0.5s;
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.choice:active {
+  transform: scale(0.93);
+}
+
+.choice {
+  width: min(29vw, 38vh);
+}
+
+.choice canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4.2vmin;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.65),
+    0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+.choice-name {
+  font-size: clamp(14px, 3.2vmin, 24px);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- work stage hint band ---------- */
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 2vmin;
+  padding: 1.6vmin 4vmin;
+  border-radius: 999px;
+  background: rgba(20, 8, 40, 0.55);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: clamp(17px, 4vmin, 30px);
+  white-space: nowrap;
+  animation: pulse-hint 1.9s ease-in-out infinite;
+}
+
+@keyframes pulse-hint {
+  0%,
+  100% {
+    opacity: 0.86;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+.hint-emoji {
+  font-size: 1.35em;
+}
+
+/* progress pips: how many presses / how much foil */
+.pips {
+  display: flex;
+  gap: 1.6vmin;
+}
+
+.pip {
+  width: 3.4vmin;
+  height: 3.4vmin;
+  min-width: 14px;
+  min-height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+  transition: background 200ms ease, transform 200ms ease;
+}
+
+.pip.on {
+  background: var(--gold);
+  transform: scale(1.25);
+  box-shadow:
+    0 0 12px var(--gold),
+    inset 0 0 0 2px #fff;
+}
+
+/* ---------- finish screen ---------- */
+
+.finish-banner {
+  font-size: clamp(24px, 6.4vmin, 52px);
+  text-shadow:
+    0 0 20px rgba(255, 216, 94, 0.85),
+    0 4px 0 #7a2a86;
+  animation: pop-in 700ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  pointer-events: none;
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0.2) rotate(-12deg);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+/* ---------- tools (roller / press) ---------- */
+
+.tool {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 132px;
+  height: 132px;
+  margin-left: -66px;
+  margin-top: -66px;
+  pointer-events: none;
+  will-change: transform;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.55));
+  transition: opacity 200ms ease;
+}
+
+.tool[hidden] {
+  display: none;
+}
+
+/* ---------- sparkles ---------- */
+
+.spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ---------- fallback ---------- */
+
+.fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  text-align: center;
+  background: var(--bg-0);
+  z-index: 9;
+}
+
+.fallback[hidden] {
+  display: none;
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .big-btn,
+  .choice,
+  .hint,
+  .title-mark {
+    animation: none;
+  }
+}

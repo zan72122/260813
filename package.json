@@ -1,0 +1,27 @@
+{
+  "name": "himitsu-hologram-factory",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ぺたっ！きらっ！ひみつホログラム工場 - a one-finger hologram card factory for 4-year-olds",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "e2e": "playwright test",
+    "e2e:smoke": "E2E_FAST=1 playwright test tests/e2e/smoke.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@typescript-eslint/eslint-plugin": "^8.19.0",
+    "@typescript-eslint/parser": "^8.19.0",
+    "eslint": "^8.57.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}
