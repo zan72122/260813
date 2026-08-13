@@ -12,7 +12,9 @@
     "test:smoke": "playwright test tests/smoke.spec.js",
     "lint": "eslint src tests *.js",
     "format": "prettier --write \"**/*.{js,css,html,json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{js,css}\" \"tests/**/*.js\""
+    "format:check": "prettier --check \"src/**/*.{js,css}\" \"tests/**/*.js\"",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test": "npm run lint && npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
     "three": "^0.169.0"

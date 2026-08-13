@@ -249,15 +249,22 @@ export function createWorld({ fast = false } = {}) {
   }
   setMeltLevel(0);
 
+  /** 液面の高さ（るつぼローカル座標） */
+  function meltSurfaceY(level) {
+    return 0.09 + Math.max(0.0001, level * 0.3);
+  }
+
   /* ---------------- 金属のかけら ---------------- */
   const chunkMat = track(matteMaterial(0x767d90, 0.22));
   const chunks = [];
   const chunkHome = [
-    new THREE.Vector3(-1.24, 0.15, 1.02),
-    new THREE.Vector3(0.02, 0.15, 1.42),
-    new THREE.Vector3(1.12, 0.15, 1.18),
+    new THREE.Vector3(-1.42, 0.15, 0.72),
+    new THREE.Vector3(-0.78, 0.15, 1.24),
+    new THREE.Vector3(0.02, 0.15, 1.46),
+    new THREE.Vector3(0.82, 0.15, 1.24),
+    new THREE.Vector3(1.44, 0.15, 0.7),
   ];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < chunkHome.length; i++) {
     const g = new THREE.IcosahedronGeometry(0.24, 0);
     const pos = g.attributes.position;
     for (let v = 0; v < pos.count; v++) {
@@ -283,19 +290,99 @@ export function createWorld({ fast = false } = {}) {
   track(crystalMat);
   const crystalHolder = new THREE.Group();
   crystalHolder.position.y = 0.09;
-  crystalHolder.scale.setScalar(1.45);
   crucibleGroup.add(crystalHolder);
   const crystal = new THREE.Mesh(new THREE.BufferGeometry(), crystalMat);
   crystal.frustumCulled = false;
   crystal.visible = false;
   crystalHolder.add(crystal);
 
-  function setCrystalGeometry(info) {
+  /** spec（レシピから作った設計図）と、そのジオメトリを セットする */
+  function setCrystal(spec, geometry) {
     crystal.geometry.dispose();
-    crystal.geometry = info.geometry;
-    crystalMat.uniforms.uLayers.value = info.layerCount;
+    crystal.geometry = geometry;
+    crystalMat.uniforms.uLayers.value = spec.maxLayers;
+    crystalMat.uniforms.uWaterline.value = spec.waterline;
     crystal.visible = true;
   }
+
+  /* ---------------- たねの目印 ---------------- */
+  // 液面をタップした場所に出る、光る点と ひろがる輪。
+  const seedMarks = [];
+  const seedMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uT: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv;
+      uniform float uTime;
+      uniform float uT;
+      void main(){
+        float d = length(vUv - 0.5) * 2.0;
+        // まんなかの点
+        float dot0 = smoothstep(0.22, 0.0, d);
+        // ひろがっていく輪（何本か）
+        float ring = 0.0;
+        for (int i = 0; i < 2; i++) {
+          float p = fract(uTime * 0.55 + float(i) * 0.5);
+          ring += smoothstep(0.05, 0.0, abs(d - p * 0.95)) * (1.0 - p);
+        }
+        float a = clamp(dot0 * 1.3 + ring * 0.6, 0.0, 1.0);
+        vec3 c = mix(vec3(1.0, 0.95, 0.75), vec3(0.6, 0.95, 1.0), 0.35 + 0.35 * sin(uTime * 3.0));
+        gl_FragColor = vec4(c, a * 0.9);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+  track(seedMat);
+  const seedGeo = new THREE.PlaneGeometry(0.34, 0.34);
+  for (let i = 0; i < 5; i++) {
+    const m = new THREE.Mesh(seedGeo, seedMat);
+    m.rotation.x = -Math.PI / 2;
+    m.visible = false;
+    crucibleGroup.add(m);
+    seedMarks.push(m);
+  }
+
+  /** たねの目印を 液面の高さに ならべる */
+  function showSeedMarks(seeds, surfaceY) {
+    seedMarks.forEach((m, i) => {
+      const s = seeds[i];
+      m.visible = !!s;
+      if (s) m.position.set(s.x, surfaceY + 0.012, s.z);
+    });
+  }
+
+  /* ---------------- 仕上げの台座（大きさのものさし） ---------------- */
+  // これは いつも おなじ大きさ。となりに置くことで、結晶の大小が わかる。
+  const pedestalMat = track(matteMaterial(0x2a2038, 0.7));
+  const pedestal = new THREE.Group();
+  const pedTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.52, 0.54, 0.055, fast ? 16 : 30),
+    pedestalMat,
+  );
+  pedTop.position.y = -0.03;
+  pedestal.add(pedTop);
+  const pedBody = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.36, 0.5, 0.16, fast ? 14 : 24),
+    pedestalMat,
+  );
+  pedBody.position.y = -0.12;
+  pedestal.add(pedBody);
+  const pedRim = new THREE.Mesh(
+    new THREE.TorusGeometry(0.52, 0.026, 6, fast ? 16 : 28),
+    track(matteMaterial(0xffb95e, 0.55)),
+  );
+  pedRim.rotation.x = Math.PI / 2;
+  pedRim.position.y = -0.005;
+  pedestal.add(pedRim);
+  pedestal.visible = false;
+  scene.add(pedestal);
 
   /* ---------------- トング ---------------- */
   const tongMat = track(matteMaterial(0xb9c0d0, 0.3));
@@ -530,7 +617,7 @@ export function createWorld({ fast = false } = {}) {
   // 光の柱は「結晶の すこし上」で止める。カメラの中に入ってしまうと
   // 画面がまっ白になるので、下までは のばさない。
   const beam = new THREE.Mesh(new THREE.ConeGeometry(0.78, 1.5, fast ? 16 : 28, 1, true), beamMat);
-  beam.position.set(0, 3.3, 0);
+  beam.position.set(0, 3.72, 0);
   beam.visible = false;
   scene.add(beam);
 
@@ -540,16 +627,16 @@ export function createWorld({ fast = false } = {}) {
     new THREE.ConeGeometry(0.52, 0.46, fast ? 12 : 24, 1, true),
     lampMat,
   );
-  shade.position.y = 4.28;
+  shade.position.y = 4.62;
   lamp.add(shade);
   const bulb = new THREE.Mesh(
     new THREE.SphereGeometry(0.16, 12, 8),
     new THREE.MeshBasicMaterial({ color: 0xfff2d0 }),
   );
-  bulb.position.y = 4.12;
+  bulb.position.y = 4.46;
   lamp.add(bulb);
   const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 1.2, 6), lampMat);
-  cord.position.y = 5.1;
+  cord.position.y = 5.44;
   lamp.add(cord);
   lamp.visible = false;
   scene.add(lamp);
@@ -621,13 +708,16 @@ export function createWorld({ fast = false } = {}) {
     melt,
     meltMat,
     setMeltLevel,
+    meltSurfaceY,
     glowMat,
     setWorkshopDim,
     chunks,
     crystal,
     crystalMat,
     crystalHolder,
-    setCrystalGeometry,
+    setCrystal,
+    showSeedMarks,
+    pedestal,
     tongs,
     setTongsGrip,
     tray,

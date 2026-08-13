@@ -82,8 +82,9 @@ window.__BISMUTH__ = {
   setStage: (s) => game.debug.setStage(s, { snap: true }),
   begin: () => game.debug.begin(),
   reset: () => game.debug.reset(),
-  shelf: () => game.debug.shelf(),
-  clearShelf: () => game.debug.clearShelf(),
+  codex: () => game.debug.codex(),
+  clearCodex: () => game.debug.clearCodex(),
+  forceRecipe: (patch) => game.debug.forceRecipe(patch),
   frames: () => frames,
   mute: (m = true) => setMuted(m),
   /**

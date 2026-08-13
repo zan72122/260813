@@ -5,7 +5,8 @@ const CLOUD = !!process.env.CLAUDE_CODE_REMOTE || !!process.env.E2E_FAST;
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
+  // SwiftShader（ソフトウェア描画）の iPad 解像度は遅い。実機の速さとは無関係。
+  timeout: 150_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
   workers: 1,

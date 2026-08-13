@@ -96,6 +96,9 @@ uniform float uHeat;      // 熱の赤み
 uniform float uLayers;
 uniform float uSpin;      // 回した勢い（きらめきが増える）
 uniform float uSpotlight; // ライトの下 = 1
+uniform float uFilmBase;  // 酸化膜の厚み＝色。引き上げた瞬間の温度で決まる
+uniform float uFilmSpread;// 段ごとの色のずれ幅
+uniform float uWaterline; // これより下は 液に浸かっていたので 銀のまま
 
 varying vec3  vN;
 varying vec3  vW;
@@ -105,6 +108,25 @@ varying float vLocalY;
 varying float vGrow;
 
 ${ENV_GLSL}
+
+// 酸化膜の厚み（0 = 膜なしの銀 → 1 = いちばん厚い緑）で 色が決まる。
+// ずかんの「ぎん・きん・あか・むらさき・あお・みどり」と同じ並び。
+// 6色を「帯」にして、帯のまんなかでは ほぼ純色になるようにする。
+// こうすると ずかんの名前と 画面の色が ずれない。
+float band(float b, float i){
+  return smoothstep(0.42, 0.58, clamp(b - i, 0.0, 1.0));
+}
+
+vec3 bismuthHue(float f){
+  float b = clamp(f, 0.0, 1.0) * 6.0 - 0.5;   // 帯のまんなかが 整数になる
+  vec3 c = vec3(0.70, 0.72, 0.80);                        // ぎん
+  c = mix(c, vec3(1.00, 0.66, 0.10), band(b, 0.0));       // きん
+  c = mix(c, vec3(0.97, 0.14, 0.22), band(b, 1.0));       // あか
+  c = mix(c, vec3(0.58, 0.18, 0.98), band(b, 2.0));       // むらさき
+  c = mix(c, vec3(0.10, 0.38, 1.00), band(b, 3.0));       // あお
+  c = mix(c, vec3(0.06, 0.92, 0.46), band(b, 4.0));       // みどり
+  return c;
+}
 
 void main(){
   vec3 N = normalize(vN);
@@ -118,33 +140,42 @@ void main(){
   // --- 金属のベース（ビスマスはやや暗い銀にピンクがかる） ---
   vec3 base = mix(vec3(0.22, 0.23, 0.27), vec3(0.33, 0.27, 0.30), vRand);
 
-  // --- 薄膜の厚み：段ごと・面ごとに変える ---
-  float lay = vLayer / max(uLayers, 1.0);
-  float thick =
-      1.06
-    + lay * 1.55                                  // 上の段ほど厚い＝色が回る
-    + vRand * 0.30                                // 棒ごとのわずかなちがい
-    + hash31(floor(N * 7.0)) * 0.28               // 面ごとのばらつき
-    + sin(vW.y * 5.0 + uTime * 0.35) * 0.10;      // ゆっくり色が流れる
+  // --- 液面より下は 空気に触れていないので 膜がつかない ---
+  float air = smoothstep(uWaterline - 0.015, uWaterline + 0.055, vLocalY);
 
-  // 見る角度で色が変わる（これが虹の気持ちよさ）
+  // --- 膜の厚み：引き上げ温度が土台。上の段ほど熱が残って厚い ---
+  float lay = vLayer / max(uLayers, 1.0);
+  float film =
+      uFilmBase
+    + (lay - 0.45) * uFilmSpread
+    + (vRand - 0.5) * 0.09
+    + (hash31(floor(N * 7.0)) - 0.5) * 0.10;
+  film = clamp(film, 0.0, 1.0) * air;
+
+  vec3 hue = bismuthHue(film);
+
+  // --- 見る角度で色がゆらぐ（薄膜干渉。まわすと ここが動く） ---
   float cosT = sqrt(max(0.0, 1.0 - (1.0 - ndv * ndv) / 2.6));
-  float phase = thick / max(cosT, 0.28);
-  vec3 irid = thinFilm(phase);
-  // 金属の上の酸化膜なので、色はこいけれど「照りかえし」を残す
-  irid = pow(clamp(irid, 0.0, 1.0), vec3(1.15));
+  float phase = (0.55 + film * 2.6) / max(cosT, 0.28) + sin(vW.y * 4.0 + uTime * 0.3) * 0.08;
+  vec3 shift = thinFilm(phase);
+
+  // 色あいは hue のまま、きらめきだけ shift で ゆらす（白っぽくならないように）
+  vec3 irid = hue * (0.42 + 1.05 * mix(vec3(0.55), shift, 0.72));
+  irid = pow(clamp(irid, 0.0, 1.0), vec3(0.92));
   float ilum = dot(irid, vec3(0.299, 0.587, 0.114));
   irid = mix(vec3(ilum), irid, 0.55 + 0.55 * uRainbow);
 
   // フレネル：ふちほど虹が強い
   float fres = pow(1.0 - ndv, 2.6);
-  float mixAmt = clamp((0.52 + 0.42 * fres) * uRainbow, 0.0, 1.0);
+  float mixAmt = clamp((0.52 + 0.42 * fres) * uRainbow * (0.12 + 0.88 * air), 0.0, 1.0);
 
   // 上むきの面はライトをよく受け、下むきの面は暗い（かたちが見える）
   float form = 0.55 + 0.45 * (dot(N, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5);
 
   vec3 col = base * (0.30 + 0.75 * env) * form;
-  col = mix(col, irid * (0.40 + 0.80 * env) * form * 1.35, mixAmt);
+  // env をそのまま掛けると 白くとぶので、頭打ちにする
+  vec3 envSoft = min(env, vec3(1.5));
+  col = mix(col, irid * (0.55 + 0.62 * envSoft) * form * 1.45, mixAmt);
 
   // --- 鏡面ハイライト（2灯） ---
   vec3 L1 = normalize(vec3(0.35, 0.86, 0.36));
@@ -158,7 +189,11 @@ void main(){
 
   // --- 段のふちを光らせる（カクカク感） ---
   float edge = pow(1.0 - abs(dot(N, vec3(0.0, 1.0, 0.0))), 3.0);
-  col += irid * edge * 0.18 * uRainbow;
+  col += irid * edge * 0.18 * uRainbow * air;
+
+  // --- 液面線。ここで 銀と虹が くっきり分かれる ---
+  float mark = smoothstep(0.05, 0.0, abs(vLocalY - uWaterline));
+  col += vec3(1.0, 0.92, 0.75) * mark * 0.16 * uRainbow * step(0.02, uWaterline);
 
   // --- 回すとちらちら光る ---
   float tw = hash31(floor(N * 23.0) + floor(vW * 11.0));

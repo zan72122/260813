@@ -16,7 +16,10 @@
       content="とろっ！カクカク！にじビスマス工房 — 金属をとかして、ひやして、カクカクの虹の石をつくる、4さいからのゆびあそび。"
     />
     <title>とろっ！カクカク！にじビスマス工房</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23150c22'/%3E%3Cpath d='M6 20h20l-4 6H10z' fill='%23ff9a3c'/%3E%3Cpath d='M9 8h14v4h-4v4h-6v-4H9z' fill='%2364e8ff'/%3E%3Cpath d='M12 12h8v4h-3v3h-2v-3h-3z' fill='%23ff7ae0'/%3E%3C/svg%3E" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23150c22'/%3E%3Cpath d='M6 20h20l-4 6H10z' fill='%23ff9a3c'/%3E%3Cpath d='M9 8h14v4h-4v4h-6v-4H9z' fill='%2364e8ff'/%3E%3Cpath d='M12 12h8v4h-3v3h-2v-3h-3z' fill='%23ff7ae0'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -43,8 +46,14 @@
         </svg>
       </div>
 
+      <!-- いくつ入れたか の点 -->
+      <div id="count" class="count" aria-hidden="true"></div>
+
       <!-- おおきなことば（たまに出るだけ） -->
       <div id="word" class="word" aria-hidden="true"></div>
+
+      <!-- できばえの星 -->
+      <div id="stars" class="stars" aria-hidden="true"></div>
 
       <!-- タイトル -->
       <div id="title" class="screen">
@@ -62,12 +71,13 @@
 
       <!-- したのボタン列 -->
       <div id="tools" class="tools">
-        <button id="shelfBtn" class="toolbtn" type="button" aria-label="かざりだな">
+        <button id="codexBtn" class="toolbtn" type="button" aria-label="ずかん">
           <svg viewBox="0 0 64 64">
-            <rect x="8" y="40" width="48" height="6" rx="3" class="tb-line" />
-            <rect x="8" y="20" width="48" height="6" rx="3" class="tb-line" />
-            <path d="M18 40l6-10 6 10z" class="tb-dot" />
-            <path d="M36 20l6-10 6 10z" class="tb-dot2" />
+            <rect x="10" y="10" width="44" height="44" rx="6" class="tb-line" />
+            <rect x="16" y="16" width="14" height="14" rx="3" class="tb-dot" />
+            <rect x="34" y="16" width="14" height="14" rx="3" class="tb-dot2" />
+            <rect x="16" y="34" width="14" height="14" rx="3" class="tb-dot3" />
+            <rect x="34" y="34" width="14" height="14" rx="3" class="tb-dot4" />
           </svg>
         </button>
         <button id="againBtn" class="toolbtn accent" type="button" aria-label="もういちど">
@@ -97,10 +107,11 @@
         </button>
       </div>
 
-      <!-- かざりだな -->
-      <div id="shelf" class="screen hidden">
-        <div id="shelfGrid" class="shelf-grid"></div>
-        <button id="shelfClose" class="bigbtn small" type="button" aria-label="とじる">
+      <!-- ずかん -->
+      <div id="codex" class="screen hidden">
+        <div id="codexMeter" class="codex-meter" aria-hidden="true"><i></i></div>
+        <div id="codexGrid" class="codex-grid"></div>
+        <button id="codexClose" class="bigbtn small" type="button" aria-label="とじる">
           <svg viewBox="0 0 100 100" class="bigbtn-ico">
             <circle cx="50" cy="50" r="46" class="bb-bg" />
             <path

@@ -211,11 +211,100 @@ body {
   }
 }
 
+/* ---------- いくつ入れたか の点 ---------- */
+.count {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--safe-t) + 7vmin);
+  display: flex;
+  justify-content: center;
+  gap: 1.6vmin;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.count.on {
+  opacity: 1;
+}
+
+.count i {
+  width: 3.4vmin;
+  height: 3.4vmin;
+  border-radius: 50%;
+  border: 0.6vmin solid rgba(255, 255, 255, 0.45);
+  background: transparent;
+  transition:
+    background 0.25s,
+    transform 0.25s;
+}
+
+.count i.on {
+  background: #ffd76a;
+  border-color: #ffd76a;
+  transform: scale(1.16);
+}
+
+/* ---------- できばえの星 ---------- */
+.stars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 70%;
+  display: flex;
+  justify-content: center;
+  gap: 2vmin;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.stars.on {
+  opacity: 1;
+}
+
+.stars span {
+  display: block;
+  width: 11vmin;
+  height: 11vmin;
+  transform: scale(0);
+  animation: starpop 2.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  filter: drop-shadow(0 0 1.6vmin rgba(255, 210, 110, 0.9));
+}
+
+.stars svg {
+  width: 100%;
+  height: 100%;
+  fill: #ffd76a;
+}
+
+@keyframes starpop {
+  0% {
+    transform: scale(0) rotate(-40deg);
+    opacity: 0;
+  }
+  25% {
+    transform: scale(1.25) rotate(6deg);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1) rotate(0deg);
+  }
+  80% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9) translateY(-4vmin);
+    opacity: 0;
+  }
+}
+
 /* ---------- おおきなことば ---------- */
 .word {
   position: absolute;
   left: 50%;
-  top: 26%;
+  top: 15%;
   transform: translate(-50%, -50%) scale(0.4);
   font-size: 11vmin;
   font-weight: 900;
@@ -409,6 +498,30 @@ body {
   fill: #8ff2ff;
 }
 
+.tb-dot3 {
+  fill: #ff8ad8;
+}
+
+.tb-dot4 {
+  fill: #7cf3c4;
+}
+
+#codexBtn.pulse {
+  animation: codexpulse 1.4s ease-out 2;
+}
+
+@keyframes codexpulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0.6vmin 1.6vmin rgba(0, 0, 0, 0.4);
+  }
+  40% {
+    transform: scale(1.18);
+    box-shadow: 0 0 3vmin rgba(255, 215, 106, 0.9);
+  }
+}
+
 .tb-stroke {
   stroke: #fff;
 }
@@ -448,53 +561,124 @@ body.muted .snd-wave {
   opacity: 0.25;
 }
 
-/* ---------- かざりだな ---------- */
-#shelf {
+/* ---------- ずかん ---------- */
+#codex {
   background: linear-gradient(180deg, #120a20, #241238);
   justify-content: space-between;
+  gap: 2vmin;
 }
 
-.shelf-grid {
-  flex: 1;
+.codex-meter {
+  width: min(92%, 900px);
+  height: 1.6vmin;
+  min-height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.codex-meter i {
+  display: block;
+  width: var(--p, 0%);
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffd76a, #ff8ad8, #7cf3c4, #8fb8ff);
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.codex-grid {
+  flex: 1 1 auto;
   width: 100%;
   max-width: 900px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(22vmin, 1fr));
-  gap: 2.5vmin;
-  align-content: start;
-  padding: 2vmin 0;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1.6vmin;
+  align-content: center;
+  padding: 1vmin 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
 }
 
-.shelf-cell {
+.codex-cell {
+  position: relative;
   aspect-ratio: 1;
-  border-radius: 3vmin;
-  background:
-    radial-gradient(70% 60% at 50% 80%, rgba(255, 255, 255, 0.13), transparent 70%),
-    rgba(255, 255, 255, 0.06);
-  border: 0.4vmin solid rgba(255, 255, 255, 0.1);
+  border-radius: 2.2vmin;
+  border: 0.35vmin solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  color: rgba(255, 255, 255, 0.28);
+  cursor: default;
 }
 
-.shelf-cell img,
-.shelf-cell canvas {
+.codex-cell.got {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: radial-gradient(70% 60% at 50% 80%, rgba(255, 255, 255, 0.16), transparent 70%);
+  cursor: pointer;
+}
+
+.codex-cell.got:active {
+  transform: scale(0.94);
+}
+
+.codex-cell img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
-.shelf-cell.empty {
-  opacity: 0.35;
+.codex-cell b {
+  position: absolute;
+  right: 0.5vmin;
+  bottom: 0.3vmin;
+  font-size: 2.6vmin;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 0.6vmin rgba(0, 0, 0, 0.9);
 }
 
-.shelf-empty-ico {
-  width: 42%;
-  opacity: 0.5;
+.codex-cell .sil {
+  width: 72%;
+  display: block;
+}
+
+.codex-cell .sil svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* シルエットにも その色のヒントを すこしだけ乗せる */
+.c-gin {
+  color: rgba(205, 210, 225, 0.5);
+}
+.c-kin {
+  color: rgba(255, 190, 80, 0.5);
+}
+.c-aka {
+  color: rgba(255, 105, 120, 0.5);
+}
+.c-murasaki {
+  color: rgba(180, 120, 255, 0.52);
+}
+.c-ao {
+  color: rgba(105, 155, 255, 0.55);
+}
+.c-midori {
+  color: rgba(90, 235, 165, 0.5);
+}
+
+.codex-cell.rare {
+  border-color: rgba(255, 216, 110, 0.4);
+  background: rgba(255, 216, 110, 0.07);
+}
+
+.codex-cell.rare .sil {
+  color: rgba(255, 216, 110, 0.62);
 }
 
 /* 横向きのとき：タイトルを横並びに */
@@ -519,8 +703,22 @@ body.muted .snd-wave {
   }
 
   .word {
-    top: 20%;
+    top: 11%;
     font-size: 9vmin;
+  }
+
+  .stars {
+    top: 62%;
+  }
+
+  .stars span {
+    width: 9vmin;
+    height: 9vmin;
+  }
+
+  .codex-grid {
+    gap: 1.2vmin;
+    max-width: 76vh;
   }
 }
 
