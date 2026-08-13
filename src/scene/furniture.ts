@@ -25,6 +25,16 @@ export const SEAT_OFFSETS: THREE.Vector3[] = [
 
 const CHAIR_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky, PALETTE.butter];
 
+// M10 fix (fix-round-1): reused scratch objects for the per-frame matrix
+// updates in popChair/stackChair/placeTray/returnTray below — mutated in
+// place instead of allocating a new Vector3/Quaternion every frame of every
+// tween (each was doing `start.clone().lerp(...)`, `rotStart.clone().slerp(...)`,
+// and `new THREE.Vector3(1,1,1)` per callback invocation).
+const SCRATCH_POS = new THREE.Vector3();
+const SCRATCH_ROT = new THREE.Quaternion();
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const IDENTITY_QUAT = new THREE.Quaternion();
+
 /**
  * M7 fix (fix-round-1): stacked chairs previously all shared identity
  * rotation, so the 4 backs lined up into one flat-sided silhouette that read
@@ -251,10 +261,10 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
       0.42,
       Easing.backOut,
       (p) => {
-        const pos = start.clone().lerp(target, p);
-        pos.y = Math.sin(Math.PI * p) * 0.18;
-        const rot = rotStart.clone().slerp(rotEnd, p);
-        m.compose(pos, rot, new THREE.Vector3(1, 1, 1));
+        SCRATCH_POS.lerpVectors(start, target, p);
+        SCRATCH_POS.y = Math.sin(Math.PI * p) * 0.18;
+        SCRATCH_ROT.slerpQuaternions(rotStart, rotEnd, p);
+        m.compose(SCRATCH_POS, SCRATCH_ROT, UNIT_SCALE);
         chairs.setMatrixAt(index, m);
         chairs.instanceMatrix.needsUpdate = true;
       },
@@ -274,10 +284,10 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
       0.4,
       Easing.cubicInOut,
       (p) => {
-        const pos = start.clone().lerp(target, p);
-        pos.y += Math.sin(Math.PI * p) * 0.14;
-        const rot = rotStart.clone().slerp(rotEnd, p);
-        m.compose(pos, rot, new THREE.Vector3(1, 1, 1));
+        SCRATCH_POS.lerpVectors(start, target, p);
+        SCRATCH_POS.y += Math.sin(Math.PI * p) * 0.14;
+        SCRATCH_ROT.slerpQuaternions(rotStart, rotEnd, p);
+        m.compose(SCRATCH_POS, SCRATCH_ROT, UNIT_SCALE);
         chairs.setMatrixAt(index, m);
         chairs.instanceMatrix.needsUpdate = true;
       },
@@ -302,9 +312,9 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
       0.4,
       Easing.cubicOut,
       (p) => {
-        const pos = start.clone().lerp(target, p);
-        pos.y = THREE.MathUtils.lerp(start.y, target.y, p) + Math.sin(Math.PI * p) * 0.05;
-        m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+        SCRATCH_POS.lerpVectors(start, target, p);
+        SCRATCH_POS.y = THREE.MathUtils.lerp(start.y, target.y, p) + Math.sin(Math.PI * p) * 0.05;
+        m.compose(SCRATCH_POS, IDENTITY_QUAT, UNIT_SCALE);
         trays.setMatrixAt(index, m);
         trays.instanceMatrix.needsUpdate = true;
       },
@@ -316,9 +326,9 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
     const home = trayHomePosition(index);
     const start = new THREE.Vector3(worldX, 0.44, worldZ);
     tweens.add(0.35, Easing.cubicOut, (p) => {
-      const pos = start.clone().lerp(home, p);
-      pos.y = THREE.MathUtils.lerp(start.y, home.y, p) + Math.sin(Math.PI * p) * 0.06;
-      m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+      SCRATCH_POS.lerpVectors(start, home, p);
+      SCRATCH_POS.y = THREE.MathUtils.lerp(start.y, home.y, p) + Math.sin(Math.PI * p) * 0.06;
+      m.compose(SCRATCH_POS, IDENTITY_QUAT, UNIT_SCALE);
       trays.setMatrixAt(index, m);
       trays.instanceMatrix.needsUpdate = true;
     });

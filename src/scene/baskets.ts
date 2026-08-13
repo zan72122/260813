@@ -18,6 +18,11 @@ export interface BasketVisual {
 
 export const BASKET_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky];
 
+// M10 fix (fix-round-1): reused scratch object for setAttention below, which
+// runs on every pointermove while dragging a toy (x3 baskets checked per
+// move) — was allocating a fresh Color + Vector2 on every single call.
+const SCRATCH_DIR = new THREE.Vector2();
+
 // B7 fix (fix-round-1): shared, module-level (created once, never
 // seed-dependent) — same rationale as toys.ts's TOY_* constants.
 const BASKET_WEAVE_TEX = createFabricWeaveTexture(PALETTE.woodDark, 256, 77);
@@ -104,13 +109,12 @@ export class BasketSystem {
   setAttention(id: string, strength: number, towardX: number, towardZ: number): void {
     const b = this.baskets.get(id);
     if (!b) return;
-    const emissive = new THREE.Color(0xffffff).multiplyScalar(strength * 0.22);
-    b.glowMaterial.emissive = emissive;
-    const dir = new THREE.Vector2(towardX - b.group.position.x, towardZ - b.group.position.z);
-    if (dir.lengthSq() > 0.0001) dir.normalize();
+    b.glowMaterial.emissive.setScalar(strength * 0.22);
+    SCRATCH_DIR.set(towardX - b.group.position.x, towardZ - b.group.position.z);
+    if (SCRATCH_DIR.lengthSq() > 0.0001) SCRATCH_DIR.normalize();
     const leanAmount = strength * 0.09;
-    b.group.rotation.z = -dir.x * leanAmount;
-    b.group.rotation.x = dir.y * leanAmount;
+    b.group.rotation.z = -SCRATCH_DIR.x * leanAmount;
+    b.group.rotation.x = SCRATCH_DIR.y * leanAmount;
   }
 
   clearAllAttention(): void {

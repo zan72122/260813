@@ -10,6 +10,16 @@ export interface PointerHandlers {
   onDown: (clientX: number, clientY: number, pointerType: string) => void;
   onMove: (clientX: number, clientY: number) => void;
   onUp: (clientX: number, clientY: number, wasTap: boolean) => void;
+  /**
+   * M9 fix (fix-round-1): pointercancel is now routed to its own callback
+   * instead of being forwarded through onUp with the cancel event's own
+   * (often 0,0 or otherwise unreliable — the spec doesn't guarantee a
+   * meaningful position) clientX/clientY. A caller that used those
+   * coordinates for a completion threshold (e.g. "dragged up far enough")
+   * could have a cancel accidentally satisfy it. onCancel takes no
+   * coordinates at all, forcing every consumer to treat it as an abort.
+   */
+  onCancel: () => void;
   /** Fired on every down/move — used to reset the idle hint timer. */
   onActivity: () => void;
 }
@@ -73,6 +83,6 @@ export class PointerController {
   private handleCancel = (e: PointerEvent): void => {
     if (e.pointerId !== this.activePointerId) return;
     this.activePointerId = null;
-    this.handlers.onUp(e.clientX, e.clientY, false);
+    this.handlers.onCancel();
   };
 }

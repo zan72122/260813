@@ -140,6 +140,7 @@ export class SceneRoot {
       onDown: (x, y) => this.handlePointerDown(x, y),
       onMove: (x, y) => this.handlePointerMove(x, y),
       onUp: (x, y, wasTap) => this.handlePointerUp(x, y, wasTap),
+      onCancel: () => this.handlePointerCancel(),
       onActivity: () => this.noteActivity(),
     });
 
@@ -905,6 +906,42 @@ export class SceneRoot {
         break;
       }
       case 'wipe':
+        break;
+    }
+  }
+
+  /**
+   * M9 fix (fix-round-1): pointercancel must NEVER complete a drag — it has
+   * no reliable coordinates to evaluate a completion threshold against (see
+   * PointerHandlers.onCancel). Every drag kind snaps back to (or is simply
+   * left in, for kinds whose normal "not near target" outcome is already a
+   * no-op) its pre-drag state instead of running any of handlePointerUp's
+   * success-path logic.
+   */
+  private handlePointerCancel(): void {
+    const drag = this.drag;
+    this.drag = null;
+    this.cameraDirector.setLocked(false);
+    if (!drag) return;
+
+    switch (drag.kind) {
+      case 'toy':
+        this.toys.settleAtCurrentPosition(drag.id);
+        this.baskets.clearAllAttention();
+        break;
+      case 'table':
+        this.furniture.animateTableTo(0, 0.3);
+        break;
+      case 'cart':
+        this.furniture.animateCartTo(0, 0.3);
+        break;
+      case 'tray':
+      case 'mat-carry':
+      case 'mat-swipe':
+      case 'curtain':
+      case 'wipe':
+        // These kinds' normal "drop not near enough to complete" outcome is
+        // already a no-op (see handlePointerUp) — nothing further to revert.
         break;
     }
   }
