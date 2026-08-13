@@ -1,3 +1,4 @@
+import { registerSW } from "virtual:pwa-register";
 import { createClock } from "./core/clock";
 import { createFsm } from "./core/fsm";
 import { createRenderer } from "./scene/renderer";
@@ -5,6 +6,8 @@ import { installDebugApi } from "./debug/qa";
 import { createWorld } from "./scene/world";
 import { createCameraRig } from "./scene/cameras";
 import { createGameApp } from "./ui/app";
+import { createAudioSystem, bindUiTapSounds } from "./audio";
+import { loadSave } from "./save/save";
 import type { GamePhase, Quality } from "./core/types";
 
 const QUALITY_VALUES: readonly Quality[] = ["low", "medium", "high"];
@@ -56,10 +59,11 @@ function main(): void {
   const clock = createClock();
   if (config.timeScale !== null) clock.timeScale = config.timeScale;
 
-  const initialQuality: Quality = config.quality ?? "medium";
+  const save = loadSave();
+  const initialQuality: Quality = config.quality ?? (save.settings.quality !== "auto" ? save.settings.quality : "medium");
   const renderer = createRenderer(sceneRoot, initialQuality);
 
-  const world = createWorld({ quality: initialQuality, timeOfDay: "morning", seed: config.seed });
+  const world = createWorld({ quality: initialQuality, timeOfDay: "morning", seed: config.seed, reducedMotion: save.settings.reducedMotion });
   const cameraRig = createCameraRig({ orientation: window.innerWidth >= window.innerHeight ? "landscape" : "portrait" });
   // S3bの既知の制限: world.tsのresolveCamera()はsetCameraRig()未接続の間?qa=1のwindowブリッジ頼みになる。
   // 本番(qa未指定)でも5固有行動のカメラカットが効くよう、ここで正式に接続する。
@@ -76,8 +80,42 @@ function main(): void {
   window.addEventListener("orientationchange", onResize);
   onResize();
 
+  // 音声(src/audio/): WebAudio合成のみ、外部音源ファイル無し。unlock()は初回pointerdown/touchstartで
+  // 呼ぶ(Safari対応)。ゲームイベント→SfxIdの配線はbindEvents()がworld.eventsを購読して行う。
+  const audioSystem = createAudioSystem();
+  audioSystem.api.setMuted(save.settings.muted);
+  audioSystem.api.setAmbienceVolume(save.settings.ambienceVolume);
+  const unbindAudioEvents = audioSystem.bindEvents(world.events);
+  const unbindUiTap = bindUiTapSounds(audioSystem.api);
+
+  let audioUnlocked = false;
+  function handleUnlockGesture(): void {
+    audioSystem.api.unlock();
+    audioSystem.api.startAmbience();
+    if (!audioUnlocked) {
+      audioUnlocked = true;
+      world.events.emit("audio:unlocked", {});
+    }
+  }
+  // 1リスナー方針: unlock自体はpointerdown/touchstartそれぞれ初回のみ(once)で十分
+  // (unlock()/startAmbience()は内部で冪等)。ui-tapの委譲リスナーはbindUiTapSounds側の1本のみ。
+  document.addEventListener("pointerdown", handleUnlockGesture, { once: true });
+  document.addEventListener("touchstart", handleUnlockGesture, { once: true, passive: true });
+
   const fsm = createFsm();
-  const app = createGameApp({ uiRoot, world, cameraRig, fsm, seed: config.seed });
+  const app = createGameApp({
+    uiRoot,
+    world,
+    cameraRig,
+    fsm,
+    seed: config.seed,
+    save,
+    audio: audioSystem.api,
+    applyQuality: (q: Quality) => {
+      renderer.setQuality(q);
+      world.setQuality(q);
+    }
+  });
 
   const debugApi = installDebugApi(config.qa);
   debugApi.registerHandlers({
@@ -117,14 +155,27 @@ function main(): void {
       app.hideFoodDirect(spotId, food);
   }
 
-  if (config.nosw) {
-    // service worker登録はS5で追加する。E2E安定化のため、現時点では未登録なので何もしない。
-    console.warn("[main] nosw=1: service worker registration skipped");
+  // Service Worker登録(PWA/オフライン対応)。?nosw=1でE2E安定化のためスキップできる(既存契約どおり)。
+  if (!config.nosw && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+    try {
+      registerSW({ immediate: true });
+    } catch {
+      // SW未対応環境や登録失敗はオフライン機能が使えないだけで致命的ではない(throw禁止)。
+    }
   }
 
   if (config.act) {
     debugApi.jumpTo(config.act);
   }
+
+  window.addEventListener(
+    "beforeunload",
+    () => {
+      unbindAudioEvents();
+      unbindUiTap();
+    },
+    { once: true }
+  );
 
   let lastTime = performance.now();
   let firstFrameRendered = false;

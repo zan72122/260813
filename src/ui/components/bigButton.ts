@@ -10,12 +10,15 @@ export interface BigButtonOptions {
   iconSize?: number;
   variant?: "primary" | "secondary" | "ghost";
   size?: "hero" | "large" | "medium";
+  /** 省略時はlabel(ひらがな表示文言)をそのままaria-labelに使う。 */
+  ariaLabel?: string;
   onTap: () => void;
 }
 
 export function createBigButton(opts: BigButtonOptions): HTMLButtonElement {
   const btn = el("button", {
-    className: `big-btn big-btn--${opts.variant ?? "primary"} big-btn--${opts.size ?? "medium"}`
+    className: `big-btn big-btn--${opts.variant ?? "primary"} big-btn--${opts.size ?? "medium"}`,
+    attrs: { "aria-label": opts.ariaLabel ?? opts.label }
   });
   if (opts.icon) {
     const size = opts.iconSize ?? (opts.size === "hero" ? 48 : 32);

@@ -2,9 +2,10 @@
 // フェーズが変わるたびに対応するscreens/*をmount/unmountし、hint:showを飼育員演出へ橋渡しする。
 import type { CameraRig } from "../scene/cameras";
 import type { World } from "../scene/world";
-import type { FoodKind, GamePhase, GameStateMachine, SpotKind } from "../core/types";
-import type { AppContext } from "./context";
-import { createAlbum, loadSave, persistSave, recordBehavior } from "../game/album";
+import type { AudioApi, FoodKind, GamePhase, GameStateMachine, Quality, SaveData, SpotKind } from "../core/types";
+import type { AppContext, SettingsPatch } from "./context";
+import { createAlbum, persistSave, recordBehavior } from "../game/album";
+import { resetSave } from "../save/save";
 import { createSession, isHideComplete, recordFound, recordHidden, type CreateSessionOptions } from "../game/session";
 import { getSpot } from "../game/spots";
 import { getOrientation, onOrientationChange } from "./dom";
@@ -63,6 +64,12 @@ export interface CreateGameAppOptions {
   cameraRig: CameraRig;
   fsm: GameStateMachine & { setFreePlay(on: boolean): void };
   seed: number;
+  /** main.tsが生成した唯一のsaveインスタンス(loadSaveを二重に呼ばず、audio初期化と同じ値を共有する)。 */
+  save: SaveData;
+  /** main.tsが生成したAudioApi(音オン/オフ・環境音量の即時反映用)。 */
+  audio: AudioApi;
+  /** main.tsのrenderer.setQuality+world.setQualityをまとめて呼ぶ橋渡し("auto"は解決済みQualityで渡す)。 */
+  applyQuality: (q: Quality) => void;
 }
 
 export interface GameApp {
@@ -75,13 +82,40 @@ export interface GameApp {
 }
 
 export function createGameApp(opts: CreateGameAppOptions): GameApp {
-  const { uiRoot, world, cameraRig, fsm } = opts;
+  const { uiRoot, world, cameraRig, fsm, save, audio } = opts;
   const events = world.events;
 
-  const save = loadSave();
-  if (save.settings.reducedMotion) {
-    world.setReducedMotion(true);
-    cameraRig.setReducedMotion(true);
+  // reduced-motion: OSのprefers-reduced-motion OR ユーザー設定、いずれかがtrueならworld/cameraRigへ
+  // 反映する。CSS側の`.reduced-motion`クラス(styles.css)がUIアニメを短縮するためのフックも兼ねる。
+  const reducedMotionQuery =
+    typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function applyReducedMotion(): void {
+    const on = Boolean(reducedMotionQuery?.matches) || save.settings.reducedMotion;
+    world.setReducedMotion(on);
+    cameraRig.setReducedMotion(on);
+    if (typeof document !== "undefined") document.documentElement.classList.toggle("reduced-motion", on);
+  }
+  applyReducedMotion();
+  reducedMotionQuery?.addEventListener?.("change", applyReducedMotion);
+
+  world.setLightDim(save.settings.dimLight);
+  audio.setMuted(save.settings.muted);
+  audio.setAmbienceVolume(save.settings.ambienceVolume);
+  if (save.settings.quality !== "auto") opts.applyQuality(save.settings.quality);
+
+  function applySettings(patch: SettingsPatch): void {
+    Object.assign(save.settings, patch);
+    persistSave(save);
+    if (patch.reducedMotion !== undefined) applyReducedMotion();
+    if (patch.dimLight !== undefined) world.setLightDim(save.settings.dimLight);
+    if (patch.muted !== undefined) audio.setMuted(save.settings.muted);
+    if (patch.ambienceVolume !== undefined) audio.setAmbienceVolume(save.settings.ambienceVolume);
+    if (patch.quality !== undefined) opts.applyQuality(save.settings.quality === "auto" ? "medium" : save.settings.quality);
+  }
+
+  function resetSaveData(): void {
+    resetSave();
+    if (typeof window !== "undefined") window.location.reload();
   }
 
   const album = createAlbum();
@@ -125,6 +159,8 @@ export function createGameApp(opts: CreateGameAppOptions): GameApp {
     album,
     save,
     persistSaveNow: () => persistSave(save),
+    applySettings,
+    resetSaveData,
     getOrientation,
     onOrientation: onOrientationChange,
     regenerateSession,
@@ -244,6 +280,7 @@ export function createGameApp(opts: CreateGameAppOptions): GameApp {
   function destroy(): void {
     unsubFsm();
     unsubHint();
+    reducedMotionQuery?.removeEventListener?.("change", applyReducedMotion);
     hintBubble.dispose();
     currentUnmount?.();
     currentUnmount = null;

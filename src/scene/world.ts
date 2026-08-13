@@ -51,6 +51,8 @@ export interface World extends WorldApi {
   playIntro(opts?: { instant?: boolean }): Promise<void>;
   /** S4: ヒント演出用。飼育員にワールド座標を指差させ、視線も向ける。nullで自然な姿勢へ戻す。 */
   keeperPointAt(pos: Vec3 | null): void;
+  /** S5: せってい「ひかりをよわく」。lighting.tsのsetDim()への薄い委譲。 */
+  setLightDim(on: boolean): void;
 }
 
 interface RunningAnim {
@@ -263,6 +265,10 @@ export function createWorld(opts?: {
     reducedMotion = on;
     wind.setReducedMotion(on);
     elephant.setReducedMotion(on);
+  }
+
+  function setLightDim(on: boolean): void {
+    lighting.setDim(on);
   }
 
   function placeFood(spotId: SpotKind, food: FoodKind): void {
@@ -532,7 +538,8 @@ export function createWorld(opts?: {
     playBehaviorDirect,
     setCameraRig,
     playIntro,
-    keeperPointAt
+    keeperPointAt,
+    setLightDim
   };
 
   // S3b: playBehaviorDirect()をQAスクリプトから直接叩けるようworld自体もwindowへ公開する

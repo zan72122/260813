@@ -16,6 +16,9 @@ export interface FoodTrayCallbacks {
   /** ドラッグ終了。呼び出し側(hide screen)がスナップ判定し、結果に応じて
    * markPlaced/returnItem を呼び戻す(このコールバック自体は戻り値を返さない)。 */
   onDragEnd: (item: FoodTrayItem, clientX: number, clientY: number) => void;
+  /** キーボードQAフォールバック: Tabで食材にフォーカス+Enter/Spaceで押した時。
+   * ドラッグ経路を経由できないキーボード操作向けに、呼び出し側が自動配置する。 */
+  onActivate: (item: FoodTrayItem) => void;
 }
 
 export interface FoodTray {
@@ -37,7 +40,10 @@ export function createFoodTray(items: FoodTrayItem[], callbacks: FoodTrayCallbac
   let dragging: { item: FoodTrayItem; ghost: HTMLElement; slot: HTMLElement } | null = null;
 
   for (const item of items) {
-    const slot = el("div", { className: "food-tray__slot", attrs: { role: "button", "aria-label": item.food } });
+    const slot = el("div", {
+      className: "food-tray__slot",
+      attrs: { role: "button", tabindex: "0", "aria-label": `${item.food}をかくす` }
+    });
     slot.style.touchAction = "none";
     const canvas = makeIconCanvas(ICON_SIZE);
     drawFoodIcon(canvas, item.food, ICON_SIZE);
@@ -79,6 +85,14 @@ export function createFoodTray(items: FoodTrayItem[], callbacks: FoodTrayCallbac
     };
     slot.addEventListener("pointerup", endDrag);
     slot.addEventListener("pointercancel", endDrag);
+
+    // キーボードQAフォールバック: マウス/タッチのドラッグ経路を使えない場合、Enter/Spaceで即配置。
+    slot.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+      if (slot.classList.contains("food-tray__slot--placed") || slot.classList.contains("food-tray__slot--dragging")) return;
+      ev.preventDefault();
+      callbacks.onActivate(item);
+    });
   }
 
   return {

@@ -72,6 +72,23 @@ button {
   cursor: pointer;
 }
 
+/* ===== アクセシビリティ: キーボード操作時のみ目立つフォーカスリング ===== */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 3px solid #5a4a3a;
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+}
+.info-fab:focus-visible,
+.album-home-btn:focus-visible,
+.gate-lever-handle:focus-visible,
+.settings-toggle:focus-visible {
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
 .card {
   background: var(--color-bg);
   border-radius: var(--radius-lg);
@@ -239,34 +256,204 @@ button {
   line-height: 1.7;
 }
 .info-panel__settings-link {
-  align-self: flex-start;
-  background: none;
-  box-shadow: none;
-  color: var(--color-text);
-  font-size: 15px;
-  padding: 6px 10px;
-  min-height: 64px;
+  align-self: stretch;
 }
-.info-panel__settings {
+.info-panel__close {
+  align-self: center;
+  margin-top: 4px;
+}
+
+/* ===== せってい画面 ===== */
+.settings-card {
+  gap: 10px;
+}
+.settings-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--color-accent);
+}
+.settings-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: rgba(255, 214, 110, 0.18);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
+  gap: 4px;
 }
-.info-panel__toggle-row {
+.settings-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 16px;
   min-height: 64px;
+  padding: 6px 2px;
+  border-bottom: 1px solid rgba(90, 74, 58, 0.1);
 }
-.info-panel__toggle-row input {
-  width: 28px;
-  height: 28px;
+.settings-row:last-child {
+  border-bottom: none;
 }
-.info-panel__close {
+.settings-row__icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-row__label {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.settings-row--slider,
+.settings-row--quality,
+.settings-row--reset {
+  flex-wrap: wrap;
+}
+.settings-row__control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+/* 大きなON/OFFトグル(64px幅のノブ) */
+.settings-toggle {
+  flex: 0 0 auto;
+  width: 76px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(90, 74, 58, 0.18);
+  box-shadow: none;
+  position: relative;
+  padding: 0;
+}
+/* 見た目は44px高のスイッチのまま、タップ判定だけ64px相当に広げる(4歳児向けの誤操作吸収)。 */
+.settings-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+.settings-toggle__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(90, 74, 58, 0.3);
+  transition: transform 0.15s ease;
+}
+.settings-toggle--on {
+  background: var(--color-accent);
+}
+.settings-toggle--on .settings-toggle__knob {
+  transform: translateX(32px);
+}
+/* 大きなつまみの環境音量スライダー */
+.settings-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.settings-slider::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(90, 74, 58, 0.18);
+}
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-soft);
+  margin-top: -16px;
+  border: 3px solid #fff;
+}
+.settings-slider::-moz-range-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(90, 74, 58, 0.18);
+}
+.settings-slider::-moz-range-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-soft);
+  border: 3px solid #fff;
+}
+.settings-slider__value {
+  flex: 0 0 auto;
+  min-width: 3.4em;
+  text-align: right;
+  font-weight: 700;
+  font-size: 15px;
+}
+.settings-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.settings-segmented__btn {
+  flex: 1 1 auto;
+  min-height: 64px;
+  min-width: 72px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  background: rgba(90, 74, 58, 0.12);
+  box-shadow: none;
+  border-radius: var(--radius-md);
+}
+.settings-segmented__btn--on {
+  background: var(--color-accent);
+  color: #fff;
+}
+.settings-reset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-reset-btn {
+  min-height: 64px;
+  padding: 12px 22px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #a35a4a;
+  background: rgba(163, 90, 74, 0.14);
+  box-shadow: none;
+}
+.settings-reset-confirm {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255, 138, 112, 0.12);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+.settings-reset-confirm__label {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: center;
+}
+.settings-reset-confirm__buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.settings-close {
   align-self: center;
   margin-top: 4px;
 }
@@ -650,4 +837,17 @@ button {
     animation-duration: 0.01ms !important;
     transition-duration: 0.05s !important;
   }
+}
+/* せってい「うごきをへらす」がONの時もOS設定と同じだけUIアニメを短縮する
+   (app.tsがhtml要素へ付け外しするクラス、OSのprefers-reduced-motionとOR条件)。 */
+:root.reduced-motion .big-btn,
+:root.reduced-motion .food-tray__slot,
+:root.reduced-motion .food-tray__slot--bounce,
+:root.reduced-motion .finish-gesture__icon--pulse,
+:root.reduced-motion .gate-lever-handle--nudge,
+:root.reduced-motion .seek-pop-card,
+:root.reduced-motion .album-card,
+:root.reduced-motion .hint-bubble--show {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.05s !important;
 }

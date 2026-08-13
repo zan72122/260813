@@ -229,7 +229,7 @@
     {
       "id": "S5",
       "title": "音/設定/保存/PWA/アクセシビリティ/非公式表示",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "src/audio/",
@@ -247,9 +247,17 @@
         "npm run build"
       ],
       "reportPath": "ops/reports/S5.md",
-      "commit": "",
+      "commit": "101b628",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (16 files, 186 tests; 既存154 + save15 + audio-mapping17)",
+        "npm run build: PASS (dist/ generated, SW+manifest+icons込み)",
+        "オフライン起動確認(Playwright, context.setOffline(true)): PASS (2回目リロードでもUI描画/console error 0件)",
+        "artifacts/screenshots/dev-s5-settings.png(390x844)で64px+タッチ対象/暖色/絵中心の設定画面を目視確認",
+        "実機音出しは未確認(ops/reports/S5.md 11節に明記、ユニットテストのマッピング検証+実装レビューで担保)"
+      ]
     },
     {
       "id": "S6",

@@ -154,6 +154,10 @@ export function mountHideScreen(ctx: AppContext): () => void {
       snapTarget = null;
       ctx.world.highlightSpot(null);
       void placeInto(spotId, item);
+    },
+    onActivate: (item) => {
+      hint.reset();
+      void autoPlaceKeyboard(item);
     }
   });
   root.appendChild(tray.node);
@@ -176,6 +180,27 @@ export function mountHideScreen(ctx: AppContext): () => void {
     const spot = getSpot(spotId);
     await ctx.cameraRig.goTo(`spot:${spotId}`);
     await runFinishGesture(root, spotId, spot.elephantBehavior);
+    ctx.world.placeFood(spotId, item.food);
+    recordHidden(activeSession, spotId, item.food);
+    ctx.events.emit("food:hidden", { spotId, food: item.food });
+    tray.markPlaced(item.id);
+    await ctx.cameraRig.goTo("overview");
+    busy = false;
+    if (isHideComplete(activeSession)) {
+      finishHiding();
+    } else if (activeSession.config.freePlay && activeSession.hidden.length >= 1) {
+      proceedBtn.style.display = "";
+    }
+  }
+
+  /** キーボードQAフォールバック(Tab+Enter/Space): ドラッグ+仕上げスワイプを経由できないため、
+   * 残っているスポットへ即座に確定配置する(「hide操作はEnterで自動配置でよい」の方針どおり)。 */
+  async function autoPlaceKeyboard(item: FoodTrayItem): Promise<void> {
+    if (busy) return;
+    const spotId = remainingSpots(activeSession)[0];
+    if (!spotId) return;
+    busy = true;
+    await ctx.cameraRig.goTo(`spot:${spotId}`);
     ctx.world.placeFood(spotId, item.food);
     recordHidden(activeSession, spotId, item.food);
     ctx.events.emit("food:hidden", { spotId, food: item.food });

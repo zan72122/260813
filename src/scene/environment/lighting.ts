@@ -70,6 +70,8 @@ export interface LightingRig {
   readonly group: THREE.Group;
   setTimeOfDay(t: TimeOfDay): void;
   setQuality(q: Quality): void;
+  /** せってい「ひかりをよわく」: 光強度を約70%に落とす(まぶしさが苦手な子ども向け)。 */
+  setDim(on: boolean): void;
   dispose(): void;
 }
 
@@ -94,15 +96,32 @@ export function createLighting(scene: THREE.Scene, initialTime: TimeOfDay, initi
   let currentTime: TimeOfDay = initialTime;
   let currentQuality: Quality = initialQuality;
   let skyTexture: THREE.CanvasTexture | null = null;
+  let dimmed = false;
+  const AMBIENT_BASE_INTENSITY = 0.15;
+
+  function dimFactor(): number {
+    return dimmed ? 0.7 : 1;
+  }
+
+  function applyIntensities(): void {
+    const cfg = TIME_CONFIGS[currentTime];
+    const f = dimFactor();
+    hemi.intensity = cfg.hemiIntensity * f;
+    sun.intensity = cfg.sunIntensity * f;
+    ambient.intensity = AMBIENT_BASE_INTENSITY * f;
+  }
+
+  function setDim(on: boolean): void {
+    dimmed = on;
+    applyIntensities();
+  }
 
   function applyTime(t: TimeOfDay): void {
     currentTime = t;
     const cfg = TIME_CONFIGS[t];
     hemi.color.set(cfg.hemiSky);
     hemi.groundColor.set(cfg.hemiGround);
-    hemi.intensity = cfg.hemiIntensity;
     sun.color.set(cfg.sunColor);
-    sun.intensity = cfg.sunIntensity;
     sun.position.set(...cfg.sunPos);
     sun.target.position.set(0, 0, 0);
     if (!sun.target.parent) group.add(sun.target);
@@ -111,6 +130,7 @@ export function createLighting(scene: THREE.Scene, initialTime: TimeOfDay, initi
     skyTexture = makeSkyTexture(cfg);
     scene.background = skyTexture;
     scene.fog = new THREE.Fog(new THREE.Color(cfg.fogColor).getHex(), cfg.fogNear, cfg.fogFar);
+    applyIntensities();
   }
 
   function applyQuality(q: Quality): void {
@@ -126,6 +146,7 @@ export function createLighting(scene: THREE.Scene, initialTime: TimeOfDay, initi
     group,
     setTimeOfDay: applyTime,
     setQuality: applyQuality,
+    setDim,
     dispose(): void {
       skyTexture?.dispose();
       hemi.dispose();

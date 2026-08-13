@@ -14,7 +14,10 @@ export function mountGateScreen(ctx: AppContext): () => void {
 
   const leverWrap = el("div", { className: "gate-lever-wrap" });
   const track = el("div", { className: "gate-lever-track" });
-  const handle = el("div", { className: "gate-lever-handle", attrs: { role: "button", "aria-label": "ゲートを あける" } });
+  const handle = el("div", {
+    className: "gate-lever-handle",
+    attrs: { role: "button", tabindex: "0", "aria-label": "ゲートを あける" }
+  });
   handle.style.touchAction = "none";
   const handleCanvas = makeIconCanvas(52);
   drawHandSwipeGlyph(handleCanvas, 52);
@@ -80,6 +83,13 @@ export function mountGateScreen(ctx: AppContext): () => void {
   }
   handle.addEventListener("pointerup", endDrag);
   handle.addEventListener("pointercancel", endDrag);
+
+  // キーボードQAフォールバック: スワイプできない場合、Enter/Spaceで即座にゲートを開ける。
+  handle.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+    ev.preventDefault();
+    triggerOpen();
+  });
 
   const label = root.firstElementChild as HTMLElement;
 

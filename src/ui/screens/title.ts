@@ -2,6 +2,7 @@
 import type { AppContext } from "../context";
 import { createBigButton } from "../components/bigButton";
 import { createInfoPanel } from "../components/infoPanel";
+import { createSettingsPanel } from "../settings";
 import { el } from "../dom";
 import { drawCompassGlyph, drawInfoGlyph, drawPlayGlyph } from "../icons";
 
@@ -65,14 +66,11 @@ export function mountTitleScreen(ctx: AppContext): () => void {
   infoBtn.appendChild(infoCanvas);
   root.appendChild(infoBtn);
 
+  const settingsPanel = createSettingsPanel(ctx);
+  root.appendChild(settingsPanel.node);
+
   const infoPanel = createInfoPanel({
-    onReducedMotionChange: (on) => {
-      ctx.world.setReducedMotion(on);
-      ctx.cameraRig.setReducedMotion(on);
-    },
-    onMutedChange: () => {
-      // 音声実装はS5。ここでは設定値の保存のみ(infoPanel内でpersistSave済み)。
-    }
+    onOpenSettings: () => settingsPanel.open()
   });
   root.appendChild(infoPanel.node);
   infoBtn.addEventListener("click", () => infoPanel.open());
@@ -81,6 +79,7 @@ export function mountTitleScreen(ctx: AppContext): () => void {
   ctx.world.clearFoods();
 
   return () => {
+    settingsPanel.dispose();
     infoPanel.dispose();
     root.remove();
   };

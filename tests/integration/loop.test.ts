@@ -7,9 +7,21 @@ import { createFsm } from "../../src/core/fsm";
 import { createGameApp } from "../../src/ui/app";
 import type { CameraRig } from "../../src/scene/cameras";
 import type { World } from "../../src/scene/world";
-import type { BehaviorId, EventBus, FoodKind, GamePhase, SpotKind } from "../../src/core/types";
+import type { AudioApi, BehaviorId, EventBus, FoodKind, GamePhase, SpotKind } from "../../src/core/types";
 import { getSpot, SPOTS } from "../../src/game/spots";
-import { SAVE_KEY } from "../../src/game/album";
+import { defaultSaveData, SAVE_KEY } from "../../src/game/album";
+
+function createMockAudio(): AudioApi {
+  return {
+    unlock: () => {},
+    play: () => {},
+    setMuted: () => {},
+    setAmbienceVolume: () => {},
+    startAmbience: () => {},
+    suspend: () => {},
+    resume: () => {}
+  };
+}
 
 function createMockWorld(): { world: World; events: EventBus; placed: Map<SpotKind, FoodKind> } {
   const events = createEventBus();
@@ -20,6 +32,7 @@ function createMockWorld(): { world: World; events: EventBus; placed: Map<SpotKi
     setQuality: () => {},
     setTimeOfDay: () => {},
     setReducedMotion: () => {},
+    setLightDim: () => {},
     placeFood: (spotId, food) => {
       placed.set(spotId, food);
     },
@@ -78,7 +91,7 @@ function setup(seed = 42): {
   const { world, events } = createMockWorld();
   const cameraRig = createMockCameraRig();
   const fsm = createFsm();
-  const app = createGameApp({ uiRoot, world, cameraRig, fsm, seed });
+  const app = createGameApp({ uiRoot, world, cameraRig, fsm, seed, save: defaultSaveData(), audio: createMockAudio(), applyQuality: () => {} });
   return { app, fsm, world, events, uiRoot };
 }
 

@@ -5,6 +5,8 @@ import type { EventBus, FoodKind, GamePhase, GameStateMachine, SaveData, Session
 import type { AlbumState } from "../game/album";
 import type { Orientation } from "./dom";
 
+export type SettingsPatch = Partial<SaveData["settings"]>;
+
 export interface AppContext {
   /** 画面はこの直下へ自分のルート要素を1つappendする(mount)。unmountで必ず取り除く。 */
   readonly uiRoot: HTMLElement;
@@ -18,6 +20,10 @@ export interface AppContext {
   readonly album: AlbumState;
   readonly save: SaveData;
   persistSaveNow(): void;
+  /** 設定(せってい画面)からの唯一の入口。差分だけ渡せば足りる(即時反映+保存)。 */
+  applySettings(patch: SettingsPatch): void;
+  /** データをリセット: 既定値で保存し直し、ページを再読込して全状態を素朴に作り直す。 */
+  resetSaveData(): void;
   getOrientation(): Orientation;
   onOrientation(cb: (o: Orientation) => void): () => void;
   /** title/album等から次のセッションを作る時に使う共通ヘルパー。 */
