@@ -1,15 +1,292 @@
 {
   "tasks": [
-    { "id": "S1", "title": "基盤: Vite/TS/Three/FSM/clock/rng/events/renderer骨格/debug骨格/テスト基盤", "status": "passed", "owner": "sonnet", "ownedPaths": ["package.json", "vite.config.ts", "tsconfig.json", "eslint.config.js", "playwright.config.ts", "index.html", "src/core/", "src/game/spots.ts", "src/game/foods.ts", "src/scene/renderer.ts", "src/main.ts", "src/debug/", "src/styles.css", "tests/"], "dependsOn": [], "acceptanceCommands": ["npm run lint", "npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S1.md", "commit": "a578a0d25e8cef877204927d4b051cb1a486fbf3", "attempt": 1, "evidence": ["npm run lint: PASS (0 errors)", "npm run typecheck: PASS (0 errors)", "npm run test: PASS (6 files, 77 tests)", "npm run build: PASS (dist/ generated)"] },
-    { "id": "S2", "title": "放飼場環境+カメラ: 地形/石垣/ガジュマル/土管/砂場/高木/ゲート/カート/飼育員/光/カメラプリセット", "status": "passed", "owner": "sonnet", "ownedPaths": ["src/scene/environment/", "src/scene/cameras.ts", "src/scene/world.ts", "src/scene/effects/"], "dependsOn": ["S1"], "acceptanceCommands": ["npm run lint", "npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S2.md", "commit": "a03bd40a78237d42c1481101a400a5b96a670395", "attempt": 1, "evidence": ["npm run lint: PASS (0 errors)", "npm run typecheck: PASS (0 errors)", "npm run test: PASS (8 files, 90 tests; 既存77+新規13)", "npm run build: PASS (dist/ generated)"] },
-    { "id": "S2b", "title": "放飼場環境の視覚的欠陥修正: 浮き島解消/放射状アーティファクト解消/砂場区別/飼育舎の奥行/岩の不等間隔化/葉群の立体感", "status": "passed", "owner": "sonnet", "ownedPaths": ["src/scene/environment/", "src/scene/effects/", "src/scene/world.ts", "ops/reports/S2b.md"], "dependsOn": ["S2"], "acceptanceCommands": ["npm run lint", "npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S2b.md", "commit": "95e26ced4a6e145250873d29638aa6497d5e2da4", "attempt": 1, "evidence": ["npm run lint: PASS (0 errors)", "npm run typecheck: PASS (0 errors)", "npm run test: PASS (8 files, 90 tests)", "npm run build: PASS (dist/ generated)", "artifacts/screenshots/dev-s2-landscape.png / dev-s2-portrait.png で5問題の解消を目視確認"] },
-    { "id": "S3", "title": "ゾウ本体: モデル/スケルトン/trunk spline制御/歩行/idle/登場探索", "status": "passed", "owner": "sonnet", "ownedPaths": ["src/scene/elephant/"], "dependsOn": ["S2b"], "acceptanceCommands": ["npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S3.md", "commit": "6f95105c8288c7f87759e7e2a2d3f28d0a24fa31", "attempt": 1, "evidence": ["npm run lint: PASS (0 errors)", "npm run typecheck: PASS (0 errors)", "npm run test: PASS (9 files, 102 tests; 既存90+新規12)", "npm run build: PASS (dist/ generated)", "artifacts/screenshots/dev-s3-elephant-{idle,walk,sniff}.png でアジアゾウとして認識できる造形+鼻のなめらかなカーブを目視確認"] },
-    { "id": "S3b", "title": "5固有行動: probe-gap/dig-sand/reach-pipe/peel-banana/break-branch + 完了イベント", "status": "passed", "owner": "sonnet", "ownedPaths": ["src/scene/elephant/behaviors/", "src/scene/effects/"], "dependsOn": ["S3"], "acceptanceCommands": ["npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S3b.md", "commit": "66474b7", "attempt": 1, "evidence": ["npm run lint: PASS (0 errors)", "npm run typecheck: PASS (0 errors)", "npm run test: PASS (10 files, 113 tests; 既存102+新規11)", "npm run build: PASS (dist/ generated)", "artifacts/screenshots/dev-s3b-{probe,dig,pipe,banana,branch}.png で5行動の姿勢/カメラ角/環境変化が明確に異なることを目視確認"] },
-    { "id": "S4", "title": "ゲームループ+UX: intro/餌選択/隠す操作/ヒント/ゲート/探索順/アルバム/再プレイ/自由遊び/縦横UI", "status": "pending", "owner": "sonnet", "ownedPaths": ["src/ui/", "src/game/session.ts", "src/game/album.ts", "src/game/hints.ts", "src/main.ts"], "dependsOn": ["S3b"], "acceptanceCommands": ["npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S4.md", "commit": "", "attempt": 1, "evidence": [] },
-    { "id": "S5", "title": "音/設定/保存/PWA/アクセシビリティ/非公式表示", "status": "pending", "owner": "sonnet", "ownedPaths": ["src/audio/", "src/save/", "src/ui/settings.ts", "vite.config.ts", "public/"], "dependsOn": ["S4"], "acceptanceCommands": ["npm run typecheck", "npm run test", "npm run build"], "reportPath": "ops/reports/S5.md", "commit": "", "attempt": 1, "evidence": [] },
-    { "id": "S6", "title": "QAハーネス: debug API完成/E2E/screenshots/console捕捉/README/QA report雛形", "status": "pending", "owner": "sonnet", "ownedPaths": ["src/debug/", "e2e/", "playwright.config.ts", "README.md", "docs/QA_REPORT.md", "package.json"], "dependsOn": ["S5"], "acceptanceCommands": ["npm run check", "npm run qa:e2e", "npm run qa:screenshots"], "reportPath": "ops/reports/S6.md", "commit": "", "attempt": 1, "evidence": [] },
-    { "id": "R1", "title": "独立レビュー: コード/性能/安全（読み取り専用）", "status": "pending", "owner": "sonnet", "ownedPaths": ["ops/reviews/R1.md"], "dependsOn": ["S6"], "acceptanceCommands": [], "reportPath": "ops/reviews/R1.md", "commit": "", "attempt": 1, "evidence": [] },
-    { "id": "R2", "title": "独立レビュー: 4歳児UX/画面/ゲーム性（読み取り専用）", "status": "pending", "owner": "sonnet", "ownedPaths": ["ops/reviews/R2.md"], "dependsOn": ["S6"], "acceptanceCommands": [], "reportPath": "ops/reviews/R2.md", "commit": "", "attempt": 1, "evidence": [] },
-    { "id": "S7", "title": "レビュー反映の最終修正", "status": "pending", "owner": "sonnet", "ownedPaths": ["src/", "e2e/"], "dependsOn": ["R1", "R2"], "acceptanceCommands": ["npm run check", "npm run qa:e2e", "npm run qa:screenshots"], "reportPath": "ops/reports/S7.md", "commit": "", "attempt": 1, "evidence": [] }
+    {
+      "id": "S1",
+      "title": "基盤: Vite/TS/Three/FSM/clock/rng/events/renderer骨格/debug骨格/テスト基盤",
+      "status": "passed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "package.json",
+        "vite.config.ts",
+        "tsconfig.json",
+        "eslint.config.js",
+        "playwright.config.ts",
+        "index.html",
+        "src/core/",
+        "src/game/spots.ts",
+        "src/game/foods.ts",
+        "src/scene/renderer.ts",
+        "src/main.ts",
+        "src/debug/",
+        "src/styles.css",
+        "tests/"
+      ],
+      "dependsOn": [],
+      "acceptanceCommands": [
+        "npm run lint",
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S1.md",
+      "commit": "a578a0d25e8cef877204927d4b051cb1a486fbf3",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (6 files, 77 tests)",
+        "npm run build: PASS (dist/ generated)"
+      ]
+    },
+    {
+      "id": "S2",
+      "title": "放飼場環境+カメラ: 地形/石垣/ガジュマル/土管/砂場/高木/ゲート/カート/飼育員/光/カメラプリセット",
+      "status": "passed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/scene/environment/",
+        "src/scene/cameras.ts",
+        "src/scene/world.ts",
+        "src/scene/effects/"
+      ],
+      "dependsOn": [
+        "S1"
+      ],
+      "acceptanceCommands": [
+        "npm run lint",
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S2.md",
+      "commit": "a03bd40a78237d42c1481101a400a5b96a670395",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (8 files, 90 tests; 既存77+新規13)",
+        "npm run build: PASS (dist/ generated)"
+      ]
+    },
+    {
+      "id": "S2b",
+      "title": "放飼場環境の視覚的欠陥修正: 浮き島解消/放射状アーティファクト解消/砂場区別/飼育舎の奥行/岩の不等間隔化/葉群の立体感",
+      "status": "passed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/scene/environment/",
+        "src/scene/effects/",
+        "src/scene/world.ts",
+        "ops/reports/S2b.md"
+      ],
+      "dependsOn": [
+        "S2"
+      ],
+      "acceptanceCommands": [
+        "npm run lint",
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S2b.md",
+      "commit": "95e26ced4a6e145250873d29638aa6497d5e2da4",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (8 files, 90 tests)",
+        "npm run build: PASS (dist/ generated)",
+        "artifacts/screenshots/dev-s2-landscape.png / dev-s2-portrait.png で5問題の解消を目視確認"
+      ]
+    },
+    {
+      "id": "S3",
+      "title": "ゾウ本体: モデル/スケルトン/trunk spline制御/歩行/idle/登場探索",
+      "status": "passed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/scene/elephant/"
+      ],
+      "dependsOn": [
+        "S2b"
+      ],
+      "acceptanceCommands": [
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S3.md",
+      "commit": "6f95105c8288c7f87759e7e2a2d3f28d0a24fa31",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (9 files, 102 tests; 既存90+新規12)",
+        "npm run build: PASS (dist/ generated)",
+        "artifacts/screenshots/dev-s3-elephant-{idle,walk,sniff}.png でアジアゾウとして認識できる造形+鼻のなめらかなカーブを目視確認"
+      ]
+    },
+    {
+      "id": "S3b",
+      "title": "5固有行動: probe-gap/dig-sand/reach-pipe/peel-banana/break-branch + 完了イベント",
+      "status": "failed",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/scene/elephant/behaviors/",
+        "src/scene/effects/"
+      ],
+      "dependsOn": [
+        "S3"
+      ],
+      "acceptanceCommands": [
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S3b.md",
+      "commit": "66474b7",
+      "attempt": 1,
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (10 files, 113 tests; 既存102+新規11)",
+        "npm run build: PASS (dist/ generated)",
+        "artifacts/screenshots/dev-s3b-{probe,dig,pipe,banana,branch}.png で5行動の姿勢/カメラ角/環境変化が明確に異なることを目視確認",
+        "Fable目視ゲート不合格: probe/dig/branchのbehaviorカメラが行動を映していない(尻/フレーム外/幹遮蔽)。S3cへ引き継ぎ"
+      ]
+    },
+    {
+      "id": "S4",
+      "title": "ゲームループ+UX: intro/餌選択/隠す操作/ヒント/ゲート/探索順/アルバム/再プレイ/自由遊び/縦横UI",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/ui/",
+        "src/game/session.ts",
+        "src/game/album.ts",
+        "src/game/hints.ts",
+        "src/main.ts"
+      ],
+      "dependsOn": [
+        "S3b"
+      ],
+      "acceptanceCommands": [
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S4.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    },
+    {
+      "id": "S5",
+      "title": "音/設定/保存/PWA/アクセシビリティ/非公式表示",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/audio/",
+        "src/save/",
+        "src/ui/settings.ts",
+        "vite.config.ts",
+        "public/"
+      ],
+      "dependsOn": [
+        "S4"
+      ],
+      "acceptanceCommands": [
+        "npm run typecheck",
+        "npm run test",
+        "npm run build"
+      ],
+      "reportPath": "ops/reports/S5.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    },
+    {
+      "id": "S6",
+      "title": "QAハーネス: debug API完成/E2E/screenshots/console捕捉/README/QA report雛形",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/debug/",
+        "e2e/",
+        "playwright.config.ts",
+        "README.md",
+        "docs/QA_REPORT.md",
+        "package.json"
+      ],
+      "dependsOn": [
+        "S5"
+      ],
+      "acceptanceCommands": [
+        "npm run check",
+        "npm run qa:e2e",
+        "npm run qa:screenshots"
+      ],
+      "reportPath": "ops/reports/S6.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    },
+    {
+      "id": "R1",
+      "title": "独立レビュー: コード/性能/安全（読み取り専用）",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "ops/reviews/R1.md"
+      ],
+      "dependsOn": [
+        "S6"
+      ],
+      "acceptanceCommands": [],
+      "reportPath": "ops/reviews/R1.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    },
+    {
+      "id": "R2",
+      "title": "独立レビュー: 4歳児UX/画面/ゲーム性（読み取り専用）",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "ops/reviews/R2.md"
+      ],
+      "dependsOn": [
+        "S6"
+      ],
+      "acceptanceCommands": [],
+      "reportPath": "ops/reviews/R2.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    },
+    {
+      "id": "S7",
+      "title": "レビュー反映の最終修正",
+      "status": "pending",
+      "owner": "sonnet",
+      "ownedPaths": [
+        "src/",
+        "e2e/"
+      ],
+      "dependsOn": [
+        "R1",
+        "R2"
+      ],
+      "acceptanceCommands": [
+        "npm run check",
+        "npm run qa:e2e",
+        "npm run qa:screenshots"
+      ],
+      "reportPath": "ops/reports/S7.md",
+      "commit": "",
+      "attempt": 1,
+      "evidence": []
+    }
   ]
 }
