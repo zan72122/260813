@@ -28,11 +28,16 @@ export function buildCurtain(windowCenter: THREE.Vector3, windowWidth: number, w
   const group = new THREE.Group();
   const panelWidth = windowWidth * 0.62;
   const geo = buildPanelGeometry(panelWidth, windowHeight + 0.1);
+  // M3 fix (fix-round-1): was 0xfff6e8 — nearly identical to the back wall's
+  // 0xfaf3e7, so the sheer curtain barely separated from the wall behind it.
+  // A cool pale blue-grey (a believable "sheer fabric in window backlight"
+  // cast) plus slightly higher opacity gives it a readable silhouette
+  // against the warm cream wall without losing the sheer/translucent look.
   const material = new THREE.MeshStandardMaterial({
-    color: 0xfff6e8,
+    color: 0xe4edf6,
     transparent: true,
-    opacity: 0.72,
-    roughness: 0.6,
+    opacity: 0.8,
+    roughness: 0.55,
     side: THREE.DoubleSide,
     depthWrite: false,
   });

@@ -10,14 +10,31 @@ export const CART_STORED = new THREE.Vector3(1.1, 0, -1.15);
 export const CART_OUT = new THREE.Vector3(0.72, 0, -0.05);
 export const CHAIR_STACK_POS = new THREE.Vector3(-1.25, 0, -0.5);
 
+// M6 fix (fix-round-1): the far row (indices 2/3) is staggered wider than the
+// near row so, viewed from the elevated 3/4 'transform' camera, the far
+// chairs peek out past the tabletop's left/right edges instead of sitting
+// directly behind its bulk (where their backs — nearly as tall as the table
+// itself — were almost fully occluded, leaving only 2 of 4 chairs/children
+// ever visible during lunch).
 export const SEAT_OFFSETS: THREE.Vector3[] = [
   new THREE.Vector3(-0.34, 0, 0.36),
   new THREE.Vector3(0.34, 0, 0.36),
-  new THREE.Vector3(-0.34, 0, -0.36),
-  new THREE.Vector3(0.34, 0, -0.36),
+  new THREE.Vector3(-0.52, 0, -0.34),
+  new THREE.Vector3(0.52, 0, -0.34),
 ];
 
 const CHAIR_COLORS = [PALETTE.coral, PALETTE.mint, PALETTE.sky, PALETTE.butter];
+
+/**
+ * M7 fix (fix-round-1): stacked chairs previously all shared identity
+ * rotation, so the 4 backs lined up into one flat-sided silhouette that read
+ * as a plain rectangular block tower. Alternating a small yaw per stack
+ * level staggers each chair's backrest just enough to peek out sideways so
+ * individual chairs (and their color) stay readable in the stack.
+ */
+function stackRotationY(index: number): number {
+  return index % 2 === 0 ? 0.22 : -0.22;
+}
 
 function buildChairGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
@@ -139,7 +156,7 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
   for (let i = 0; i < 4; i++) {
     const pos = CHAIR_STACK_POS.clone();
     pos.y = i * 0.26;
-    m.compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)), new THREE.Vector3(1, 1, 1));
+    m.compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, stackRotationY(i), 0)), new THREE.Vector3(1, 1, 1));
     chairs.setMatrixAt(i, m);
     chairs.setColorAt(i, new THREE.Color(CHAIR_COLORS[i % CHAIR_COLORS.length]));
   }
@@ -252,7 +269,7 @@ export function buildFurniture(tweens: TweenManager): FurnitureHandles {
     chairs.getMatrixAt(index, startMatrix);
     const start = new THREE.Vector3().setFromMatrixPosition(startMatrix);
     const rotStart = new THREE.Quaternion().setFromRotationMatrix(startMatrix);
-    const rotEnd = new THREE.Quaternion();
+    const rotEnd = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, stackRotationY(index), 0));
     tweens.add(
       0.4,
       Easing.cubicInOut,

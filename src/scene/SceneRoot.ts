@@ -143,7 +143,54 @@ export class SceneRoot {
       onActivity: () => this.noteActivity(),
     });
 
+    this.setupContextLossHandling();
+
     void options.onFirstInteractionReady;
+  }
+
+  private contextLossOverlay: HTMLDivElement | null = null;
+
+  /**
+   * M8 fix (fix-round-1): a lost WebGL context previously froze the game
+   * silently forever (render() kept being called but drew nothing, no
+   * feedback to the player). `webglcontextlost` fires just before the
+   * context actually goes away — preventDefault() tells the browser we'll
+   * handle recovery ourselves (otherwise it won't fire contextrestored at
+   * all). We pause the render loop and show a tap-to-continue overlay;
+   * a full in-place GPU-resource rebuild is out of scope for a context-loss
+   * recovery this rare, so the tap does a plain reload — cheap, reliable,
+   * and the title screen resumes instantly (last seed is persisted).
+   */
+  private setupContextLossHandling(): void {
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.setPaused(true);
+      this.showContextLossOverlay();
+    });
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      // Context is back at the driver level, but our GPU resources (buffers,
+      // textures, programs) are gone — wait for the player's tap rather than
+      // silently resuming render() against now-invalid resources.
+    });
+  }
+
+  private showContextLossOverlay(): void {
+    if (this.contextLossOverlay) return;
+    const el = document.createElement('div');
+    el.className = 'context-loss-overlay';
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-label', 'tap to continue');
+    el.innerHTML =
+      '<div class="context-loss-icon"><svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+      '<circle cx="50" cy="50" r="46" fill="#F7D97B"/>' +
+      '<path d="M63 23 A29 29 0 1 1 21 50" stroke="#FAF3E7" stroke-width="15" fill="none" stroke-linecap="round"/>' +
+      '<path d="M49 10 L68 23 L48 35 Z" fill="#FAF3E7"/>' +
+      '</svg></div>';
+    el.addEventListener('pointerdown', () => {
+      window.location.reload();
+    });
+    this.canvas.parentElement?.appendChild(el);
+    this.contextLossOverlay = el;
   }
 
   private computeAspect(): number {
@@ -282,6 +329,7 @@ export class SceneRoot {
       case 'TITLE':
         this.cameraDirector.tweenTo('overview', 0.01, true);
         this.audio.stopAmbience();
+        this.setBasketsVisible(true, false);
         break;
       case 'PLAY_CLEANUP':
         this.resetFurnitureAndRoom();
@@ -289,9 +337,11 @@ export class SceneRoot {
         this.napVignetteStarted = false;
         this.cameraDirector.tweenTo('cleanup', 1.1);
         this.audio.stopAmbience();
+        this.setBasketsVisible(true, true);
         break;
       case 'LUNCH_SETUP':
         this.cameraDirector.tweenTo('transform', 1.2);
+        this.setBasketsVisible(false, true);
         break;
       case 'LUNCH_CLEANUP':
         this.cameraDirector.tweenTo('transform', 1.1);
@@ -378,6 +428,51 @@ export class SceneRoot {
   }
   private lunchVignetteStarted = false;
   private napVignetteStarted = false;
+  private basketsVisible = true;
+
+  /**
+   * M1 fix (fix-round-1): baskets are a PLAY_CLEANUP/playroom-only prop —
+   * previously they stayed visible straight through LUNCH/NAP/WAKE/REPLAY,
+   * a continuity break once the room had "become" the lunch/nap room. Pops
+   * each basket in/out with a small scale tween (cheap, no material/opacity
+   * plumbing needed) rather than a hard show/hide cut.
+   */
+  private setBasketsVisible(visible: boolean, animate: boolean): void {
+    if (visible === this.basketsVisible) return;
+    this.basketsVisible = visible;
+    const baskets = [...this.baskets.baskets.values()];
+    if (visible) {
+      this.baskets.group.visible = true;
+      for (const b of baskets) {
+        if (!animate) {
+          b.group.scale.setScalar(1);
+          continue;
+        }
+        b.group.scale.setScalar(0.001);
+        this.tweens.add(0.4, Easing.backOut, (p) => b.group.scale.setScalar(THREE.MathUtils.lerp(0.001, 1, p)));
+      }
+    } else if (!animate) {
+      this.baskets.group.visible = false;
+      for (const b of baskets) b.group.scale.setScalar(1);
+    } else {
+      let remaining = baskets.length;
+      if (remaining === 0) {
+        this.baskets.group.visible = false;
+        return;
+      }
+      for (const b of baskets) {
+        this.tweens.add(
+          0.28,
+          Easing.cubicOut,
+          (p) => b.group.scale.setScalar(THREE.MathUtils.lerp(1, 0.001, p)),
+          () => {
+            remaining--;
+            if (remaining <= 0) this.baskets.group.visible = false;
+          },
+        );
+      }
+    }
+  }
 
   private startEatingVignette(): void {
     this.cameraDirector.tweenTo('overview', 1.0);
@@ -1014,7 +1109,9 @@ export class SceneRoot {
       this.lighting.applyPhase('WAKE_RESTORE', 1.0);
       this.cameraDirector.tweenTo('overview', 1.0);
       this.audio.stopAmbience();
+      this.setBasketsVisible(true, true);
     } else if (mode === 'lunch') {
+      this.setBasketsVisible(false, true);
       this.furniture.animateTableTo(1, 0.6, () => {
         for (let i = 0; i < 4; i++) {
           window.setTimeout(() => this.furniture.popChair(i, () => this.audio.playChairTick()), i * 150);
@@ -1034,6 +1131,7 @@ export class SceneRoot {
       this.cameraDirector.tweenTo('transform', 1.0);
       this.audio.startLunchMurmur();
     } else {
+      this.setBasketsVisible(false, true);
       for (const mat of this.fsm.seedConfig.mats) this.mats.setStateInstant(mat.id, true, 1, true);
       this.curtain.setProgress(1);
       this.tweens.add(1.2, Easing.cubicOut, (p) => this.stars.setOpacity(p * 0.9));
@@ -1103,11 +1201,17 @@ export class SceneRoot {
       const target = this.computeHintTarget();
       if (target) {
         this.audio.playChime();
-        if (this.fsm.phase === 'PLAY_CLEANUP') {
-          const toy = this.fsm.seedConfig.toys.find((t) => !this.toys.toys.get(t.id)!.stored);
-          if (toy) this.toys.playWiggle(toy.id);
-        } else {
-          this.pulseAt(target.from);
+        // M5 fix (fix-round-1): the wiggle/pulse motion hint must be
+        // suppressed under reduced motion (INTERACTION_SPEC) — only the
+        // (slower) ghost-trail hint below is allowed to keep animating.
+        // The chime still plays either way so there's still a hint signal.
+        if (!this.reducedMotion) {
+          if (this.fsm.phase === 'PLAY_CLEANUP') {
+            const toy = this.fsm.seedConfig.toys.find((t) => !this.toys.toys.get(t.id)!.stored);
+            if (toy) this.toys.playWiggle(toy.id);
+          } else {
+            this.pulseAt(target.from);
+          }
         }
       }
     }

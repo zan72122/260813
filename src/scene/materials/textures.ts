@@ -56,9 +56,13 @@ export function createWoodGrainTexture(baseColor: number, size = 512, seed = 1):
     const amp = 4 + rand() * 10;
     const freq = 0.008 + rand() * 0.01;
     const phase = rand() * Math.PI * 2;
-    const tone = rand() > 0.5 ? 14 : -18;
+    // M3 fix (fix-round-1): wider tone swing + higher alpha ceiling so the
+    // grain reads as WOOD at typical in-game viewing distance instead of a
+    // near-flat tint — the original ±14/-18 tone and 0.25-0.45 alpha were too
+    // subtle to survive the ambient lighting.
+    const tone = rand() > 0.5 ? 22 : -30;
     ctx.strokeStyle = shade(baseColor, tone);
-    ctx.globalAlpha = 0.25 + rand() * 0.2;
+    ctx.globalAlpha = 0.32 + rand() * 0.3;
     ctx.lineWidth = 1 + rand() * 2;
     ctx.beginPath();
     for (let x = 0; x <= size; x += 8) {
@@ -115,10 +119,14 @@ export function createFabricWeaveTexture(baseColor: number, size = 256, seed = 2
 /** Soft radial-gradient blob used for all contact "shadows" (cheap, matches art direction's baked-feel look). */
 export function createBlobShadowTexture(size = 256): THREE.CanvasTexture {
   const { canvas, ctx } = ctx2d(size);
+  // M3 fix (fix-round-1): darkened + tightened falloff so contact shadows
+  // actually read as depth/contact under toys and furniture (was capping at
+  // 0.38 alpha with a very gradual 0.6-radius falloff, close to invisible
+  // against the light floor in daytime scenes).
   const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, 'rgba(60,45,30,0.38)');
-  grad.addColorStop(0.6, 'rgba(60,45,30,0.20)');
-  grad.addColorStop(1, 'rgba(60,45,30,0)');
+  grad.addColorStop(0, 'rgba(50,36,22,0.55)');
+  grad.addColorStop(0.5, 'rgba(50,36,22,0.3)');
+  grad.addColorStop(1, 'rgba(50,36,22,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   const tex = new THREE.CanvasTexture(canvas);

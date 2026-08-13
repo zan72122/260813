@@ -56,7 +56,7 @@ const SHOTS: ShotTable = {
   },
   transform: {
     phone: {
-      portrait: shot(-0.08, 4.85, 4.3, -0.08, 0.9, -0.35, 30),
+      portrait: shot(0.02, 6.0, 4.7, 0.02, 0.8, -0.3, 30),
       landscape: shot(-0.08, 3.0, 3.15, -0.08, 0.4, -0.55, 42),
     },
     tablet: {

@@ -42,9 +42,9 @@ export const ICONS = {
   </svg>`,
 
   replaySameDay: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="52" r="30" fill="#F7D97B"/>
-    <path d="M32 30 A30 30 0 1 1 30 60" stroke="#FAF3E7" stroke-width="7" fill="none" stroke-linecap="round"/>
-    <path d="M22 20 L32 30 L20 34 Z" fill="#FAF3E7"/>
+    <circle cx="50" cy="50" r="46" fill="#F7D97B"/>
+    <path d="M63 23 A29 29 0 1 1 21 50" stroke="#FAF3E7" stroke-width="15" fill="none" stroke-linecap="round"/>
+    <path d="M49 10 L68 23 L48 35 Z" fill="#FAF3E7"/>
   </svg>`,
 
   shuffle: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">

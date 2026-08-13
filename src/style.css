@@ -290,3 +290,45 @@ body.reduced-motion .title-button {
 .freeplay-btn.exit {
   background: var(--coral);
 }
+
+/* ---------- WebGL context-loss recovery overlay (M8, fix round 1) ---------- */
+
+.context-loss-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(74, 59, 44, 0.55);
+  cursor: pointer;
+  z-index: 50;
+  touch-action: manipulation;
+}
+
+.context-loss-icon {
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+  animation: context-loss-pulse 1.6s ease-in-out infinite;
+}
+
+.context-loss-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes context-loss-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-loss-icon {
+    animation: none;
+  }
+}
