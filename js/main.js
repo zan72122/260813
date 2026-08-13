@@ -118,15 +118,21 @@ function resize() {
   }
 }
 
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 120));
-if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+// Reading clientWidth flushes layout, so only do it when something changed
+// (plus a slow poll to catch the iOS URL bar sliding away).
+let needResize = true;
+const requestResize = () => { needResize = true; };
+window.addEventListener('resize', requestResize);
+window.addEventListener('orientationchange', () => setTimeout(requestResize, 120));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', requestResize);
 resize();
+needResize = false;
 
 /* ----------------------------------------------------------------- loop --- */
 
 let last = performance.now();
 let slowFrames = 0;
+let frames = 0;
 
 function frame(now) {
   let dt = (now - last) / 1000;
@@ -134,7 +140,10 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;          // tab switches must not fast-forward the game
   if (dt <= 0) dt = 1 / 60;
 
-  resize();
+  if (needResize || ++frames % 30 === 0) {
+    needResize = false;
+    resize();
+  }
   input.update(scene, dt);
   updateScene(scene, dt);
   updateCamera(cam, scene, dt);

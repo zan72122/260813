@@ -219,6 +219,11 @@ export function update(s, dt) {
     const help = s.idle > 10 ? 0.36 : 0.05;
     s.sweetX = lerp(s.sweetX, s.charX, clamp(help * dt, 0, 0.05));
   }
+  if (s.stage === STAGE.MIST) {
+    // Thickening the fog also settles the ring onto the head, so the last
+    // gesture visibly finishes the picture.
+    s.sweetX = approach(s.sweetX, s.charX, 0.5 + s.mist * 0.9, dt);
+  }
   if (s.stage === STAGE.FINALE) {
     // Lock the crown on: playing after the reveal never breaks the picture.
     s.sweetX = approach(s.sweetX, s.charX, 3.0, dt);
