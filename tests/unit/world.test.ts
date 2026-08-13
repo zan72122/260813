@@ -55,7 +55,7 @@ describe("scene/world smoke", () => {
     world.dispose();
   });
 
-  it("openGate/elephantSeek/elephantEnter fall back to warn+resolve when no hook is registered", async () => {
+  it("openGate/elephantSeek fall back to warn+resolve when no hook is registered; elephantEnter/elephantIdleAt are wired by S3 by default", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const world = createWorld({ reducedMotion: true });
 
@@ -71,8 +71,21 @@ describe("scene/world smoke", () => {
     expect(gateResolved).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
 
+    // elephantSeekはS3bが接続するまで未登録のまま(フォールバックで即resolve)。
     await expect(world.elephantSeek("sand", "hay-cube")).resolves.toBeUndefined();
-    await expect(world.elephantEnter()).resolves.toBeUndefined();
+
+    // elephantEnter/elephantIdleAtはS3(このタスク)がregisterHooksでデフォルト接続する。
+    // 実際に歩行+匂い探索アニメーションを再生するのでupdate(dt)を積んで進める必要がある。
+    let enterResolved = false;
+    const enterDone = world.elephantEnter();
+    void enterDone.then(() => {
+      enterResolved = true;
+    });
+    for (let i = 0; i < 900 && !enterResolved; i++) {
+      world.update(1 / 60);
+      await Promise.resolve();
+    }
+    expect(enterResolved).toBe(true);
     expect(() => world.elephantIdleAt(null)).not.toThrow();
 
     world.dispose();

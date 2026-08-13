@@ -2,8 +2,10 @@
 // openGate/elephantSeek/elephantEnter/elephantIdleAtはS3/S3bが差し込むフック登録制
 // (registerHooks)。未登録時は短いフォールバック(openGateのみ実演出あり、他はwarn+即resolve)。
 import * as THREE from "three";
+import { createRng } from "../core/rng";
 import type { FoodKind, Quality, SpotKind, TimeOfDay, Vec3, WorldApi } from "../core/types";
 import { getSpot } from "../game/spots";
+import { Elephant } from "./elephant";
 import { createWindSystem, type WindSystem } from "./effects/leaves";
 import { createBackdrop } from "./environment/backdrop";
 import { createBanyan } from "./environment/banyan";
@@ -30,6 +32,9 @@ export interface World extends WorldApi {
   readonly scene: THREE.Scene;
   /** S3/S3b(ゾウ実装)がゾウ関連の演出を差し込むためのフック登録。部分上書き可(Object.assign)。 */
   registerHooks(hooks: Partial<WorldHooks>): void;
+  /** QA/debug向けの軽量スナップショット。debug/qa.tsは編集禁止のため、getState()配線側(S4/S6)が
+   * この戻り値を使ってelephantキーを含める想定。JSON化可能な値のみ。 */
+  getDebugInfo(): { elephant: { present: true; visible: boolean; state: string; position: Vec3 } };
 }
 
 interface RunningAnim {
@@ -50,7 +55,12 @@ function hashSeed(id: string): number {
   return Math.abs(h) % 997;
 }
 
-export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; reducedMotion?: boolean }): World {
+export function createWorld(opts?: {
+  quality?: Quality;
+  timeOfDay?: TimeOfDay;
+  reducedMotion?: boolean;
+  seed?: number;
+}): World {
   const scene = new THREE.Scene();
 
   let quality: Quality = opts?.quality ?? "medium";
@@ -90,6 +100,20 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
   const keeper = createKeeper();
   scene.add(keeper.group);
 
+  // ゾウ本体(S3)。enter()が呼ばれるまで非表示(Elephantのコンストラクタで初期visible=false)。
+  const elephantRng = createRng(opts?.seed ?? 1).fork("elephant");
+  const elephant = new Elephant(elephantRng);
+  elephant.setReducedMotion(reducedMotion);
+  scene.add(elephant.object3D);
+
+  // QA視覚確認用の一時的な足場: ?qa=1の時だけゾウを見える状態にし、window経由でenter/walkToSpot/
+  // sniffAroundを外部(playwright等)から呼べるようにする。本番フロー(qa未指定)では一切発火しない。
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("qa") === "1") {
+    elephant.object3D.visible = true;
+    elephant.idleAt({ x: 0, y: 0, z: 2 });
+    (window as unknown as { __elephantDebug?: Elephant }).__elephantDebug = elephant;
+  }
+
   const wind: WindSystem = createWindSystem();
   wind.register(banyan.leafCluster, { amplitude: 0.03, speed: 0.8 });
   for (const cluster of tallTree.leafClusters) wind.register(cluster, { amplitude: 0.035, speed: 0.95 });
@@ -109,6 +133,11 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
   function registerHooks(next: Partial<WorldHooks>): void {
     hooks = { ...hooks, ...next };
   }
+  // S3が受け持つenter/idleを接続する(elephantSeekはS3bが登録するため未登録のまま)。
+  registerHooks({
+    elephantEnter: () => elephant.enter(),
+    elephantIdleAt: (pos) => elephant.idleAt(pos)
+  });
 
   const runningAnims: RunningAnim[] = [];
   function animateValue(duration: number, onUpdate: (t: number) => void): Promise<void> {
@@ -135,6 +164,7 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
     elapsed += dt;
     wind.update(dt);
     keeper.idle(reducedMotion ? 0 : dt);
+    elephant.update(dt);
 
     for (let i = runningAnims.length - 1; i >= 0; i--) {
       const anim = runningAnims[i];
@@ -175,6 +205,7 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
   function setReducedMotion(on: boolean): void {
     reducedMotion = on;
     wind.setReducedMotion(on);
+    elephant.setReducedMotion(on);
   }
 
   function placeFood(spotId: SpotKind, food: FoodKind): void {
@@ -248,7 +279,19 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
     highlight = { spotId, anchor, basePos: anchor.position.clone(), light };
   }
 
+  function getDebugInfo(): { elephant: { present: true; visible: boolean; state: string; position: Vec3 } } {
+    return {
+      elephant: {
+        present: true,
+        visible: elephant.visible,
+        state: elephant.getState(),
+        position: elephant.getPosition()
+      }
+    };
+  }
+
   function dispose(): void {
+    elephant.dispose();
     clearFoods();
     if (highlight) {
       highlight.anchor.position.copy(highlight.basePos);
@@ -287,6 +330,7 @@ export function createWorld(opts?: { quality?: Quality; timeOfDay?: TimeOfDay; r
     elephantIdleAt,
     highlightSpot,
     dispose,
-    registerHooks
+    registerHooks,
+    getDebugInfo
   };
 }
