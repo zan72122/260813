@@ -3,7 +3,7 @@
  */
 
 import { rgbToCss, rgbaToCss, type RGB } from '../core/colors';
-import type { Pt } from '../core/mosaic';
+import { pointInPolygon, type Pt } from '../core/mosaic';
 import {
   grainDisplayColor,
   grainIntensity,
@@ -74,6 +74,15 @@ function getDecor(section: ThinSection): Decor {
   const decor = { dust, bubbles };
   decorCache.set(key, decor);
   return decor;
+}
+
+/** 上にのっている大きな粒に隠れているか */
+function isCovered(section: ThinSection, g: Grain): boolean {
+  if (g.overlay || section.overlays.length === 0) return false;
+  for (const o of section.overlays) {
+    if (pointInPolygon(o.poly, g.c.x, g.c.y)) return true;
+  }
+  return false;
 }
 
 function tracePolygon(ctx: CanvasRenderingContext2D, poly: Pt[]): void {
@@ -191,7 +200,8 @@ export function drawField(
     ctx.lineWidth = lineW;
     ctx.stroke();
 
-    if (local > 0.7 && isSparkling(g, stageAngle)) {
+    // 大きな粒の下にかくれている粒には、きらきらを出さない
+    if (local > 0.7 && isSparkling(g, stageAngle) && !isCovered(section, g)) {
       sparkles.push({ x: g.c.x, y: g.c.y, s: Math.min(0.09, g.r * 0.55) });
     }
   }
@@ -272,7 +282,7 @@ export function drawField(
   // --- 視野のふち（ケラレ） ---
   const vig = ctx.createRadialGradient(cx, cy, r * 0.62, cx, cy, r);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, polarT > 0.5 ? 'rgba(0,0,0,0.62)' : 'rgba(60,45,30,0.42)');
+  vig.addColorStop(1, polarT > 0.5 ? 'rgba(0,0,0,0.45)' : 'rgba(60,45,30,0.36)');
   ctx.fillStyle = vig;
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 

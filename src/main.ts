@@ -8,6 +8,8 @@ const reduced =
   params.get('fast') === '1' ||
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+if (reduced) document.documentElement.classList.add('reduced');
+
 const game = new Game(reduced);
 if (reduced) sound.setEnabled(false);
 game.start();

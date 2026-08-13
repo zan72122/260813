@@ -404,20 +404,19 @@ export class Game {
     if (this.phase !== 'observe' || !this.section) return;
     const g = this.grainAt(x, y);
     if (!g) return;
+    this.tapGrain(g, x, y);
+  }
 
+  /** 粒をタッチしたときの処理（テストからも呼べるように分けてある） */
+  tapGrain(g: Grain, x: number, y: number): void {
     if (!this.polarOn) {
-      // まだ ふつうの光。スイッチに気づいてもらう。
+      // まだ ふつうの光。色さがしは はじまらない。スイッチに気づいてもらう。
       sound.play('soft');
       showCoach(this.dom, '👉', 'にじスイッチを おしてね', 'switch');
       this.dom.btnPolar.classList.add('attention');
       return;
     }
 
-    this.tapGrain(g, x, y);
-  }
-
-  /** 粒をタッチしたときの処理（テストからも呼べるように分けてある） */
-  tapGrain(g: Grain, x: number, y: number): void {
     const bright = grainIntensity(g, this.stageAngle);
 
     if (this.mode === 'quest') {
@@ -518,14 +517,18 @@ export class Game {
   // ---------------------------------------------------------------- ループ
 
   resize(): void {
-    this.layout = computeLayout(this.reduced ? 1 : 2);
-    applyLayoutVars(this.layout);
     const c = this.dom.canvas;
+    // 表示サイズは CSS（inset:0）にまかせ、実寸を測って裏のピクセル数だけ合わせる
+    const box = c.getBoundingClientRect();
+    this.layout = computeLayout(this.reduced ? 1 : 2, box);
+    applyLayoutVars(this.layout);
     const { w, h, dpr } = this.layout;
-    c.width = Math.round(w * dpr);
-    c.height = Math.round(h * dpr);
-    c.style.width = `${w}px`;
-    c.style.height = `${h}px`;
+    const pw = Math.round(w * dpr);
+    const ph = Math.round(h * dpr);
+    if (c.width !== pw || c.height !== ph) {
+      c.width = pw;
+      c.height = ph;
+    }
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 

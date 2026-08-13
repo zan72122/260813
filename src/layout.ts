@@ -37,16 +37,20 @@ function readSafeAreaInsets(): Layout['safe'] {
   };
 }
 
-export function computeLayout(maxDpr = 2): Layout {
+/**
+ * canvas は CSS で画面いっぱいに広げてある。その実寸をそのまま採寸するので、
+ * iOS の URL バーの出入りなどでサイズがずれても、すきまが出ない。
+ */
+export function computeLayout(maxDpr = 2, box?: { width: number; height: number }): Layout {
   const vv = window.visualViewport;
-  const w = Math.round(vv?.width ?? window.innerWidth);
-  const h = Math.round(vv?.height ?? window.innerHeight);
+  const w = Math.round(box?.width || vv?.width || window.innerWidth);
+  const h = Math.round(box?.height || vv?.height || window.innerHeight);
   const dpr = Math.min(maxDpr, window.devicePixelRatio || 1);
   const portrait = h >= w;
   const safe = readSafeAreaInsets();
 
   const topBar = (portrait ? 84 : 68) + safe.top;
-  const panel = portrait ? 146 + safe.bottom : 150 + safe.right;
+  const panel = portrait ? 146 + safe.bottom : 176 + safe.right;
 
   const availLeft = safe.left;
   const availTop = topBar;

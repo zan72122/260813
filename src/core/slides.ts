@@ -12,8 +12,11 @@ import { interferenceColor, mixRGB, type RGB } from './colors';
 import { buildMosaic, polygonArea, polygonCentroid, type Pt } from './mosaic';
 import { Rng } from './rng';
 
-/** 消光しても真っ暗にはしない。4歳が「こわれた」と思わないように。 */
-export const EXTINCTION_FLOOR = 0.2;
+/**
+ * 消光しても真っ暗にはしない。4歳が「こわれた」と思わないように、
+ * いちばん暗いときでも「その粒の色のまま、すこし暗い」だけにする。
+ */
+export const EXTINCTION_FLOOR = 0.4;
 
 export interface Grain {
   poly: Pt[];
@@ -35,11 +38,15 @@ export interface Grain {
   cleavage: number;
   /** 粒ごとの明るさのゆらぎ */
   tint: number;
+  /** モザイクの上にのせた大きな粒（下の粒を隠す） */
+  overlay?: boolean;
 }
 
 export interface ThinSection {
   def: SlideDef;
   grains: Grain[];
+  /** 下の粒を隠している粒（きらきらを出さないための判定に使う） */
+  overlays: Grain[];
 }
 
 export interface SlideDef {
@@ -138,7 +145,7 @@ export const SLIDES: SlideDef[] = [
   {
     id: 'tamago',
     name: 'たまごいし',
-    sub: 'まるい たまごが かくれてる',
+    sub: 'たまごが かくれてる',
     emoji: '🥚',
     cardFrom: '#ffe8e4',
     cardTo: '#f2a6b8',
@@ -226,11 +233,12 @@ export function buildThinSection(def: SlideDef): ThinSection {
         xpl: [18, 16, 22],
         cleavage: 0,
         tint: 1,
+        overlay: true,
       });
     }
   }
 
-  return { def, grains };
+  return { def, grains, overlays: grains.filter((g) => g.overlay) };
 }
 
 /** 粒のあかるさ 0..1（偏光オンのとき） */
@@ -248,10 +256,13 @@ export function grainDisplayColor(g: Grain, stageAngle: number, polarized: numbe
   let xpl: RGB;
   if (g.isotropic) {
     // 等方体は回しても真っ暗のまま
-    xpl = mixRGB([10, 9, 14], g.ppl, 0.06);
+    xpl = mixRGB([24, 20, 38], g.ppl, 0.16);
   } else {
-    const i = EXTINCTION_FLOOR + (1 - EXTINCTION_FLOOR) * grainIntensity(g, stageAngle);
-    xpl = mixRGB([12, 12, 18], g.xpl, Math.min(1, i * g.tint));
+    // 暗いほうも「黒」ではなく「その粒の色の暗いほう」にして、色あいを残す
+    const dim = mixRGB([18, 16, 32], g.xpl, EXTINCTION_FLOOR);
+    const bright = mixRGB(g.xpl, [255, 252, 240], 0.06);
+    const k = Math.min(1, grainIntensity(g, stageAngle) * g.tint);
+    xpl = mixRGB(dim, bright, k);
   }
   return polarized >= 1 ? xpl : mixRGB(ppl, xpl, polarized);
 }

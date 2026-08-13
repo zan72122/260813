@@ -54,8 +54,22 @@ export function mixRGB(a: RGB, b: RGB, t: number): RGB {
   ];
 }
 
+/** あざやかさを上げる。子ども向けに、くすんだ色をへらす。 */
+export function saturate(c: RGB, amount: number): RGB {
+  const lum = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  return clampRGB([
+    lum + (c[0] - lum) * amount,
+    lum + (c[1] - lum) * amount,
+    lum + (c[2] - lum) * amount,
+  ]);
+}
+
 /** レターデーション(nm) -> 干渉色 */
 export function interferenceColor(retardation: number): RGB {
+  return saturate(rawInterferenceColor(retardation), 1.42);
+}
+
+function rawInterferenceColor(retardation: number): RGB {
   const nm = Math.max(0, retardation);
   const last = MICHEL_LEVY.length - 1;
   if (nm >= MICHEL_LEVY[last][0]) return [...MICHEL_LEVY[last][1]] as RGB;
