@@ -1,0 +1,16 @@
+{
+  "name": "hikari-ami-lab",
+  "version": "1.0.0",
+  "description": "水面ひかり網ラボ — touch the water, make the light dance. A WebGL2 caustics playground for 4-year-olds.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "smoke": "node tools/smoke.js",
+    "shots": "node tools/shots.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  }
+}

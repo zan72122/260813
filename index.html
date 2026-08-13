@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>水面ひかり網ラボ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#04070f">
+<meta name="description" content="水面を指で動かすと、水底に映る光の網（caustics）が踊る、4歳児向けの静かな光の遊び場。">
+<link rel="stylesheet" href="src/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>💧</text></svg>">
+</head>
+<body>
+  <canvas id="stage" aria-label="水面ひかり網ラボ"></canvas>
+
+  <button id="sound" class="ui-btn" aria-label="おと" title="おと">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path class="spk" d="M4 9.5h3.6L12 5.6v12.8L7.6 14.5H4z"/>
+      <g class="wave"><path d="M15.4 9.2a4 4 0 0 1 0 5.6"/><path d="M17.9 6.7a7.6 7.6 0 0 1 0 10.6"/></g>
+      <g class="cross"><path d="M15.6 9.6l5 4.8"/><path d="M20.6 9.6l-5 4.8"/></g>
+    </svg>
+  </button>
+
+  <div id="fallback" hidden>
+    <div>
+      <p class="big">💧</p>
+      <p id="fallback-msg">このブラウザでは WebGL2 が使えないみたい。<br>Safari / Chrome の新しいバージョンでひらいてね。</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
