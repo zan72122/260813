@@ -1,42 +1,10 @@
-/* TEMPORARY Wave2 entry — replaced by Integrator in Wave 4 */
-import type { TestApi } from './contracts/testing';
-import { createGameState } from './contracts/stateMachine';
+/**
+ * Entry point. All real work lives in src/app/bootstrap.ts — see that
+ * module's doc comment for the full construction/wiring order. `<script
+ * type="module">` is deferred by spec (runs after the document has been
+ * parsed), so `#app`/`#scene`/`#boot-loading` are guaranteed to already
+ * exist in the DOM by the time this executes.
+ */
+import { bootstrap } from './app/bootstrap';
 
-const app = document.getElementById('app');
-if (!app) throw new Error('missing #app root');
-
-const loading = document.createElement('div');
-loading.setAttribute('aria-label', 'loading');
-loading.style.cssText =
-  'position:fixed;inset:0;background:#1a1410;display:flex;align-items:center;justify-content:center;';
-app.appendChild(loading);
-
-const canvas = document.createElement('canvas');
-canvas.setAttribute('aria-label', 'scene');
-app.appendChild(canvas);
-
-const state = createGameState(1);
-const api: TestApi = {
-  ready: false,
-  settled: () => true,
-  state: () => structuredClone(state),
-  alignmentError: (leg) => state.legs[leg].alignmentError,
-  locked: (leg) => state.legs[leg].locked,
-  step: () => undefined,
-  drive: {
-    setGate: () => undefined,
-    pump: () => undefined,
-    dragWedge: () => undefined,
-    releaseWedge: () => undefined,
-    hammer: () => undefined,
-    advance: () => undefined,
-    replay: () => undefined,
-  },
-  renderInfo: () => ({ geometries: 0, textures: 0, drawCalls: 0 }),
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  api.ready = true;
-  loading.remove();
-  window.__eiffel = api;
-});
+bootstrap();

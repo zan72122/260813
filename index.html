@@ -2,12 +2,92 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#ece0c8" />
+    <meta name="color-scheme" content="light" />
     <link rel="icon" href="data:," />
     <title>四本の脚をぴたり――エッフェル塔の1ミリ</title>
+    <style>
+      /* Critical, inline, dependency-free CSS for an instant first paint —
+         this must render before any JS (including module bootstrap) runs.
+         The richer JS-driven loading screen (src/ui/loadingScreen.ts) takes
+         over and removes #boot-loading once the app has wired itself up. */
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #ece0c8;
+        overscroll-behavior: none;
+      }
+      #app,
+      #scene {
+        position: fixed;
+        inset: 0;
+        /* !important: THREE.WebGLRenderer.setSize(w, h, true) (called from
+           src/render/index.ts's resize handler) writes a matching inline
+           style.width/height directly onto this canvas every time it
+           resizes. Without !important that inline style would win over this
+           rule after the first resize, permanently pinning the canvas's own
+           CSS box to whatever size it was last drawn at — so its own
+           clientWidth/clientHeight (what that same resize handler measures
+           on the *next* resize) would stop tracking real viewport changes
+           entirely (a self-referential feedback loop). Forcing the CSS box
+           to always be 100% of the viewport here breaks that loop; the
+           WebGL drawing-buffer resolution itself still comes from the
+           correctly-measured value, this only neutralizes the redundant
+           cosmetic inline style. */
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #scene {
+        display: block;
+        touch-action: none;
+      }
+      #boot-loading {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ece0c8;
+      }
+      #boot-loading .mark {
+        width: 56px;
+        height: 56px;
+        border-radius: 999px;
+        background: #b08d3f;
+        opacity: 0.85;
+        animation: eiffel-boot-pulse 1.1s ease-in-out infinite;
+      }
+      @keyframes eiffel-boot-pulse {
+        0%,
+        100% {
+          transform: scale(0.85);
+          opacity: 0.55;
+        }
+        50% {
+          transform: scale(1);
+          opacity: 0.9;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-loading .mark {
+          animation: none;
+          opacity: 0.8;
+        }
+      }
+    </style>
   </head>
   <body>
+    <canvas id="scene" aria-label="scene"></canvas>
     <div id="app"></div>
+    <div id="boot-loading" aria-label="loading"><div class="mark"></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
