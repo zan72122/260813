@@ -1,7 +1,8 @@
-import * as THREE from "three";
 import { createClock } from "./core/clock";
 import { createRenderer } from "./scene/renderer";
 import { installDebugApi } from "./debug/qa";
+import { createWorld } from "./scene/world";
+import { createCameraRig } from "./scene/cameras";
 import type { GamePhase, Quality } from "./core/types";
 
 const QUALITY_VALUES: readonly Quality[] = ["low", "medium", "high"];
@@ -41,33 +42,6 @@ function parseLaunchConfig(search: string): LaunchConfig {
   return { qa, quality, timeScale, seed, act, nosw };
 }
 
-function buildPlaceholderScene(): { scene: THREE.Scene; camera: THREE.PerspectiveCamera } {
-  const scene = new THREE.Scene();
-  // ART_DIRECTION.md: 朝の空 #aee3f5 を仮背景に使う（本格的な環境はS2で構築）。
-  scene.background = new THREE.Color("#aee3f5");
-  scene.fog = new THREE.Fog(0xaee3f5, 30, 70);
-
-  const hemi = new THREE.HemisphereLight(0xfff3e0, 0xe8d5a8, 1.0);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.2);
-  sun.position.set(10, 16, 8);
-  scene.add(sun);
-
-  // 仮の地面円盤（放飼場、半径~14）
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(14, 48),
-    new THREE.MeshStandardMaterial({ color: 0xe8d5a8, roughness: 1 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-
-  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
-  camera.position.set(0, 12, 20);
-  camera.lookAt(0, 0, 0);
-
-  return { scene, camera };
-}
-
 function main(): void {
   const config = parseLaunchConfig(window.location.search);
 
@@ -82,12 +56,17 @@ function main(): void {
   const initialQuality: Quality = config.quality ?? "medium";
   const renderer = createRenderer(sceneRoot, initialQuality);
 
-  const { scene, camera } = buildPlaceholderScene();
+  // S2: 放飼場environment(world)とカメラプリセット(cameras)を構築して配線する。
+  // ゾウ本体はS3で world.registerHooks(...) により差し込まれる(未登録の間はフォールバックで動作)。
+  const world = createWorld({ quality: initialQuality, timeOfDay: "morning" });
+  const cameraRig = createCameraRig({ orientation: window.innerWidth >= window.innerHeight ? "landscape" : "portrait" });
 
   function onResize(): void {
     renderer.resize();
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+    const orientation = window.innerWidth >= window.innerHeight ? "landscape" : "portrait";
+    cameraRig.setOrientation(orientation);
+    cameraRig.camera.aspect = window.innerWidth / window.innerHeight;
+    cameraRig.camera.updateProjectionMatrix();
   }
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", onResize);
@@ -107,6 +86,7 @@ function main(): void {
     },
     setQuality: (v: Quality) => {
       renderer.setQuality(v);
+      world.setQuality(v);
     },
     reset: (seed?: number) => {
       const url = new URL(window.location.href);
@@ -131,8 +111,10 @@ function main(): void {
   function animate(now: number): void {
     const rawDelta = Math.min(0.1, (now - lastTime) / 1000);
     lastTime = now;
-    clock.tick(rawDelta);
-    renderer.render(scene, camera);
+    const dt = clock.tick(rawDelta);
+    world.update(dt);
+    cameraRig.update(dt);
+    renderer.render(world.scene, cameraRig.camera);
     if (!firstFrameRendered) {
       firstFrameRendered = true;
       debugApi.markReady();
