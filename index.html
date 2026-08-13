@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>よるのうみ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#020409">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23020409'/%3E%3Ccircle cx='16' cy='18' r='7' fill='%232fd4ff' opacity='0.85'/%3E%3Ccircle cx='16' cy='18' r='3' fill='%23bdf2ff'/%3E%3C/svg%3E">
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: #020409;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #gl { z-index: 0; }
+  #ui { z-index: 1; }
+  #nogl {
+    display: none;
+    position: absolute; inset: 0;
+    color: #9fd8ff; background: #04101e;
+    font: 16px/1.8 -apple-system, sans-serif;
+    padding: 2em; text-align: center;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ui"></canvas>
+<div id="nogl">この端末ではWebGL2が使えないため、ゲームを表示できません。<br>iOS 15以降のSafari等でお試しください。</div>
+<script>
+'use strict';
+(function () {
+
+// ============================================================
+// 基本セットアップ
+// ============================================================
+const glCanvas = document.getElementById('gl');
+const uiCanvas = document.getElementById('ui');
+const gl = glCanvas.getContext('webgl2', {
+  alpha: false, antialias: false, depth: false, stencil: false,
+  premultipliedAlpha: true, powerPreference: 'high-performance',
+  desynchronized: true, preserveDrawingBuffer: false
+});
+if (!gl) { document.getElementById('nogl').style.display = 'block'; return; }
+const ctx = uiCanvas.getContext('2d');
+
+const floatExt = gl.getExtension('EXT_color_buffer_float');
+const TRAIL_FMT = floatExt ? gl.RGBA16F : gl.RGBA8;
+const TRAIL_TYPE = floatExt ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+
+// ============================================================
+// 状態
+// ============================================================
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+
+const S = {
+  time: 0,
+  phase: 'dusk',          // dusk -> nightfall -> night
+  night: 0,               // 0=夕方, 1=完全な夜
+  duskT: 0,
+  lantern: { on: true, dim: 0, glow: 1, x: 0, y: 0, r: 40 },
+  gestureT: 0,
+  firstStrokes: 0,        // 夜になってからの最初の数ストローク(強調用)
+  touchedSinceNight: false,
+  lastTouchT: 0,
+  seaCharge: 0,           // 最近の入力量(波の光り方に影響)
+  totalLight: 0,          // 累計発光量(段階進行)
+  paddleCount: 0,
+  boat: { x: 0, y: 0, dir: 1, speed: 0, traveled: 0, bob: 0, paddleAnim: 0 },
+  wave: { active: false, y: 0, alpha: 0, t: 0, next: 35 },
+  finale: { armed: false, running: false, done: false, t: 0, ox: 0, oy: 0 },
+  mirror: 0,              // 星の水鏡(フィナーレ)
+  replayBtn: { visible: 0, x: 0, y: 0, r: 44, pressT: 0 },
+  hint: { t: 0, active: false },
+  curiousFish: { active: false, t: 0, x: 0, y: 0, tx: 0, ty: 0 },
+  quality: 2,             // 0..2 自動調整
+  fps: 60, frameMs: 16.7,
+  lanternAutoT: 0,
+  lanternTaps: 0
+};
+
+// レイアウト
+const L = { w: 0, h: 0, dpr: 1, horizon: 0, minDim: 0, portrait: true, boatS: 40, trailScale: 0.5 };
+
+function layout() {
+  const dprCap = [1, 1.5, 2][S.quality];
+  L.dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+  L.w = window.innerWidth; L.h = window.innerHeight;
+  L.portrait = L.h >= L.w;
+  L.minDim = Math.min(L.w, L.h);
+  L.horizon = L.portrait ? L.h * 0.30 : L.h * 0.36;
+  L.boatS = L.portrait ? L.minDim * 0.115 : L.minDim * 0.13;
+  glCanvas.width = Math.round(L.w * L.dpr);
+  glCanvas.height = Math.round(L.h * L.dpr);
+  uiCanvas.width = Math.round(L.w * L.dpr);
+  uiCanvas.height = Math.round(L.h * L.dpr);
+  // ボート初期位置(進行状態は維持)
+  if (!S.boat.placed) {
+    S.boat.x = L.portrait ? L.w * 0.5 : L.w * 0.32;
+    S.boat.placed = true;
+  }
+  S.boat.x = clamp(S.boat.x, L.boatS * 2, L.w - L.boatS * 2);
+  S.boat.y = L.horizon + (L.portrait ? L.h * 0.085 : L.h * 0.11);
+  S.replayBtn.x = L.w * 0.5;
+  S.replayBtn.y = L.h - Math.max(70, L.h * 0.09);
+  S.replayBtn.r = Math.max(40, L.minDim * 0.075);
+  resizeTrail();
+}
+
+// ============================================================
+// WebGL ヘルパ
+// ============================================================
+function compile(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(sh) + '\n' + src);
+  return sh;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name);
+  }
+  return { p, u };
+}
+
+const QUAD = new Float32Array([-1, -1, 3, -1, -1, 3]); // フルスクリーン三角形
+const quadVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadVbo);
+gl.bufferData(gl.ARRAY_BUFFER, QUAD, gl.STATIC_DRAW);
+
+// ============================================================
+// シェーダ
+// ============================================================
+const NOISE_GLSL = `
+float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=hash21(i), b=hash21(i+vec2(1,0)), c=hash21(i+vec2(0,1)), d=hash21(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}`;
+
+// --- トレイル減衰・拡散パス ---
+const fadeProg = program(`#version 300 es
+layout(location=0) in vec2 a; out vec2 v_uv;
+void main(){ v_uv=a*0.5+0.5; gl_Position=vec4(a,0,1); }`,
+`#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 frag;
+uniform sampler2D u_prev;
+uniform vec2 u_px;       // 1/texsize
+uniform float u_keep;    // pow(retain, dt)
+uniform float u_spread;
+uniform float u_kill;
+void main(){
+  vec3 c = texture(u_prev, v_uv).rgb;
+  vec3 nb = ( texture(u_prev, v_uv+vec2( u_px.x,0)).rgb
+            + texture(u_prev, v_uv+vec2(-u_px.x,0)).rgb
+            + texture(u_prev, v_uv+vec2(0, u_px.y)).rgb
+            + texture(u_prev, v_uv+vec2(0,-u_px.y)).rgb ) * 0.25;
+  vec3 v = mix(c, nb, u_spread) * u_keep;
+  v = max(v - u_kill, vec3(0.0));
+  frag = vec4(v, 1.0);
+}`);
+
+// --- スタンプ(発光の書き込み)パス: インスタンス描画 ---
+const splatProg = program(`#version 300 es
+layout(location=0) in vec2 a_quad;
+layout(location=1) in vec4 a_i0;  // x,y(css px), radius(css px), intensity
+layout(location=2) in vec4 a_i1;  // r,g,b, kind(0=blob 1=ring)
+uniform vec2 u_res;               // css px
+out vec2 v_p; out vec3 v_col; out float v_int; out float v_kind;
+void main(){
+  v_p = a_quad; v_col = a_i1.rgb; v_int = a_i0.w; v_kind = a_i1.w;
+  vec2 px = a_i0.xy + a_quad * a_i0.z;
+  vec2 ndc = vec2(px.x / u_res.x * 2.0 - 1.0, 1.0 - px.y / u_res.y * 2.0);
+  gl_Position = vec4(ndc, 0.0, 1.0);
+}`,
+`#version 300 es
+precision highp float;
+in vec2 v_p; in vec3 v_col; in float v_int; in float v_kind;
+out vec4 frag;
+void main(){
+  float r = length(v_p);
+  float a;
+  if (v_kind < 0.5) a = exp(-r*r*5.0);
+  else a = exp(-pow((r-0.78)/0.13, 2.0));
+  a *= step(r, 1.0);
+  frag = vec4(v_col * (v_int * a), 1.0);
+}`);
+
+// --- 合成パス(空・海・グロー) ---
+const compProg = program(`#version 300 es
+layout(location=0) in vec2 a; out vec2 v_uv;
+void main(){ v_uv=a*0.5+0.5; gl_Position=vec4(a,0,1); }`,
+`#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 frag;
+uniform sampler2D u_trail;
+uniform vec2 u_res;        // css px
+uniform float u_time, u_night, u_horizon;
+uniform vec4 u_lantern;    // x,y,glow,-
+uniform vec4 u_ripples[14];
+uniform int u_nrip;
+uniform vec4 u_wave;       // crestY, alpha, speedPhase, -
+uniform float u_charge;    // 海のエネルギー(微小プランクトン)
+${NOISE_GLSL}
+vec3 skyColor(float t){ // t: 0=水平線 1=天頂
+  vec3 dTop = vec3(0.10,0.08,0.24), dMid = vec3(0.42,0.18,0.28), dHor = vec3(0.95,0.55,0.30);
+  vec3 nTop = vec3(0.008,0.012,0.035), nHor = vec3(0.030,0.055,0.105);
+  vec3 dusk = mix(dHor, mix(dMid, dTop, smoothstep(0.25,1.0,t)), smoothstep(0.0,0.35,t));
+  vec3 night = mix(nHor, nTop, smoothstep(0.0,0.8,t));
+  return mix(dusk, night, u_night);
+}
+void main(){
+  vec2 px = vec2(v_uv.x * u_res.x, (1.0 - v_uv.y) * u_res.y); // y下向きcss px
+  vec3 col;
+  float minD = min(u_res.x, u_res.y);
+  if (px.y < u_horizon) {
+    // ---- 空 ----
+    float t = 1.0 - px.y / u_horizon;
+    col = skyColor(t);
+    // ほのかな雲(夕方のみ)
+    float cl = vnoise(vec2(px.x*0.004 + u_time*0.006, px.y*0.008));
+    col += vec3(0.5,0.25,0.2) * cl * 0.16 * (1.0-u_night) * smoothstep(0.0,0.5,t);
+    // 三日月
+    vec2 mp = vec2(u_res.x*0.78, u_horizon*0.30);
+    float mr = minD*0.030;
+    float md = length(px-mp);
+    float moon = smoothstep(mr, mr*0.9, md);
+    float bite = smoothstep(mr*0.95, mr*0.85, length(px-mp-vec2(mr*0.42,-mr*0.18)));
+    col += vec3(0.85,0.92,1.0) * max(moon - bite, 0.0) * 0.70 * u_night;
+    col += vec3(0.4,0.5,0.7) * exp(-md/(mr*4.0)) * 0.10 * u_night;
+  } else {
+    // ---- 海 ----
+    float wy = (px.y - u_horizon) / max(1.0, u_res.y - u_horizon); // 0=水平線 1=手前
+    vec3 dWater = vec3(0.30,0.16,0.20);
+    vec3 nWater = vec3(0.010,0.018,0.038);
+    col = mix(dWater, nWater, u_night);
+    col *= mix(1.15, 0.75, wy); // 手前ほど暗い
+    // 水面のさざなみ(明度ゆらぎ)
+    float sc = mix(60.0, 14.0, wy); // 奥は細かく
+    float n1 = vnoise(vec2(px.x*0.02*sc/24.0, px.y*0.10 - u_time*22.0));
+    float n2 = vnoise(vec2(px.x*0.008 + u_time*0.05, px.y*0.05 + u_time*0.6));
+    float shimmer = (n1*0.6 + n2*0.4);
+    col *= 0.86 + shimmer*0.28;
+    // 水平線近くの空の反射帯
+    float hband = exp(-(px.y-u_horizon)/(u_res.y*0.05));
+    col += skyColor(0.02) * hband * 0.35;
+    // ランタンの暖色反射
+    if (u_lantern.z > 0.001) {
+      float dx = px.x - u_lantern.x;
+      float spread = 14.0 + (px.y - u_horizon)*0.10;
+      float lw = exp(-dx*dx/(2.0*spread*spread));
+      float fall = exp(-(px.y - u_horizon)/(u_res.y*0.28));
+      float wob = 0.6 + 0.4*vnoise(vec2(px.x*0.05, px.y*0.12 - u_time*1.4));
+      col += vec3(1.0,0.62,0.25) * lw * fall * wob * 0.55 * u_lantern.z;
+    }
+    // ---- 生物発光グロー ----
+    float wob2 = vnoise(vec2(px.x*0.03, px.y*0.03 + u_time*0.35)) - 0.5;
+    vec2 tuv = v_uv + vec2(wob2*0.0022, wob2*0.0016);
+    vec3 g = texture(u_trail, tuv).rgb;
+    vec3 bloom = textureLod(u_trail, tuv, 2.0).rgb*0.55 + textureLod(u_trail, tuv, 4.0).rgb*0.75;
+    float vis = mix(0.10, 1.0, smoothstep(0.30, 0.92, u_night));
+    vec3 glow = (g*1.35 + bloom) * vis;
+    col += vec3(1.0) - exp(-glow * vec3(1.15, 1.30, 1.45));
+    float lum = dot(glow, vec3(0.3,0.5,0.2));
+    col += vec3(0.75,0.95,1.0) * pow(min(lum,1.6), 3.0) * 0.16; // 芯の白
+    // ---- 波紋(細いリング) ----
+    vec3 ringAcc = vec3(0.0);
+    for (int i = 0; i < 14; i++) {
+      if (i >= u_nrip) break;
+      vec4 rp = u_ripples[i];
+      float d = length(px - rp.xy);
+      float w = 2.5 + rp.z*0.045;
+      float ring = exp(-pow((d - rp.z)/w, 2.0));
+      ringAcc += vec3(0.45,0.85,1.0) * ring * rp.w;
+    }
+    col += ringAcc * 0.30 * mix(0.15,1.0,u_night);
+    // ---- 波頭 ----
+    if (u_wave.y > 0.001) {
+      float cy = u_wave.x + sin(px.x*0.012 + u_wave.z)*u_res.y*0.008
+                          + sin(px.x*0.004 - u_wave.z*0.7)*u_res.y*0.012;
+      float wgl = exp(-pow((px.y-cy)/5.0, 2.0));
+      float sparkle = 0.55 + 0.45*vnoise(vec2(px.x*0.08, u_time*3.0));
+      col += vec3(0.35,0.9,1.0) * wgl * sparkle * u_wave.y;
+      // 波の暗い盛り上がり
+      col *= 1.0 - 0.25*exp(-pow((px.y-cy-8.0)/10.0, 2.0))*min(1.0,u_wave.y*3.0);
+    }
+    // 微小プランクトンのきらめき(海のエネルギーに応じて)
+    if (u_charge > 0.01) {
+      vec2 cell = floor(px / 7.0);
+      vec2 f = fract(px / 7.0) - 0.5;
+      float h = hash21(cell);
+      float tw = pow(max(0.0, sin(u_time*(1.5+h*3.0) + h*40.0)), 18.0);
+      float gate = step(0.993 - u_charge*0.005, h);
+      float spot = exp(-dot(f,f)*10.0);
+      col += vec3(0.3,0.8,1.0) * tw * gate * spot * 0.5 * u_charge * u_night;
+    }
+  }
+  // ビネット + ディザ
+  vec2 q = v_uv - 0.5;
+  col *= 1.0 - dot(q,q)*0.55;
+  col += (hash21(px + u_time) - 0.5) * 0.0045;
+  frag = vec4(col, 1.0);
+}`);
+
+// --- 星(空+水鏡) ---
+const starProg = program(`#version 300 es
+layout(location=0) in vec4 a_s;   // x(0-1), skyFrac(0-1), size, phase
+layout(location=1) in float a_sp; // twinkle speed
+uniform vec2 u_res; uniform float u_horizon, u_time, u_night, u_mirror, u_pass;
+out float v_a; out float v_mirror;
+void main(){
+  float x = a_s.x * u_res.x;
+  float yAbove = a_s.y * u_horizon;        // 水平線からの高さ
+  float y;
+  float tw = 0.55 + 0.45*sin(u_time*a_sp + a_s.w*6.2831);
+  if (u_pass < 0.5) {
+    y = u_horizon - yAbove;
+    v_a = u_night * tw * (0.35 + 0.65*a_s.y);
+    gl_PointSize = a_s.z;
+  } else {
+    y = u_horizon + yAbove * 0.9;
+    x += sin(u_time*1.2 + a_s.w*23.0) * 2.5;
+    if (y > u_res.y) { gl_Position = vec4(2.0,2.0,0,1); gl_PointSize=0.0; v_a=0.0; v_mirror=1.0; return; }
+    v_a = u_night * tw * mix(0.10, 0.85, u_mirror);
+    gl_PointSize = a_s.z * 1.8;
+  }
+  v_mirror = u_pass;
+  vec2 ndc = vec2(x/u_res.x*2.0-1.0, 1.0 - y/u_res.y*2.0);
+  gl_Position = vec4(ndc, 0.0, 1.0);
+}`,
+`#version 300 es
+precision highp float;
+in float v_a; in float v_mirror; out vec4 frag;
+void main(){
+  vec2 pc = gl_PointCoord - 0.5;
+  if (v_mirror > 0.5) pc.x *= 2.2;   // 縦長に伸びる反射
+  float d = length(pc);
+  float a = max(0.0, exp(-d*d*14.0) - 0.03) * v_a;
+  vec3 c = mix(vec3(0.85,0.9,1.0), vec3(0.6,0.8,1.0), v_mirror);
+  frag = vec4(c*a, 1.0);
+}`);
+
+// --- 粒子 ---
+const partProg = program(`#version 300 es
+layout(location=0) in vec2 a_pos;   // css px
+layout(location=1) in vec2 a_sz;    // size(css), life01
+layout(location=2) in vec2 a_seed;  // seed, bright
+layout(location=3) in vec3 a_col;
+uniform vec2 u_res; uniform float u_time, u_dpr;
+out vec3 v_col; out float v_a;
+void main(){
+  float l = a_sz.y;
+  float fadeIn = smoothstep(0.0, 0.06, 1.0-l);
+  float fadeOut = smoothstep(0.0, 0.55, l);
+  float tw = 0.65 + 0.35*sin(u_time*(3.0+a_seed.x*6.0) + a_seed.x*40.0);
+  v_a = fadeIn * fadeOut * tw * a_seed.y;
+  v_col = a_col;
+  gl_PointSize = max(1.5, a_sz.x * u_dpr * (0.5 + 0.5*fadeOut));
+  vec2 ndc = vec2(a_pos.x/u_res.x*2.0-1.0, 1.0 - a_pos.y/u_res.y*2.0);
+  gl_Position = vec4(ndc, 0.0, 1.0);
+}`,
+`#version 300 es
+precision highp float;
+in vec3 v_col; in float v_a; out vec4 frag;
+void main(){
+  float d = length(gl_PointCoord - 0.5);
+  float a = max(0.0, exp(-d*d*13.0) - 0.05);
+  frag = vec4(v_col * (a * v_a), 1.0);
+}`);
+
+// ============================================================
+// トレイルテクスチャ(ピンポン)
+// ============================================================
+const trail = { texA: null, texB: null, fbA: null, fbB: null, w: 0, h: 0 };
+function makeTrailTex(w, h) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, TRAIL_FMT, w, h, 0, gl.RGBA, TRAIL_TYPE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  return { tex, fb };
+}
+function resizeTrail() {
+  const scale = [0.35, 0.45, 0.5][S.quality];
+  L.trailScale = scale;
+  const w = Math.max(64, Math.round(L.w * L.dpr * scale));
+  const h = Math.max(64, Math.round(L.h * L.dpr * scale));
+  if (trail.w === w && trail.h === h) return;
+  for (const k of ['texA','texB']) if (trail[k]) gl.deleteTexture(trail[k]);
+  for (const k of ['fbA','fbB']) if (trail[k]) gl.deleteFramebuffer(trail[k]);
+  const a = makeTrailTex(w, h), b = makeTrailTex(w, h);
+  trail.texA = a.tex; trail.fbA = a.fb;
+  trail.texB = b.tex; trail.fbB = b.fb;
+  trail.w = w; trail.h = h;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, trail.fbA);
+  gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, trail.fbB);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// ============================================================
+// スタンプ(発光書き込み)キュー
+// ============================================================
+const MAX_STAMPS = 512;
+const stampData = new Float32Array(MAX_STAMPS * 8);
+let stampCount = 0;
+const stampVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, stampVbo);
+gl.bufferData(gl.ARRAY_BUFFER, stampData.byteLength, gl.DYNAMIC_DRAW);
+const splatQuad = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+const splatQuadVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, splatQuadVbo);
+gl.bufferData(gl.ARRAY_BUFFER, splatQuad, gl.STATIC_DRAW);
+
+// 生物発光カラーパレット(青〜青緑)
+function bioColor(out, off, boost) {
+  const t = Math.random();
+  let r, g, b;
+  if (t < 0.45)      { r = 0.13; g = 0.45; b = 1.00; }  // 深い青
+  else if (t < 0.80) { r = 0.18; g = 0.80; b = 1.00; }  // シアン
+  else               { r = 0.22; g = 1.00; b = 0.78; }  // 青緑
+  const v = rand(0.8, 1.15) * (boost || 1);
+  out[off] = r*v; out[off+1] = g*v; out[off+2] = b*v;
+}
+const tmpCol = new Float32Array(3);
+function stamp(x, y, radius, intensity, kind, colBoost) {
+  if (stampCount >= MAX_STAMPS) return;
+  const o = stampCount * 8;
+  bioColor(tmpCol, 0, colBoost);
+  stampData[o] = x; stampData[o+1] = y;
+  stampData[o+2] = radius; stampData[o+3] = intensity;
+  stampData[o+4] = tmpCol[0]; stampData[o+5] = tmpCol[1]; stampData[o+6] = tmpCol[2];
+  stampData[o+7] = kind || 0;
+  stampCount++;
+}
+
+// ============================================================
+// 粒子システム
+// ============================================================
+const PMAX = 6000;
+const P = {
+  n: 0,
+  x: new Float32Array(PMAX), y: new Float32Array(PMAX),
+  vx: new Float32Array(PMAX), vy: new Float32Array(PMAX),
+  life: new Float32Array(PMAX), ttl: new Float32Array(PMAX),
+  size: new Float32Array(PMAX), seed: new Float32Array(PMAX),
+  bright: new Float32Array(PMAX),
+  r: new Float32Array(PMAX), g: new Float32Array(PMAX), b: new Float32Array(PMAX)
+};
+const partVbo = gl.createBuffer();
+const partArr = new Float32Array(PMAX * 9);
+gl.bindBuffer(gl.ARRAY_BUFFER, partVbo);
+gl.bufferData(gl.ARRAY_BUFFER, partArr.byteLength, gl.DYNAMIC_DRAW);
+
+function particleBudget() { return [1400, 2800, 4800][S.quality]; }
+
+function spawnParticle(x, y, vx, vy, size, ttl, bright) {
+  if (P.n >= particleBudget()) {
+    // 一番古い粒子を上書き
+    let oldest = 0, best = -1;
+    const probe = Math.min(P.n, 40);
+    for (let k = 0; k < probe; k++) {
+      const i = (Math.random() * P.n) | 0;
+      const frac = P.life[i] / P.ttl[i];
+      if (frac > best) { best = frac; oldest = i; }
+    }
+    setParticle(oldest, x, y, vx, vy, size, ttl, bright);
+    return;
+  }
+  setParticle(P.n++, x, y, vx, vy, size, ttl, bright);
+}
+function setParticle(i, x, y, vx, vy, size, ttl, bright) {
+  P.x[i]=x; P.y[i]=y; P.vx[i]=vx; P.vy[i]=vy;
+  P.life[i]=0; P.ttl[i]=ttl; P.size[i]=size;
+  P.seed[i]=Math.random(); P.bright[i]=bright;
+  bioColor(tmpCol, 0, 1);
+  P.r[i]=tmpCol[0]; P.g[i]=tmpCol[1]; P.b[i]=tmpCol[2];
+}
+function updateParticles(dt) {
+  const drag = Math.pow(0.35, dt);
+  let n = P.n;
+  for (let i = 0; i < n; i++) {
+    P.life[i] += dt;
+    if (P.life[i] >= P.ttl[i]) {
+      n--;
+      if (i !== n) {
+        for (const k of ['x','y','vx','vy','life','ttl','size','seed','bright','r','g','b'])
+          P[k][i] = P[k][n];
+        i--;
+      }
+      continue;
+    }
+    P.x[i] += P.vx[i]*dt; P.y[i] += P.vy[i]*dt;
+    P.vx[i] *= drag; P.vy[i] = P.vy[i]*drag - 1.5*dt; // ほんの少し浮き上がる
+  }
+  P.n = n;
+}
+
+// ============================================================
+// 波紋
+// ============================================================
+const ripples = [];
+function addRipple(x, y, maxR, strength) {
+  if (ripples.length >= 14) ripples.shift();
+  ripples.push({ x, y, r: 4, maxR, v: maxR / 1.6, a: strength, t: 0 });
+}
+function updateRipples(dt) {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i];
+    r.t += dt; r.r += r.v * dt; r.v *= Math.pow(0.5, dt);
+    r.a *= Math.pow(0.18, dt);
+    if (r.a < 0.01 || r.r > r.maxR) ripples.splice(i, 1);
+  }
+}
+
+// ============================================================
+// エミッタ(渦・連鎖・魚など時間発展する発光源)
+// ============================================================
+const emitters = [];
+function updateEmitters(dt) {
+  for (let i = emitters.length - 1; i >= 0; i--) {
+    const e = emitters[i];
+    e.t += dt;
+    if (e.update(e, dt) === false || e.t > e.dur) emitters.splice(i, 1);
+  }
+}
+
+function swirlAt(cx, cy, R, dir) {
+  R = clamp(R, 40, L.minDim * 0.35);
+  // リング状に粒子(接線方向の速度)
+  const n = 46;
+  for (let k = 0; k < n; k++) {
+    const a = k / n * Math.PI * 2;
+    const rr = R * rand(0.75, 1.05);
+    const x = cx + Math.cos(a)*rr, y = cy + Math.sin(a)*rr;
+    const sp = rand(30, 70);
+    spawnParticle(x, y, -Math.sin(a)*sp*dir, Math.cos(a)*sp*dir*0.6,
+      rand(3,7), rand(1.8,3.2), rand(0.7,1.3));
+  }
+  addRipple(cx, cy, R*2.2, 0.5);
+  emitters.push({
+    t: 0, dur: 1.5, cx, cy, R, dir,
+    update(e, dt) {
+      const prog = e.t / e.dur;
+      const r = e.R * (1 - prog*0.75);
+      for (let arm = 0; arm < 3; arm++) {
+        const a = e.dir * (prog*7.0) + arm * Math.PI*2/3;
+        stamp(e.cx + Math.cos(a)*r, e.cy + Math.sin(a)*r,
+          16 + 10*(1-prog), 0.10*(1-prog*0.6), 0, 1);
+      }
+    }
+  });
+  S.totalLight += 3;
+  bumpCharge(2.5);
+}
+
+// ============================================================
+// 入力 → 発光
+// ============================================================
+function firstBoost() { return S.firstStrokes < 3 ? 1.5 : 1.0; }
+function richness() { return 1 + clamp(S.totalLight / 120, 0, 0.6); }
+
+function bumpCharge(amount) {
+  S.seaCharge = clamp(S.seaCharge + amount * 0.04, 0, 1);
+}
+
+// 指の少し上に光を出す(指で隠れないように)
+function fingerOffset(y) { return Math.max(L.horizon + 8, y - L.minDim * 0.045); }
+
+function emitAt(x, y, speed, isPaddleLike) {
+  y = fingerOffset(y);
+  if (y < L.horizon) return;
+  const boost = firstBoost();
+  const sp01 = clamp(speed / 1400, 0, 1);
+  const radius = lerp(20, 55, sp01) * (isPaddleLike ? 1.5 : 1) * (L.minDim / 400);
+  const intensity = lerp(0.24, 0.15, sp01) * boost * (isPaddleLike ? 1.4 : 1);
+  stamp(x, y, radius, intensity, 0, boost);
+  S.totalLight += 0.08;
+  bumpCharge(0.25);
+}
+
+function emitParticlesAlong(x0, y0, x1, y1, speed) {
+  const y0f = fingerOffset(y0), y1f = fingerOffset(y1);
+  const dx = x1-x0, dy = y1f-y0f;
+  const len = Math.hypot(dx, dy);
+  const density = 0.10 * richness() * firstBoost();
+  let count = Math.min(24, Math.max(1, Math.round(len * density)));
+  for (let k = 0; k < count; k++) {
+    const t = Math.random();
+    const px = x0 + dx*t + rand(-9, 9);
+    const py = y0f + dy*t + rand(-9, 9);
+    if (py < L.horizon) continue;
+    const inherit = 0.06;
+    spawnParticle(px, py,
+      dx/Math.max(0.016,len/Math.max(1,speed))*inherit + rand(-14,14),
+      dy/Math.max(0.016,len/Math.max(1,speed))*inherit + rand(-14,10),
+      rand(2.5, 6.5) * (L.minDim/400), rand(1.6, 3.4), rand(0.6, 1.25));
+  }
+}
+
+function tapBurst(x, y) {
+  const yf = fingerOffset(y);
+  if (yf < L.horizon) return;
+  const boost = firstBoost();
+  const s = L.minDim / 400;
+  stamp(x, yf, 30*s, 0.35*boost, 0, boost);
+  stamp(x, yf, 12*s, 0.55*boost, 0, boost * 1.1);
+  addRipple(x, yf, 90*s, 0.55*boost);
+  const n = Math.round(14 * richness());
+  for (let k = 0; k < n; k++) {
+    const a = Math.random()*Math.PI*2, sp = rand(8, 55);
+    spawnParticle(x + rand(-4,4), yf + rand(-4,4),
+      Math.cos(a)*sp, Math.sin(a)*sp*0.7,
+      rand(2.5, 8)*s, rand(1.8, 3.6), rand(0.7, 1.4)*boost);
+  }
+  // ひときわ明るい「星」をひとつ
+  spawnParticle(x, yf, rand(-5,5), rand(-8,0), rand(9,12)*s, rand(2.5,3.5), 1.6*boost);
+  S.totalLight += 1.2;
+  bumpCharge(1.2);
+  markTouched();
+}
+
+function paddleWake(x0, y0, x1, y1, power) {
+  // 大きな青い航跡:スワイプ経路に太い光
+  const steps = 14;
+  const s = L.minDim / 400;
+  for (let k = 0; k <= steps; k++) {
+    const t = k/steps;
+    const x = lerp(x0, x1, t), y = fingerOffset(lerp(y0, y1, t));
+    if (y < L.horizon) continue;
+    stamp(x, y, (46 + 26*power)*s * (0.6+0.5*t), 0.13*power, 0, 1.1);
+    if (k % 3 === 0) {
+      spawnParticle(x + rand(-16,16), y + rand(-12,12),
+        (x1-x0)*0.25*power + rand(-20,20), rand(-24,6),
+        rand(3,8)*s, rand(2,3.6), rand(0.7,1.3));
+    }
+  }
+  addRipple(lerp(x0,x1,0.7), fingerOffset(lerp(y0,y1,0.7)), 170*s, 0.5);
+  // ボートへの推進力
+  const push = Math.sign(x1 - x0) || S.boat.dir;
+  S.boat.dir = push;
+  S.boat.speed = clamp(S.boat.speed + 90*power + 50, 0, 240);
+  S.boat.paddleAnim = 1;
+  S.paddleCount++;
+  S.totalLight += 4;
+  bumpCharge(3);
+}
+
+function markTouched() {
+  S.lastTouchT = S.time;
+  if (S.night > 0.9 && !S.touchedSinceNight) S.touchedSinceNight = true;
+  S.hint.active = false;
+}
+
+// ============================================================
+// ポインタ処理(一本指のみ)
+// ============================================================
+const stroke = {
+  active: false, id: -1, mode: 'water',
+  x: 0, y: 0, px: 0, py: 0,
+  startX: 0, startY: 0, startT: 0,
+  len: 0, winding: 0, lastAng: null,
+  cx: 0, cy: 0, nPts: 0,
+  lanternStartY: 0, emitAcc: 0
+};
+
+function toLocal(e) {
+  return { x: e.clientX, y: e.clientY };
+}
+
+function onDown(e) {
+  e.preventDefault();
+  if (stroke.active) return;      // 一本指だけ
+  const p = toLocal(e);
+  stroke.active = true; stroke.id = e.pointerId;
+  stroke.x = stroke.px = stroke.startX = p.x;
+  stroke.y = stroke.py = stroke.startY = p.y;
+  stroke.startT = S.time; stroke.len = 0;
+  stroke.winding = 0; stroke.lastAng = null;
+  stroke.cx = p.x; stroke.cy = p.y; stroke.nPts = 1;
+  stroke.emitAcc = 0;
+
+  // もういちどボタン
+  if (S.replayBtn.visible > 0.5 &&
+      Math.hypot(p.x - S.replayBtn.x, p.y - S.replayBtn.y) < S.replayBtn.r * 1.3) {
+    stroke.mode = 'replay';
+    S.replayBtn.pressT = S.time;
+    return;
+  }
+  // ランタン
+  if (S.lantern.on &&
+      Math.hypot(p.x - S.lantern.x, p.y - S.lantern.y) < Math.max(70, L.boatS*2.0)) {
+    stroke.mode = 'lantern';
+    stroke.lanternStartY = p.y;
+    S.lanternTaps++;
+    if (S.lanternTaps >= 3) lanternOff();
+    return;
+  }
+  stroke.mode = 'water';
+  if (p.y > L.horizon) {
+    // 触れた瞬間に必ず光る(即時フィードバック)
+    emitAt(p.x, p.y, 0, false);
+    const s = L.minDim/400;
+    for (let k = 0; k < 5; k++)
+      spawnParticle(p.x+rand(-6,6), fingerOffset(p.y)+rand(-6,6),
+        rand(-12,12), rand(-14,4), rand(2.5,6)*s, rand(1.5,3), rand(0.6,1.2)*firstBoost());
+    markTouched();
+  }
+}
+
+function processMovePoint(x, y) {
+  const dt = 1/60;
+  const dx = x - stroke.px, dy = y - stroke.py;
+  const d = Math.hypot(dx, dy);
+  if (d < 1.5) return;
+  const speed = d / dt; // 概算
+  stroke.len += d;
+  // 移動平均中心と巻き角(円検出)
+  stroke.nPts++;
+  stroke.cx += (x - stroke.cx) / Math.min(stroke.nPts, 30);
+  stroke.cy += (y - stroke.cy) / Math.min(stroke.nPts, 30);
+  const ang = Math.atan2(y - stroke.cy, x - stroke.cx);
+  if (stroke.lastAng !== null) {
+    let da = ang - stroke.lastAng;
+    if (da > Math.PI) da -= Math.PI*2;
+    if (da < -Math.PI) da += Math.PI*2;
+    if (Math.abs(da) < 1.2) stroke.winding += da;
+  }
+  stroke.lastAng = ang;
+  const avgR = Math.hypot(x - stroke.cx, y - stroke.cy);
+  if (Math.abs(stroke.winding) > 5.6 && avgR > L.minDim*0.09) {
+    swirlAt(stroke.cx, fingerOffset(stroke.cy), avgR, Math.sign(stroke.winding));
+    stroke.winding = 0;
+  }
+  // 経路に沿ってスタンプ
+  if (y > L.horizon || stroke.py > L.horizon) {
+    const spacing = clamp(lerp(7, 16, clamp(speed/1400,0,1)), 6, 18);
+    stroke.emitAcc += d;
+    let steps = 0;
+    while (stroke.emitAcc >= spacing && steps < 20) {
+      stroke.emitAcc -= spacing; steps++;
+      const t = 1 - stroke.emitAcc / Math.max(d, 0.001);
+      const ex = lerp(stroke.px, x, clamp(t,0,1));
+      const ey = lerp(stroke.py, y, clamp(t,0,1));
+      emitAt(ex, ey, speed, speed > 900);
+    }
+    emitParticlesAlong(stroke.px, stroke.py, x, y, speed);
+    if (Math.random() < 0.06) addRipple(x, fingerOffset(y), 60*(L.minDim/400), 0.22);
+    markTouched();
+  }
+  stroke.px = x; stroke.py = y;
+}
+
+function onMove(e) {
+  if (!stroke.active || e.pointerId !== stroke.id) return;
+  e.preventDefault();
+  if (stroke.mode === 'lantern') {
+    const p = toLocal(e);
+    const prog = clamp((p.y - stroke.lanternStartY) / 60, 0, 1);
+    S.lantern.dim = Math.max(S.lantern.dim, prog);
+    if (prog >= 1) lanternOff();
+    return;
+  }
+  if (stroke.mode !== 'water') return;
+  let evs = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+  if (!evs || evs.length === 0) evs = [e];
+  for (const ev of evs) {
+    const p = toLocal(ev);
+    processMovePoint(p.x, p.y);
+  }
+  stroke.x = stroke.px; stroke.y = stroke.py;
+}
+
+function onUp(e) {
+  if (!stroke.active || e.pointerId !== stroke.id) return;
+  e.preventDefault();
+  stroke.active = false;
+  const dur = S.time - stroke.startT;
+  const p = toLocal(e);
+  if (stroke.mode === 'replay') {
+    if (Math.hypot(p.x - S.replayBtn.x, p.y - S.replayBtn.y) < S.replayBtn.r * 1.6)
+      startReveal(L.w*0.5, L.horizon + (L.h - L.horizon)*0.4, true);
+    return;
+  }
+  if (stroke.mode === 'lantern') {
+    if (S.lantern.on && S.lantern.dim < 1) S.lantern.dim = 0; // そっと戻る
+    return;
+  }
+  // タップ → 小さな星
+  if (dur < 0.28 && stroke.len < 14) {
+    if (p.y > L.horizon) { tapBurst(p.x, p.y); S.firstStrokes++; }
+    return;
+  }
+  S.firstStrokes++;
+  // パドル判定:長くまっすぐ(速さは補助)なスワイプ
+  const avgSpeed = stroke.len / Math.max(dur, 0.016);
+  const straight = Math.hypot(p.x - stroke.startX, p.y - stroke.startY) / Math.max(stroke.len, 1);
+  S.lastStroke = { len: stroke.len, dur, avgSpeed, straight, paddled: false };
+  if (stroke.len > L.minDim * 0.26 && straight > 0.72 && avgSpeed > 180 && S.night > 0.5) {
+    S.lastStroke.paddled = true;
+    const power = clamp(stroke.len / (L.minDim * 0.6), 0.5, 1.6) * (avgSpeed > 800 ? 1.1 : 1);
+    paddleWake(stroke.startX, stroke.startY, p.x, p.y, power);
+    // フィナーレ条件
+    if (!S.finale.done && !S.finale.running && S.night > 0.97 &&
+        (S.paddleCount >= 3 || S.boat.traveled > L.w * 1.1) && power > 0.7) {
+      startReveal(p.x, fingerOffset(p.y), false);
+    }
+  }
+}
+
+function lanternOff() {
+  if (!S.lantern.on) return;
+  S.lantern.on = false;
+  S.lantern.dim = 1;
+  S.phase = 'nightfall';
+}
+
+uiCanvas.addEventListener('pointerdown', onDown, { passive: false });
+uiCanvas.addEventListener('pointermove', onMove, { passive: false });
+uiCanvas.addEventListener('pointerup', onUp, { passive: false });
+uiCanvas.addEventListener('pointercancel', e => { if (e.pointerId === stroke.id) stroke.active = false; });
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+
+// ============================================================
+// 魚
+// ============================================================
+const fishes = [];
+function spawnFish(x0, y0, x1, y1, delay, size) {
+  fishes.push({
+    t: -delay, dur: rand(3.2, 4.6),
+    x0, y0, x1, y1,
+    cx: (x0+x1)/2 + rand(-L.w*0.15, L.w*0.15),
+    cy: Math.max(L.horizon+20, (y0+y1)/2 + rand(-40, 40)),
+    size: size || rand(10, 16) * (L.minDim/400),
+    wig: rand(4, 9), wigF: rand(5, 8), ph: Math.random()*7
+  });
+}
+function fishPos(f, t) {
+  const u = 1-t;
+  const x = u*u*f.x0 + 2*u*t*f.cx + t*t*f.x1;
+  const y = u*u*f.y0 + 2*u*t*f.cy + t*t*f.y1;
+  return { x, y: y + Math.sin(t*f.wigF*6.28 + f.ph) * f.wig };
+}
+function updateFishes(dt) {
+  for (let i = fishes.length-1; i >= 0; i--) {
+    const f = fishes[i];
+    f.t += dt;
+    if (f.t < 0) continue;
+    const t = f.t / f.dur;
+    if (t >= 1) { fishes.splice(i,1); continue; }
+    const p = fishPos(f, t);
+    if (p.y > L.horizon + 4) {
+      stamp(p.x, p.y, f.size*1.8, 0.09, 0, 1);
+      if (Math.random() < 0.5)
+        spawnParticle(p.x + rand(-4,4), p.y + rand(-3,3), rand(-8,8), rand(-6,6),
+          rand(2,4.5)*(L.minDim/400), rand(1.2,2.4), rand(0.5,0.9));
+    }
+  }
+}
+
+// ============================================================
+// Beauty Reveal(フィナーレ) — 静かな連鎖
+// ============================================================
+function startReveal(ox, oy, isReplay) {
+  S.finale.running = true;
+  S.finale.t = 0;
+  S.finale.ox = ox; S.finale.oy = clamp(oy, L.horizon+40, L.h-40);
+  S.finale.isReplay = !!isReplay;
+  S.replayBtn.visible = 0;
+  // 連鎖の光:起点から順に外へ
+  const pts = [];
+  const N = 16;
+  for (let k = 0; k < N; k++) {
+    const x = rand(L.w*0.06, L.w*0.94);
+    const y = rand(L.horizon + (L.h-L.horizon)*0.12, L.h*0.94);
+    pts.push({ x, y, d: Math.hypot(x-ox, y-oy) });
+  }
+  pts.sort((a,b) => a.d - b.d);
+  const maxD = pts[pts.length-1].d || 1;
+  emitters.push({
+    t: 0, dur: 4.2, pts, fired: 0,
+    update(e) {
+      while (e.fired < e.pts.length) {
+        const p = e.pts[e.fired];
+        const when = 0.3 + (p.d/maxD) * 2.6;
+        if (e.t < when) break;
+        e.fired++;
+        const s = L.minDim/400;
+        stamp(p.x, p.y, rand(38,60)*s, 0.22, 0, 1);
+        addRipple(p.x, p.y, rand(100,150)*s, 0.4);
+        for (let k = 0; k < 8; k++) {
+          const a = Math.random()*Math.PI*2, sp = rand(6,34);
+          spawnParticle(p.x, p.y, Math.cos(a)*sp, Math.sin(a)*sp*0.6,
+            rand(2.5,6.5)*s, rand(2,3.8), rand(0.5,1.1));
+        }
+      }
+    }
+  });
+  // 魚の群れ(t=2.2〜):湾を横切る
+  const fromLeft = ox > L.w/2;
+  const yBand = clamp(oy, L.horizon + (L.h-L.horizon)*0.25, L.h*0.85);
+  for (let k = 0; k < 9; k++) {
+    const y0 = yBand + rand(-L.h*0.08, L.h*0.08);
+    const y1 = y0 + rand(-L.h*0.10, L.h*0.10);
+    spawnFish(
+      fromLeft ? -40 : L.w+40, Math.max(L.horizon+30, y0),
+      fromLeft ? L.w+40 : -40, Math.max(L.horizon+30, y1),
+      2.2 + k*0.22 + rand(0,0.15));
+  }
+  S.totalLight += 10;
+  bumpCharge(6);
+}
+function updateFinale(dt) {
+  if (!S.finale.running) return;
+  S.finale.t += dt;
+  const t = S.finale.t;
+  // 星の水鏡:t=4〜9でゆっくり現れて消える
+  if (t < 4) S.mirror = Math.max(S.mirror, 0);
+  else if (t < 6) S.mirror = clamp((t-4)/2, 0, 1);
+  else if (t < 9.5) S.mirror = 1;
+  else S.mirror = clamp(1 - (t-9.5)/2.5, 0, 1);
+  if (t > 12) {
+    S.finale.running = false;
+    S.finale.done = true;
+    S.mirror = 0;
+  }
+}
+
+// ============================================================
+// 星バッファ
+// ============================================================
+const NSTARS = 110;
+const starData = new Float32Array(NSTARS * 5);
+for (let i = 0; i < NSTARS; i++) {
+  const o = i*5;
+  starData[o]   = Math.random();                       // x
+  starData[o+1] = Math.pow(Math.random(), 0.7);        // 高さ(上寄り)
+  starData[o+2] = rand(1.4, 3.4) * (Math.random()<0.08 ? 1.9 : 1); // size(px, dprで拡大)
+  starData[o+3] = Math.random();                       // phase
+  starData[o+4] = rand(0.6, 2.6);                      // twinkle speed
+}
+const starVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, starVbo);
+gl.bufferData(gl.ARRAY_BUFFER, starData, gl.STATIC_DRAW);
+
+// ============================================================
+// 更新
+// ============================================================
+function update(dt) {
+  S.time += dt;
+
+  // --- 昼夜タイムライン ---
+  if (S.phase === 'dusk') {
+    S.duskT += dt;
+    S.night = Math.min(0.55, S.night + dt * 0.075);
+    if (S.duskT > 3.5) S.gestureT += dt;
+    S.lanternAutoT += dt;
+    if (S.lanternAutoT > 40) lanternOff();  // 見守りフォールバック
+    S.lantern.glow = 1 - S.lantern.dim * 0.85;
+  } else if (S.phase === 'nightfall') {
+    S.night = Math.min(1, S.night + dt / 3.5);
+    S.lantern.glow = Math.max(0, S.lantern.glow - dt * 1.2);
+    if (S.night >= 1) S.phase = 'night';
+  }
+
+  // --- ボート ---
+  const b = S.boat;
+  b.bob = Math.sin(S.time * 1.1) * L.boatS * 0.045;
+  if (Math.abs(b.speed) > 2) {
+    b.x += b.dir * b.speed * dt;
+    b.traveled += b.speed * dt;
+    b.speed *= Math.pow(0.45, dt);
+    const margin = L.boatS * 2.2;
+    if (b.x > L.w - margin) { b.x = L.w - margin; b.dir = -1; }
+    if (b.x < margin) { b.x = margin; b.dir = 1; }
+    // 航跡:船尾 + 両脇の光の筋
+    if (S.night > 0.5 && b.speed > 12) {
+      const stern = b.x - b.dir * L.boatS * 1.5;
+      const wl = b.y + b.bob;
+      const k = b.speed / 240;
+      stamp(stern, wl + 6, L.boatS*0.7, 0.05 + 0.10*k, 0, 1);
+      stamp(b.x - b.dir*L.boatS*0.2, wl + 10, L.boatS*0.4, 0.04 + 0.06*k, 0, 1);
+      stamp(b.x - b.dir*L.boatS*0.2, wl + 20, L.boatS*0.45, 0.03 + 0.05*k, 0, 1);
+      if (Math.random() < k*0.9)
+        spawnParticle(stern + rand(-10,10), wl + rand(4, 26),
+          -b.dir*rand(10,40), rand(-6,10), rand(2,6)*(L.minDim/400), rand(1.5,3), rand(0.5,1));
+      S.totalLight += dt * 2;
+      bumpCharge(dt * 2.5);
+    }
+  }
+  b.paddleAnim = Math.max(0, b.paddleAnim - dt * 1.4);
+  // ランタン位置(あたり判定用)
+  S.lantern.x = b.x + b.dir * L.boatS * 1.15;
+  S.lantern.y = b.y + b.bob - L.boatS * 1.72;
+
+  // --- 波 ---
+  const w = S.wave;
+  if (!w.active) {
+    w.next -= dt;
+    if (w.next <= 0 && S.night > 0.9 && S.seaCharge > 0.08) {
+      w.active = true; w.t = 0;
+    }
+  } else {
+    w.t += dt;
+    const dur = 7;
+    const prog = w.t / dur;
+    w.y = L.horizon + (L.h - L.horizon) * (0.06 + prog * 0.9);
+    w.alpha = Math.sin(Math.min(prog,1) * Math.PI) * clamp(S.seaCharge*1.4, 0, 0.8) * S.night;
+    if (prog >= 1) { w.active = false; w.alpha = 0; w.next = rand(16, 32); }
+  }
+
+  // --- 好奇心の魚:遊んでいると1匹だけ光に寄ってくる ---
+  if (!S.curiousFish.active && S.night > 0.95 && S.totalLight > 25 &&
+      S.time - S.lastTouchT < 1.0 && Math.random() < dt * 0.06 && !S.finale.running) {
+    spawnFish(-30, clamp(stroke.y, L.horizon+40, L.h-40),
+              L.w + 30, clamp(stroke.y + rand(-60,60), L.horizon+40, L.h-40), 0);
+    S.curiousFish.active = true;
+    setTimeout(() => S.curiousFish.active = false, 20000);
+  }
+
+  // --- ヒント(夜になって触っていない時) ---
+  if (S.night > 0.95 && !S.touchedSinceNight) {
+    S.hint.t += dt;
+    if (S.hint.t > 4) S.hint.active = true;
+  } else if (S.time - S.lastTouchT > 25 && !S.finale.running && S.night > 0.95) {
+    S.hint.active = true;
+  } else if (!stroke.active && S.time - S.lastTouchT < 20) {
+    S.hint.active = false;
+  }
+
+  // --- もういちどボタン ---
+  const wantBtn = S.finale.done && !S.finale.running && (S.time - S.lastTouchT > 3.5);
+  S.replayBtn.visible = clamp(S.replayBtn.visible + (wantBtn ? dt*1.5 : -dt*3), 0, 1);
+
+  S.seaCharge *= Math.pow(0.955, dt * 60/60);
+  S.seaCharge = Math.max(0, S.seaCharge - dt * 0.008);
+
+  updateParticles(dt);
+  updateRipples(dt);
+  updateEmitters(dt);
+  updateFishes(dt);
+  updateFinale(dt);
+}
+
+// ============================================================
+// 描画:WebGL
+// ============================================================
+function renderGL(dt) {
+  // --- 1. トレイル減衰(ピンポン) ---
+  gl.disable(gl.BLEND);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, trail.fbB);
+  gl.viewport(0, 0, trail.w, trail.h);
+  gl.useProgram(fadeProg.p);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, trail.texA);
+  gl.uniform1i(fadeProg.u.u_prev, 0);
+  gl.uniform2f(fadeProg.u.u_px, 1.3/trail.w, 1.3/trail.h);
+  gl.uniform1f(fadeProg.u.u_keep, Math.pow(0.62, dt));
+  gl.uniform1f(fadeProg.u.u_spread, clamp(dt*9, 0, 0.35));
+  gl.uniform1f(fadeProg.u.u_kill, 0.0003 * dt * 60);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVbo);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // --- 2. スタンプ追記 ---
+  if (stampCount > 0) {
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(splatProg.p);
+    gl.uniform2f(splatProg.u.u_res, L.w, L.h);
+    gl.bindBuffer(gl.ARRAY_BUFFER, splatQuadVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, stampVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, stampData.subarray(0, stampCount*8));
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 0);
+    gl.vertexAttribDivisor(1, 1);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.vertexAttribDivisor(2, 1);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, stampCount);
+    gl.vertexAttribDivisor(1, 0);
+    gl.vertexAttribDivisor(2, 0);
+    gl.disableVertexAttribArray(2);
+    stampCount = 0;
+    gl.disable(gl.BLEND);
+  }
+
+  // スワップ
+  const tA = trail.texA, fA = trail.fbA;
+  trail.texA = trail.texB; trail.fbA = trail.fbB;
+  trail.texB = tA; trail.fbB = fA;
+
+  // --- 3. ミップ生成(ブルーム用) ---
+  gl.bindTexture(gl.TEXTURE_2D, trail.texA);
+  gl.generateMipmap(gl.TEXTURE_2D);
+
+  // --- 4. 合成 ---
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.useProgram(compProg.p);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, trail.texA);
+  gl.uniform1i(compProg.u.u_trail, 0);
+  gl.uniform2f(compProg.u.u_res, L.w, L.h);
+  gl.uniform1f(compProg.u.u_time, S.time);
+  gl.uniform1f(compProg.u.u_night, S.night);
+  gl.uniform1f(compProg.u.u_horizon, L.horizon);
+  gl.uniform4f(compProg.u.u_lantern, S.lantern.x, S.lantern.y, S.lantern.glow * (1-S.night*0.3), 0);
+  const ripArr = new Float32Array(14*4);
+  const nr = Math.min(ripples.length, 14);
+  for (let i = 0; i < nr; i++) {
+    const r = ripples[i];
+    ripArr[i*4] = r.x; ripArr[i*4+1] = r.y; ripArr[i*4+2] = r.r; ripArr[i*4+3] = r.a;
+  }
+  gl.uniform4fv(compProg.u.u_ripples, ripArr);
+  gl.uniform1i(compProg.u.u_nrip, nr);
+  gl.uniform4f(compProg.u.u_wave, S.wave.y, S.wave.alpha, S.time*0.9, 0);
+  gl.uniform1f(compProg.u.u_charge, S.seaCharge);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVbo);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // --- 5. 星 ---
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  gl.useProgram(starProg.p);
+  gl.uniform2f(starProg.u.u_res, L.w, L.h);
+  gl.uniform1f(starProg.u.u_horizon, L.horizon);
+  gl.uniform1f(starProg.u.u_time, S.time);
+  gl.uniform1f(starProg.u.u_night, Math.pow(S.night, 2));
+  gl.uniform1f(starProg.u.u_mirror, S.mirror);
+  gl.bindBuffer(gl.ARRAY_BUFFER, starVbo);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 20, 0);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 20, 16);
+  // 空
+  gl.uniform1f(starProg.u.u_pass, 0);
+  gl.drawArrays(gl.POINTS, 0, NSTARS);
+  // 水鏡
+  gl.uniform1f(starProg.u.u_pass, 1);
+  gl.drawArrays(gl.POINTS, 0, NSTARS);
+
+  // --- 6. 粒子 ---
+  if (P.n > 0) {
+    for (let i = 0; i < P.n; i++) {
+      const o = i*9;
+      partArr[o]=P.x[i]; partArr[o+1]=P.y[i];
+      partArr[o+2]=P.size[i]; partArr[o+3]=P.life[i]/P.ttl[i];
+      partArr[o+4]=P.seed[i]; partArr[o+5]=P.bright[i];
+      partArr[o+6]=P.r[i]; partArr[o+7]=P.g[i]; partArr[o+8]=P.b[i];
+    }
+    gl.useProgram(partProg.p);
+    gl.uniform2f(partProg.u.u_res, L.w, L.h);
+    gl.uniform1f(partProg.u.u_time, S.time);
+    gl.uniform1f(partProg.u.u_dpr, L.dpr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, partVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, partArr.subarray(0, P.n*9));
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 36, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 36, 8);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 36, 16);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 36, 24);
+    gl.drawArrays(gl.POINTS, 0, P.n);
+    gl.disableVertexAttribArray(2);
+    gl.disableVertexAttribArray(3);
+  }
+  gl.disable(gl.BLEND);
+}
+
+// ============================================================
+// 描画:2Dオーバーレイ(ボート・人物・UI)
+// ============================================================
+function renderUI() {
+  const c = ctx;
+  c.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+  c.clearRect(0, 0, L.w, L.h);
+
+  drawHeadlands(c);
+  drawBoat(c);
+  if (S.hint.active) drawHint(c);
+  if (S.replayBtn.visible > 0.01) drawReplayBtn(c);
+  drawFishes(c);
+}
+
+function drawHeadlands(c) {
+  // 入り江の岬(左右の暗いシルエット)
+  const hy = L.horizon;
+  const night = S.night;
+  const col = `rgba(${lerp(30,3,night)|0},${lerp(18,6,night)|0},${lerp(28,12,night)|0},1)`;
+  c.fillStyle = col;
+  const hillH = L.h * (L.portrait ? 0.055 : 0.09);
+  c.beginPath();
+  c.moveTo(0, hy + 1);
+  c.quadraticCurveTo(L.w*0.06, hy - hillH, L.w*0.16, hy - hillH*0.5);
+  c.quadraticCurveTo(L.w*0.24, hy - hillH*0.15, L.w*0.30, hy + 1);
+  c.closePath(); c.fill();
+  c.beginPath();
+  c.moveTo(L.w, hy + 1);
+  c.quadraticCurveTo(L.w*0.93, hy - hillH*1.25, L.w*0.84, hy - hillH*0.55);
+  c.quadraticCurveTo(L.w*0.78, hy - hillH*0.1, L.w*0.72, hy + 1);
+  c.closePath(); c.fill();
+  // 岬の水面反射(暗い帯)
+  c.globalAlpha = 0.30;
+  c.save();
+  c.translate(0, hy * 1.35 + 2);
+  c.scale(1, -0.35);
+  c.beginPath();
+  c.moveTo(0, hy+1);
+  c.quadraticCurveTo(L.w*0.06, hy - hillH, L.w*0.16, hy - hillH*0.5);
+  c.quadraticCurveTo(L.w*0.24, hy - hillH*0.15, L.w*0.30, hy+1);
+  c.closePath(); c.fill();
+  c.beginPath();
+  c.moveTo(L.w, hy+1);
+  c.quadraticCurveTo(L.w*0.93, hy - hillH*1.25, L.w*0.84, hy - hillH*0.55);
+  c.quadraticCurveTo(L.w*0.78, hy - hillH*0.1, L.w*0.72, hy+1);
+  c.closePath(); c.fill();
+  c.restore();
+  c.globalAlpha = 1;
+}
+
+function drawBoat(c) {
+  const b = S.boat, s = L.boatS;
+  const x = b.x, y = b.y + b.bob;
+  const night = S.night;
+  c.save();
+  c.translate(x, y);
+  c.rotate(Math.sin(S.time*1.1 + 0.7) * 0.02);
+  const dir = b.dir;
+  c.scale(dir, 1);
+
+  const hull = `rgb(${lerp(28,8,night)|0},${lerp(22,11,night)|0},${lerp(38,26,night)|0})`;
+  const hullDark = `rgb(${lerp(18,5,night)|0},${lerp(14,7,night)|0},${lerp(26,17,night)|0})`;
+
+  // 船体反射(下の暗い揺らぎ)
+  c.globalAlpha = 0.25;
+  c.fillStyle = hullDark;
+  c.beginPath();
+  c.ellipse(0, s*0.75, s*1.5, s*0.22, 0, 0, Math.PI*2);
+  c.fill();
+  c.globalAlpha = 1;
+
+  // 船体
+  c.fillStyle = hull;
+  c.beginPath();
+  c.moveTo(-s*1.55, -s*0.10);
+  c.quadraticCurveTo(-s*1.45, s*0.52, -s*1.0, s*0.55);
+  c.lineTo(s*1.05, s*0.55);
+  c.quadraticCurveTo(s*1.62, s*0.42, s*1.78, -s*0.28);
+  c.quadraticCurveTo(s*1.2, -s*0.12, 0, -s*0.12);
+  c.quadraticCurveTo(-s*1.0, -s*0.12, -s*1.55, -s*0.10);
+  c.closePath(); c.fill();
+  // 夕方のリムライト
+  if (night < 0.9) {
+    c.strokeStyle = `rgba(255,170,110,${0.55*(1-night)})`;
+    c.lineWidth = 1.5;
+    c.stroke();
+  }
+  // キャビン
+  c.fillStyle = hullDark;
+  const cw = s*0.95, ch = s*0.62;
+  roundRect(c, -s*1.15, -s*0.12-ch, cw, ch, s*0.12); c.fill();
+  // 窓(ランタンが点いている間は暖色)
+  const winGlow = S.lantern.glow;
+  c.fillStyle = winGlow > 0.05
+    ? `rgba(255,${170+40*winGlow|0},90,${0.5+0.5*winGlow})`
+    : 'rgba(120,160,200,0.18)';
+  c.beginPath();
+  c.arc(-s*1.15+cw*0.5, -s*0.12-ch*0.52, s*0.14, 0, Math.PI*2);
+  c.fill();
+
+  // ランタンポール(船首側にアーチ)
+  c.strokeStyle = hullDark;
+  c.lineWidth = s*0.09;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(s*0.85, -s*0.12);
+  c.quadraticCurveTo(s*0.95, -s*1.75, s*1.15, -s*1.78);
+  c.stroke();
+
+  // 研究者
+  drawResearcher(c, s, night);
+
+  c.restore();
+
+  // ランタン(画面座標で描く:あたり判定と一致させる)
+  drawLantern(c, S.lantern.x, S.lantern.y, s);
+
+  // 「消してみよう」ジェスチャー(夕方のみ)
+  if (S.lantern.on && S.gestureT > 0.5) drawLanternGesture(c, S.lantern.x, S.lantern.y, s);
+}
+
+function drawResearcher(c, s, night) {
+  // ボートのローカル座標内(dir反転済み)
+  const bodyC = `rgb(${lerp(40,12,night)|0},${lerp(30,16,night)|0},${lerp(52,34,night)|0})`;
+  const px = s*0.15, py = -s*0.12;
+  c.fillStyle = bodyC;
+  // 体
+  c.beginPath();
+  c.moveTo(px - s*0.30, py);
+  c.quadraticCurveTo(px - s*0.32, py - s*0.75, px, py - s*0.80);
+  c.quadraticCurveTo(px + s*0.32, py - s*0.75, px + s*0.30, py);
+  c.closePath(); c.fill();
+  // 頭
+  c.beginPath();
+  c.arc(px, py - s*0.98, s*0.20, 0, Math.PI*2);
+  c.fill();
+  // 帽子
+  c.beginPath();
+  c.arc(px, py - s*1.04, s*0.21, Math.PI, 0);
+  c.fill();
+  c.fillRect(px - s*0.30, py - s*1.06, s*0.60, s*0.05);
+
+  // 腕:ジェスチャー(ランタンを指す) or パドル
+  c.strokeStyle = bodyC;
+  c.lineWidth = s*0.13;
+  c.lineCap = 'round';
+  const gest = S.lantern.on && S.gestureT > 0.5;
+  if (gest) {
+    const sway = Math.sin(S.time*3.2)*0.1;
+    c.beginPath();
+    c.moveTo(px + s*0.18, py - s*0.62);
+    c.lineTo(px + s*0.72, py - s*1.15 + sway*s);
+    c.stroke();
+  } else if (S.boat.paddleAnim > 0) {
+    const a = S.boat.paddleAnim;
+    const ang = Math.sin(a * Math.PI) * 0.9;
+    c.save();
+    c.translate(px + s*0.2, py - s*0.55);
+    c.rotate(0.5 - ang);
+    c.beginPath(); c.moveTo(0,0); c.lineTo(s*0.55, s*0.35); c.stroke();
+    // パドル
+    c.lineWidth = s*0.09;
+    c.beginPath(); c.moveTo(s*0.55, s*0.35); c.lineTo(s*0.95, s*1.15); c.stroke();
+    c.fillStyle = bodyC;
+    c.beginPath();
+    c.ellipse(s*0.98, s*1.2, s*0.13, s*0.3, 0.5, 0, Math.PI*2);
+    c.fill();
+    c.restore();
+  } else {
+    c.beginPath();
+    c.moveTo(px + s*0.18, py - s*0.62);
+    c.lineTo(px + s*0.40, py - s*0.25);
+    c.stroke();
+  }
+}
+
+function drawLantern(c, lx, ly, s) {
+  const glow = S.lantern.glow * (S.lantern.on ? (1 - S.lantern.dim*0.75) : 1) * (S.lantern.on || S.lantern.glow > 0 ? 1 : 0);
+  const lw = s*0.46, lh = s*0.60;
+  c.save();
+  c.translate(lx, ly + Math.sin(S.time*1.4)*2);
+  // 光輪
+  if (glow > 0.02) {
+    const grad = c.createRadialGradient(0, lh*0.2, 2, 0, lh*0.2, s*2.4*glow + s*0.7);
+    grad.addColorStop(0, `rgba(255,190,100,${0.5*glow})`);
+    grad.addColorStop(0.4, `rgba(255,150,60,${0.18*glow})`);
+    grad.addColorStop(1, 'rgba(255,140,50,0)');
+    c.fillStyle = grad;
+    c.fillRect(-s*3, -s*3+lh*0.2, s*6, s*6);
+  }
+  // 吊り金具
+  c.strokeStyle = '#0a0d18';
+  c.lineWidth = s*0.06;
+  c.beginPath(); c.moveTo(0, -lh*0.30); c.lineTo(0, -lh*0.02); c.stroke();
+  // 笠
+  c.fillStyle = '#141a2c';
+  c.beginPath();
+  c.moveTo(-lw*0.62, lh*0.06);
+  c.lineTo(lw*0.62, lh*0.06);
+  c.lineTo(lw*0.38, -lh*0.14);
+  c.lineTo(-lw*0.38, -lh*0.14);
+  c.closePath(); c.fill();
+  // ガラス
+  const gg = c.createLinearGradient(0, lh*0.06, 0, lh*0.06+lh);
+  if (glow > 0.02) {
+    gg.addColorStop(0, `rgba(255,225,150,${0.25+0.75*glow})`);
+    gg.addColorStop(0.5, `rgba(255,180,80,${0.20+0.70*glow})`);
+    gg.addColorStop(1, `rgba(200,110,50,${0.15+0.45*glow})`);
+  } else {
+    gg.addColorStop(0, 'rgba(70,85,110,0.30)');
+    gg.addColorStop(1, 'rgba(40,50,70,0.30)');
+  }
+  c.fillStyle = gg;
+  roundRect(c, -lw*0.5, lh*0.06, lw, lh, lw*0.18); c.fill();
+  c.strokeStyle = '#141a2c';
+  c.lineWidth = s*0.05;
+  c.stroke();
+  // 炎
+  if (glow > 0.02) {
+    const fh = lh*0.34*(0.8+0.2*Math.sin(S.time*9)) * (0.3 + 0.7*glow);
+    c.fillStyle = `rgba(255,240,190,${0.85*glow+0.1})`;
+    c.beginPath();
+    c.ellipse(0, lh*0.62, lw*0.13, fh*0.5, 0, 0, Math.PI*2);
+    c.fill();
+  }
+  // 台座
+  c.fillStyle = '#141a2c';
+  roundRect(c, -lw*0.4, lh*1.02, lw*0.8, lh*0.12, lw*0.06); c.fill();
+  c.restore();
+}
+
+function drawLanternGesture(c, lx, ly, s) {
+  // 下向きシェブロン + 指アイコンが下へ動く(文字なし)
+  const t = (S.time % 1.7) / 1.7;
+  const baseY = ly + s*0.9;
+  c.save();
+  // シェブロン3つ
+  for (let i = 0; i < 3; i++) {
+    const cy = baseY + i * s*0.34;
+    const pulse = 0.35 + 0.65 * clamp(Math.sin((t - i*0.12) * Math.PI * 2), 0, 1);
+    c.strokeStyle = `rgba(255,235,200,${0.8*pulse})`;
+    c.lineWidth = s*0.09;
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(lx - s*0.26, cy);
+    c.lineTo(lx, cy + s*0.17);
+    c.lineTo(lx + s*0.26, cy);
+    c.stroke();
+  }
+  // 指アイコン(丸)が上から下へ
+  const fy = ly + s*0.35 + t * s*1.6;
+  const fa = Math.sin(Math.min(t*3,1) * Math.PI * 0.5) * (1 - Math.pow(t, 3));
+  c.fillStyle = `rgba(255,255,255,${0.75*fa})`;
+  c.beginPath();
+  c.arc(lx + s*0.55, fy, s*0.14, 0, Math.PI*2);
+  c.fill();
+  c.strokeStyle = `rgba(255,255,255,${0.3*fa})`;
+  c.lineWidth = s*0.05;
+  c.beginPath();
+  c.moveTo(lx + s*0.55, fy - s*0.4);
+  c.lineTo(lx + s*0.55, fy - s*0.1);
+  c.stroke();
+  c.restore();
+}
+
+function drawHint(c) {
+  // 触っていない時、水面にそっと脈打つ輪(文字なしの誘い)
+  const hx = L.w * 0.5, hy = L.horizon + (L.h - L.horizon) * 0.52;
+  const t = (S.time % 2.2) / 2.2;
+  const r = lerp(L.minDim*0.03, L.minDim*0.11, t);
+  const a = Math.sin(Math.min(t*2,1)*Math.PI*0.5) * (1 - t) * 0.55;
+  c.strokeStyle = `rgba(140,220,255,${a})`;
+  c.lineWidth = 2.5;
+  c.beginPath(); c.arc(hx, hy, r, 0, Math.PI*2); c.stroke();
+  const a2 = (1-t)*0.7;
+  c.fillStyle = `rgba(190,240,255,${a2*0.5})`;
+  c.beginPath(); c.arc(hx, hy, L.minDim*0.012, 0, Math.PI*2); c.fill();
+}
+
+function drawReplayBtn(c) {
+  const b = S.replayBtn;
+  const v = b.visible;
+  const press = clamp(1 - (S.time - b.pressT)*4, 0, 1);
+  const r = b.r * (1 + 0.05*Math.sin(S.time*2.2)) * (1 - press*0.08);
+  c.save();
+  c.globalAlpha = v;
+  // グロー
+  const g = c.createRadialGradient(b.x, b.y, r*0.3, b.x, b.y, r*2);
+  g.addColorStop(0, 'rgba(60,160,255,0.25)');
+  g.addColorStop(1, 'rgba(60,160,255,0)');
+  c.fillStyle = g;
+  c.fillRect(b.x-r*2, b.y-r*2, r*4, r*4);
+  // 円盤
+  c.fillStyle = 'rgba(16,42,74,0.72)';
+  c.strokeStyle = 'rgba(120,210,255,0.85)';
+  c.lineWidth = 2.5;
+  c.beginPath(); c.arc(b.x, b.y, r, 0, Math.PI*2); c.fill(); c.stroke();
+  // アイコン:きらめきの再生(渦を巻く点々+星)
+  const rot = S.time * 0.8;
+  for (let i = 0; i < 8; i++) {
+    const a = rot + i/8 * Math.PI*2;
+    const rr = r * 0.55;
+    const dotR = r * (0.05 + 0.035 * ((i+((S.time*3)|0)) % 8) / 8);
+    c.fillStyle = `rgba(150,225,255,${0.35 + 0.6*(i/8)})`;
+    c.beginPath();
+    c.arc(b.x + Math.cos(a)*rr, b.y + Math.sin(a)*rr*0.9, dotR, 0, Math.PI*2);
+    c.fill();
+  }
+  // 中央の星
+  drawStar4(c, b.x, b.y, r*0.28, `rgba(220,245,255,${0.8+0.2*Math.sin(S.time*3)})`);
+  c.restore();
+}
+
+function drawStar4(c, x, y, r, col) {
+  c.fillStyle = col;
+  c.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI/4 - Math.PI/2;
+    const rr = i % 2 === 0 ? r : r*0.38;
+    const px = x + Math.cos(a)*rr, py = y + Math.sin(a)*rr;
+    i === 0 ? c.moveTo(px, py) : c.lineTo(px, py);
+  }
+  c.closePath(); c.fill();
+}
+
+function drawFishes(c) {
+  // 水中の魚の淡いシルエット(光跡はWebGL側)
+  for (const f of fishes) {
+    if (f.t < 0) continue;
+    const t = f.t / f.dur;
+    if (t >= 1) continue;
+    const p = fishPos(f, t);
+    const p2 = fishPos(f, Math.min(1, t + 0.02));
+    const ang = Math.atan2(p2.y - p.y, p2.x - p.x);
+    if (p.y < L.horizon + 6) continue;
+    c.save();
+    c.translate(p.x, p.y);
+    c.rotate(ang);
+    c.globalAlpha = 0.4 * Math.sin(Math.min(t*4,1)*Math.PI*0.5) * (t > 0.85 ? (1-t)/0.15 : 1);
+    c.fillStyle = 'rgb(40,90,130)';
+    c.beginPath();
+    c.ellipse(0, 0, f.size, f.size*0.38, 0, 0, Math.PI*2);
+    c.fill();
+    // 尾
+    const wag = Math.sin(S.time*10 + f.ph)*0.35;
+    c.beginPath();
+    c.moveTo(-f.size*0.8, 0);
+    c.lineTo(-f.size*1.5, -f.size*0.35 + wag*f.size*0.4);
+    c.lineTo(-f.size*1.5, f.size*0.35 + wag*f.size*0.4);
+    c.closePath(); c.fill();
+    c.restore();
+  }
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x+r, y);
+  c.arcTo(x+w, y, x+w, y+h, r);
+  c.arcTo(x+w, y+h, x, y+h, r);
+  c.arcTo(x, y+h, x, y, r);
+  c.arcTo(x, y, x+w, y, r);
+  c.closePath();
+}
+
+// ============================================================
+// メインループ + 品質自動調整
+// ============================================================
+let lastT = performance.now();
+let frameAcc = 0, frameCount = 0, qualityCheckT = 0;
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  if (dt > 0.1) dt = 0.1;
+  if (dt <= 0) dt = 0.001;
+
+  // FPS計測
+  frameAcc += dt; frameCount++;
+  S.frameMs = S.frameMs * 0.95 + dt * 1000 * 0.05;
+  if (frameAcc >= 0.5) {
+    S.fps = frameCount / frameAcc;
+    frameAcc = 0; frameCount = 0;
+  }
+  // 品質自動調整(2秒ごと)
+  qualityCheckT += dt;
+  if (qualityCheckT > 2) {
+    qualityCheckT = 0;
+    if (S.frameMs > 26 && S.quality > 0) { S.quality--; layout(); }
+    else if (S.frameMs < 13 && S.quality < 2) { S.quality++; layout(); }
+  }
+
+  update(dt);
+  renderGL(dt);
+  renderUI();
+}
+
+// ============================================================
+// リサイズ / 回転
+// ============================================================
+let resizeT = null;
+function onResize() {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { layout(); }, 60);
+  layout();
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+
+glCanvas.addEventListener('webglcontextlost', e => e.preventDefault());
+glCanvas.addEventListener('webglcontextrestored', () => location.reload());
+
+// ============================================================
+// テスト用フック
+// ============================================================
+window.__biolume = {
+  get state() { return S; },
+  get fps() { return S.fps; },
+  get frameMs() { return S.frameMs; },
+  get particles() { return P.n; },
+  get phase() { return S.phase; },
+  get night() { return S.night; },
+  get quality() { return S.quality; },
+  get totalLight() { return S.totalLight; },
+  get finaleDone() { return S.finale.done; },
+  get finaleRunning() { return S.finale.running; },
+  get lanternOn() { return S.lantern.on; },
+  get lanternPos() { return { x: S.lantern.x, y: S.lantern.y }; },
+  get horizon() { return L.horizon; },
+  get boat() { return { x: S.boat.x, y: S.boat.y, speed: S.boat.speed, traveled: S.boat.traveled }; },
+  get replayVisible() { return S.replayBtn.visible; },
+  get replayPos() { return { x: S.replayBtn.x, y: S.replayBtn.y }; },
+  get lastStroke() { return S.lastStroke || null; },
+  skipIntro() { S.night = 1; S.phase = 'night'; S.lantern.on = false; S.lantern.glow = 0; S.lantern.dim = 1; },
+  armFinale() { this.skipIntro(); S.paddleCount = 3; S.finale.done = false; },
+  fastForward(sec) { for (let i = 0; i < sec*60; i++) update(1/60); }
+};
+
+// 開始
+layout();
+requestAnimationFrame(tick);
+
+})();
+</script>
+</body>
+</html>
