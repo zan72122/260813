@@ -17,7 +17,11 @@ export const PALETTE = {
   verdigris: 0x5e8f7a,
   water: 0x7fb8c4,
   lawn: 0x6f9563,
-  soil: 0x4a3a2a,
+  // Warm, LIGHT brown — Gate B round 3: docs/CAMERA_STORYBOARD.md explicitly
+  // forbids a near-black soil band ("土壌を黒く潰さない（近黒禁止）"). The
+  // previous 0x4a3a2a read as ~70% black on screen once underground with
+  // only ambient/hemisphere light reaching it (no direct sun down there).
+  soil: 0xb8925f,
 } as const;
 
 export function hedgeMaterial(): THREE.MeshStandardMaterial {
@@ -55,11 +59,22 @@ export function waterMaterial(): THREE.MeshStandardMaterial {
 }
 
 export function lawnMaterial(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: PALETTE.lawn, roughness: 0.95, metalness: 0 });
+  // DoubleSide: Gate B round 3's diagram-style pipe-run camera sits below
+  // ground looking up toward the surface for the "thin strip of lawn at the
+  // top of frame" layer (docs/CAMERA_STORYBOARD.md) — a single-sided plane
+  // would be invisible (backface-culled) from underneath.
+  return new THREE.MeshStandardMaterial({ color: PALETTE.lawn, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
 }
 
-/** Dark trench soil, visible around the pipe-run cutaway once the camera
- * dips below ground (src/scenes/build/pipes.ts). */
+/** Warm, readable trench soil for the pipe-run cutaway diagram
+ * (src/scenes/build/pipes.ts). A small emissive floor guarantees it never
+ * reads as near-black underground, where only ambient/hemisphere light
+ * reaches (no direct sun) — the storyboard's "近黒禁止" requirement. */
 export function soilMaterial(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: PALETTE.soil, roughness: 1, metalness: 0 });
+  return new THREE.MeshStandardMaterial({
+    color: PALETTE.soil,
+    roughness: 0.92,
+    metalness: 0,
+    emissive: new THREE.Color(PALETTE.soil).multiplyScalar(0.35),
+  });
 }

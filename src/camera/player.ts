@@ -21,10 +21,6 @@ const ORIENTATION_BLEND_SEC = 0.3;
 const POSE_SMOOTH_TAU = 0.15;
 
 const UP = new THREE.Vector3(0, 1, 0);
-/** Hard ceiling for the pipe-run camera's Y — stays comfortably below y=0 so
- * it never clips through the single lawn plane even near the curve's
- * shallow arrival end (src/scenes/build/ground.ts). */
-const GROUND_CLEARANCE_CEILING = -0.14;
 
 function clamp01(t: number): number {
   return Math.min(1, Math.max(0, t));
@@ -151,6 +147,21 @@ export class CinematicBeatPlayer {
     return interpolatePoses(poses, ease(progress, beat.easing));
   }
 
+  /**
+   * Gate B round 3: beat-pipe-cutaway is now a "diagram-style cross-section"
+   * (docs/CAMERA_STORYBOARD.md) — a LOCKED side-on view, perpendicular to
+   * the display segment's run direction, with only gentle lateral tracking
+   * of the slug (no diving/rotating as the curve's own local tangent
+   * changes through its drop/cruise/rise zones, which is what earlier
+   * rounds' per-point tracking did and made the shot unreadable). The
+   * reference frame (side direction + cruise height) is sampled ONCE from
+   * the curve's flat mid-cruise point (t=0.5 — see
+   * src/scenes/anchors.ts buildPipeCurves), not from the animated t, so it
+   * cannot drift frame to frame. Only right at the very end (t -> 1, the
+   * slug entering the fountain's riser) does the camera blend into
+   * following the actual rising point, continuous into fountain-reveal, per
+   * the storyboard's "終端で...カメラも一緒に地上へ抜ける".
+   */
   private computePipeRunPose(orientation: Orientation): CameraPose {
     const beat = findBeat('beat-pipe-cutaway');
     const fallbackPoses = orientation === 'portrait' ? beat.portrait : beat.landscape;
@@ -159,33 +170,55 @@ export class CinematicBeatPlayer {
 
     const offsets = PIPE_CAMERA_OFFSETS[orientation];
     const t = clamp01(this.waterT);
-    const point = curve.getPointAt(t);
-    const ahead = curve.getPointAt(clamp01(t + offsets.lookAhead));
 
-    // Offset perpendicular to the pipe's actual running direction (not a
-    // fixed world axis) — each fountain's pipe runs at a different angle
-    // from the valve, so a fixed +X/+Y offset could still leave the camera
-    // nearly coincident with a diagonal pipe/trench (Gate B fix #4).
-    const tangent = curve.getTangentAt(t);
-    const sideDir = new THREE.Vector3().crossVectors(UP, tangent);
+    // Fixed reference frame from the flat cruise section — locked, not
+    // recomputed from the moving point, so the camera never dives/rotates.
+    const refPoint = curve.getPointAt(0.5);
+    const refTangent = curve.getTangentAt(0.5).normalize();
+    const sideDir = new THREE.Vector3().crossVectors(UP, refTangent);
     if (sideDir.lengthSq() < 1e-6) sideDir.set(1, 0, 0);
     sideDir.normalize();
 
-    // camPos.y is clamped (not just point.y + above) so a big enough "above"
-    // to look steeply DOWN into Worker B's pipe shell (src/vfx/pipeFlow.ts —
-    // a partial-arc tube open ~100° at the top, with the water resting near
-    // the bottom of that opening, only visible from a real downward angle)
-    // never pokes above y=0 ground near the shallow arrival end of the curve
-    // and clips through the single lawn plane (src/scenes/build/ground.ts).
-    const camY = Math.min(point.y + offsets.above, GROUND_CLEARANCE_CEILING);
-    const camPos = point.clone().addScaledVector(sideDir, offsets.side);
-    camPos.y = camY;
+    const slugPoint = curve.getPointAt(t);
+    const alongOffset = slugPoint.clone().sub(refPoint).dot(refTangent);
+    // Full 1:1 lateral tracking along the run axis: the slug must stay in
+    // frame the WHOLE run (some display segments run 6-14 world units), so
+    // "gentle" here means smooth (POSE_SMOOTH_TAU already handles that, plus
+    // this pose is itself re-evaluated every frame from a continuous t), not
+    // partial/lagging — a lagging follow left the slug outside the frame on
+    // longer segments. "Locked" instead refers to height/side-angle/tilt,
+    // which stay fixed (no diving/rotating) regardless of along-track position.
+    const trackedCenter = refPoint.clone().addScaledVector(refTangent, alongOffset);
 
-    const lookTarget: [number, number, number] = [ahead.x, ahead.y, ahead.z];
+    // Blend from the locked cruise height into following the slug's actual
+    // (rising) height only in the last stretch of the run.
+    const riseBlend = ease((t - 0.82) / 0.18, 'ease-in-out');
+    const camY = THREE.MathUtils.lerp(refPoint.y + offsets.above, slugPoint.y + offsets.above * 0.5, riseBlend);
+
+    const camPos = trackedCenter.clone().addScaledVector(sideDir, offsets.side);
+    camPos.y = camY;
+    // Zero yaw offset along the run axis — the look target shares the
+    // camera's along-track position exactly (only Y differs), so the view
+    // stays a true perpendicular "side-on" cross-section (no looking ahead/
+    // behind along the pipe, which would angle the shot and hide the slug
+    // off-center on long segments).
+    //
+    // The vertical tilt is a fixed, gentle DOWNWARD ANGLE (not "aim directly
+    // at the pipe") — aiming straight at the pipe (which sits `above` world
+    // units below the camera, a fairly large drop needed for ground
+    // clearance) tilts the whole frustum down so steeply its top edge no
+    // longer reaches back up to y=0, which was silently discarding the
+    // storyboard's "thin strip of ground at the top of frame" layer even
+    // though the ground was technically only slightly above camera height.
+    // A shallow fixed angle keeps ground, soil, and pipe all inside the
+    // vertical FOV span at once; offsets.lookAhead is that angle's tangent
+    // multiplier (drop = side * lookAhead).
+    const lookTarget = trackedCenter.clone();
+    lookTarget.y = camY - offsets.side * offsets.lookAhead;
 
     return {
-      position: [camPos.x, camY, camPos.z],
-      lookAt: lookTarget,
+      position: [camPos.x, camPos.y, camPos.z],
+      lookAt: [lookTarget.x, lookTarget.y, lookTarget.z],
       fov: fallbackPoses[0]?.fov ?? 50,
     };
   }

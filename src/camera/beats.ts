@@ -91,26 +91,30 @@ const PIPE_CUTAWAY_LANDSCAPE: CameraPose[] = [
   pose([valveHead.x + 2.2, -0.2, valveHead.z], [valveHead.x, -1.1, valveHead.z + 1.5], 52),
 ];
 
-/** Camera offset from the water blob's curve point, per orientation. `above`
- * is now clamped in src/camera/player.ts (GROUND_CLEARANCE_CEILING) rather
- * than kept tiny here, so it's free to be large enough for a real downward
- * look into Worker B's pipe shell (src/vfx/pipeFlow.ts — a partial-arc tube
- * open ~100° at the TOP; its water sits near the bottom of that opening and
- * is only visible from a genuinely steep-ish downward angle, not a near-level
- * gaze). `side` (horizontal only — sideDir has no Y component) keeps the
- * camera outside the pipe/trench for a 3rd-person view. Portrait still
- * emphasizes the vertical plunge (storyboard: "縦画面: 地上→地下→地上"),
- * landscape the horizontal run. */
+/** Gate B round 3 — diagram-style cross-section (docs/CAMERA_STORYBOARD.md):
+ * a LOCKED side-on view of the flat "cruise" section of the new straight
+ * display segment (src/scenes/anchors.ts buildPipeCurves), not a per-point
+ * dive along the old curved route. All values are world-space offsets from
+ * the locked reference point (curve midpoint), tracked 1:1 along the run
+ * axis with the slug — see src/camera/player.ts computePipeRunPose.
+ *   `above`: height above the cruise depth (-1.25). Kept well under 1.25 so
+ *     the camera always stays underground (y<0) during the locked cruise
+ *     phase, close enough to the surface for the shallow `lookAhead` tilt
+ *     below to still reach a thin sliver of ground (y=0) at frame top.
+ *   `side`: perpendicular distance from the pipe — sized (with the trench
+ *     cross-section in src/scenes/build/pipes.ts) so the pipe sits roughly
+ *     in the middle third of the frame, per the storyboard's explicit ask.
+ *   `lookAhead`: tan() of the downward tilt angle (drop = side * lookAhead),
+ *     NOT "aim straight at the pipe" — aiming directly at the pipe (`above`
+ *     world units below camera, a large drop needed purely for ground
+ *     clearance) tilted the whole frustum down so steeply its top edge
+ *     stopped reaching back up to y=0, silently losing the storyboard's
+ *     "thin ground strip at the top" layer even though the ground was only
+ *     slightly above camera height. ~0.21-0.23 ≈ 12-13°, a shallow angle
+ *     that keeps ground + soil + pipe all inside the vertical FOV span. */
 export const PIPE_CAMERA_OFFSETS = {
-  // `side` deliberately stays modest: all three fountains' pipes fan out
-  // from the SAME shared valve point (src/scenes/anchors.ts), so a large
-  // sideways offset near the start of the run can cross into a neighboring
-  // fountain's trench and read as visual clutter instead of a clean single
-  // cutaway. `above` is large because it's clamped in player.ts
-  // (GROUND_CLEARANCE_CEILING), not because a bigger number here means a
-  // proportionally bigger real offset.
-  portrait: { above: 1.1, side: 0.9, lookAhead: 0.07 },
-  landscape: { above: 1.0, side: 1.1, lookAhead: 0.09 },
+  portrait: { above: 0.95, side: 1.5, lookAhead: 0.23 },
+  landscape: { above: 0.85, side: 2.0, lookAhead: 0.21 },
 } as const;
 
 // ---- fountain-reveal (close): per fountain, differentiated angle/motion --

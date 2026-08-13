@@ -75,7 +75,6 @@ const NOZZLE_NAME: Record<FountainId, string> = {
 // beat-establish (src/camera/beats.ts) can frame them as the near foreground
 // while the whole path + all 3 fountains recede into the distance beyond.
 const VALVE_POSITION = new THREE.Vector3(-5.1, 0, -8.5);
-const VALVE_UNDERGROUND = new THREE.Vector3(-5.1, -1.3, -8.5);
 const WHISTLE_POSITION = new THREE.Vector3(-4.0, 1.15, -7.8);
 
 function buildFountainAnchors(): Record<FountainId, FountainAnchor> {
@@ -94,21 +93,47 @@ function buildFountainAnchors(): Record<FountainId, FountainAnchor> {
 }
 
 function buildPipeCurves(fountains: Record<FountainId, FountainAnchor>): Record<FountainId, THREE.CatmullRomCurve3> {
+  // Gate B round 3: docs/CAMERA_STORYBOARD.md redesigned beat-pipe-cutaway as
+  // a "diagram-style cross-section" — a dedicated straight display segment
+  // viewed side-on, not the real curved underground route. The old curve
+  // (a single midpoint dipping well below both endpoints) had unpredictable
+  // per-fountain direction changes that made a locked side-on camera
+  // impossible to frame consistently and let neighboring fountains' trenches
+  // cross in view. This is now a flat "cruise" run at a constant depth in the
+  // vertical plane containing the valve->fountain direction (zero sideways
+  // drift), with a short drop near the valve and a rise into the fountain's
+  // basin riser at the very end — reads as portrait's "Z字/L字" shape when
+  // the camera is zoomed into a segment, and as landscape's "one horizontal
+  // run" when zoomed out, purely via camera framing (src/camera/beats.ts),
+  // no per-orientation geometry needed.
+  //
+  // This function feeds src/app/presentationWiring.ts's
+  // `createPipeFlow(anchors.pipeCurves[id])` call unmodified — the "display
+  // curve" IS anchors.pipeCurves now, so Worker B's VFX pipe/water shell
+  // automatically follows the same simplified route without any src/app or
+  // src/vfx change.
   const result = {} as Record<FountainId, THREE.CatmullRomCurve3>;
+  const startDepth = -0.9;
+  const cruiseDepth = -1.25;
+  const arrivalDepth = -0.3;
+
   for (const id of ALL_FOUNTAIN_IDS) {
     const target = fountains[id].center;
-    const mid = new THREE.Vector3(
-      (VALVE_UNDERGROUND.x + target.x) / 2,
-      -1.7,
-      (VALVE_UNDERGROUND.z + target.z) / 2,
-    );
-    const arrival = new THREE.Vector3(target.x, -0.35, target.z);
-    result[id] = new THREE.CatmullRomCurve3(
-      [VALVE_UNDERGROUND.clone(), mid, arrival],
-      false,
-      'catmullrom',
-      0.5,
-    );
+    const runVec = new THREE.Vector3(target.x - VALVE_POSITION.x, 0, target.z - VALVE_POSITION.z);
+    const runLength = Math.max(0.5, runVec.length());
+    const runDir = runVec.clone().normalize();
+
+    const atS = (s: number, y: number): THREE.Vector3 =>
+      VALVE_POSITION.clone().addScaledVector(runDir, s * runLength).setY(y);
+
+    const points = [
+      atS(0, startDepth),
+      atS(0.1, cruiseDepth),
+      atS(0.5, cruiseDepth),
+      atS(0.82, cruiseDepth),
+      atS(1, arrivalDepth),
+    ];
+    result[id] = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
   }
   return result;
 }

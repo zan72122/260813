@@ -45,13 +45,14 @@ export interface PipesVisual {
 }
 
 const PIPE_RADIUS = 0.16;
-// Snug around the pipe (radius 0.16) rather than a wide pit: all three
-// fountains' trenches fan out from the same shared valve point, so a wide
-// cross-section made neighboring trenches overlap in view near the start of
-// the run, and a deep/wide pit needed a near-vertical camera angle to see
-// past its own walls down to the pipe at all.
-const TRENCH_HALF_WIDTH = 0.4;
-const TRENCH_DEPTH = 0.4;
+// Gate B round 3: sized to read as a clear soil band around the pipe in the
+// new locked side-on diagram view (src/camera/player.ts) — big enough that
+// the pipe sits in the middle third of frame with visible soil above/below/
+// beside it (per docs/CAMERA_STORYBOARD.md), still snug enough that the
+// fixed, modest PIPE_CAMERA_OFFSETS.side doesn't cross into a neighboring
+// fountain's trench near the shared valve point.
+const TRENCH_HALF_WIDTH = 0.5;
+const TRENCH_DEPTH = 0.5;
 const TRENCH_WALL_TOP = 0.04;
 const UP = new THREE.Vector3(0, 1, 0);
 
