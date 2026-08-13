@@ -61,7 +61,18 @@ export function wirePresentation(ctx: SceneContext, heroHandle: HeroMaterialsHan
     ctx.scene.add(jet.group);
     waterJets[id] = jet;
 
-    const pipe = createPipeFlow(anchors.pipeCurves[id]);
+    // Gate B round 3 joint check: B's default cutawayFaces ('side') assumed
+    // the same rotational sign convention as A's new locked side-on camera
+    // (src/camera/player.ts computePipeRunPose), but the two turned out to
+    // disagree — with 'side' the camera ended up looking at the shell's
+    // SOLID 240° arc (the gap centered on the opposite side from the
+    // camera), so the opaque pipe casing filled the whole frame and hid the
+    // water entirely. Verified by rendering with the shell hidden (revealed
+    // the water was there and correctly lit all along) and then by trying
+    // each cutawayFaces value from this call site — 'side-opposite' puts the
+    // gap on the camera-facing side and was confirmed visually (entry/mid/
+    // near-arrival, portrait + landscape) to show a clear, bright water slug.
+    const pipe = createPipeFlow(anchors.pipeCurves[id], { cutawayFaces: 'side-opposite' });
     ctx.scene.add(pipe.group);
     pipeFlows[id] = pipe;
   }
