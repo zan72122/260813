@@ -113,22 +113,38 @@ transparency sorting anywhere.
 - One pointer only — extra fingers are ignored rather than fighting the first.
 - The ring accepts sloppy input: near the rim it uses the tangential component,
   near the middle it falls back to plain left/right, and it blends between
-  them. Releasing mid-spin leaves a flywheel.
+  them. Releasing mid-spin leaves a flywheel, and a soft detent eases the last
+  of it onto the angle where that piece looks best — so letting go always lands
+  on something worth looking at.
 
 ## Checking it
 
 ```bash
 npm run build
-npm run test:smoke     # 7 state/render smoke tests, Chromium, workers=1
-npm run shots          # stills of the whole chain at 4 device sizes → shots/
-node scripts/variety.mjs   # the same beat across 8 seeds → shots/variety/
+npm run typecheck
+npm run test:smoke              # 19 tests, Chromium, workers=1
+npm run shots                   # the whole chain at 4 device sizes → shots/
+node scripts/playthrough.mjs    # a real pointer-only playthrough → shots/play/
+node scripts/variety.mjs        # the same beat across 8 seeds → shots/variety/
+node scripts/arc.mjs            # the transparent → rainbow ramp → shots/arc/
 node scripts/montage.mjs shots/variety shots/_variety.png
 ```
 
-The smoke tests cover: it boots and draws; it starts colourless and ends
-colourful; every 15° of rotation changes the picture; the whole chain reaches
-the finale; 🔁 keeps the piece and ✨ replaces it; rotating the device keeps all
-state; and a sloppy one-finger swipe anywhere turns the ring.
+`tests/logic.spec.js` drives the stage machine directly, with no DOM: an
+engaged child reaches the finale; so does one who only ever turns the ring; so
+does one who never touches the screen at all; no stage can livelock on its own
+celebration; charge rises only with rotation; all 400 seeds produce pieces
+whose stress lands in the vivid Michel-Lévy orders; a replayed seed is
+identical; and letting go of a spin always settles within ~17° of the piece's
+best angle.
+
+`tests/smoke.spec.js` drives the real page: it boots and draws; it starts
+colourless and ends colourful; every 15° of rotation changes the picture; the
+whole chain reaches the finale; 🔁 keeps the piece and ✨ replaces it; rotating
+the device keeps every bit of state and stays inside the pixel budget; a sloppy
+one-finger swipe anywhere turns the ring; a genuine first touch starts a
+session with no test shortcuts; the sound toggle survives being hit first; and
+all three rungs of the quality ladder still draw.
 
 Software WebGL (SwiftShader) runs far slower than wall-clock, so the harness
 waits on *rendered frames* rather than timers. Frame rate, smoothness and final

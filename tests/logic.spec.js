@@ -93,3 +93,29 @@ test('replaying the same seed reproduces the piece exactly', () => {
   a.nextOne();
   expect(JSON.stringify(a.set)).not.toBe(JSON.stringify(b.set));
 });
+
+test('letting go of a spin settles on a beautiful angle, not a washed-out one', () => {
+  for (const seed of [3, 88, 501, 7777]) {
+    const g = new Game({ seed });
+    g.tap(0, 0);
+    g.dragging = true;
+    for (let i = 0; i < 200; i++) { g.turn(0.07, 1 / 60); g.update(1 / 60); }
+    g.dragging = false;
+    for (let i = 0; i < 60 * 6; i++) g.update(1 / 60);      // let it coast to rest
+    // distance to the nearest multiple of pi from the piece's best angle
+    const off = Math.abs(
+      ((g.ringAngle - g.sweetAngle) % Math.PI + Math.PI * 1.5) % Math.PI - Math.PI / 2,
+    );
+    expect(off).toBeLessThan(0.30);   // within ~17 degrees of the sweet spot
+  }
+});
+
+test('the detent never fights a finger that is still turning', () => {
+  const g = new Game({ seed: 12 });
+  g.tap(0, 0);
+  g.dragging = true;
+  let angle = 0;
+  for (let i = 0; i < 240; i++) { g.turn(0.03, 1 / 60); angle += 0.03; g.update(1 / 60); }
+  // while held, the ring goes exactly where the finger put it (plus flywheel)
+  expect(g.ringAngle).toBeGreaterThan(angle * 0.95);
+});

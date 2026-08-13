@@ -100,6 +100,7 @@ export class Game {
     this.presses = [];
     this.pressCount = 0;
     this.pendingStage = null;
+    this.dragging = false;
     this.windowMix = 0;
 
     const s = SHOT[STAGE.INTRO];
@@ -224,6 +225,19 @@ export class Game {
       this.ringAngle += d;
       this.totalRot += d;
       this.stageRot += d * 0.5;
+    }
+
+    // A soft detent, like a real knob. As the flywheel dies it eases toward
+    // this piece's best angle, so letting go always lands somewhere beautiful
+    // instead of on the washed-out parallel position. It fades in as the wheel
+    // slows, so it never argues with a finger.
+    if (!this.dragging && this.idle < 8 && this.stage >= STAGE.RING) {
+      const pull = 1.0 - Math.min(Math.abs(this.ringVel) / 0.9, 1);
+      if (pull > 0.001) {
+        const k = Math.round((this.ringAngle - this.sweetAngle) / Math.PI);
+        const target = this.sweetAngle + k * Math.PI;
+        this.ringAngle += (target - this.ringAngle) * (1 - Math.exp(-dt * 0.95 * pull));
+      }
     }
 
     // ring flywheel

@@ -13,11 +13,13 @@ for (const seed of [1, 7, 23, 91, 404, 777, 2024, 31337]) {
   await page.goto(`http://localhost:4173/?e2e=1&seed=${seed}`);
   await page.waitForFunction(() => window.__ui && window.__ui.ready);
   await page.evaluate(() => {
+    // exactly what a child does: spin it, let go, watch where it lands
     const g = window.__game;
     g.tap(0, 0);
-    for (let i = 0; i < 300; i++) g.turn(0.06, 1 / 60);
-    g.ringVel = 0; g.ringAngle = Math.PI / 2;
-    for (let i = 0; i < 90; i++) g.update(1 / 60);
+    g.dragging = true;
+    for (let i = 0; i < 300; i++) { g.turn(0.06, 1 / 60); g.update(1 / 60); }
+    g.dragging = false;
+    for (let i = 0; i < 60 * 6; i++) g.update(1 / 60);
   });
   await page.evaluate(() => window.__ui.settle(3));
   await page.screenshot({ path: `shots/variety/seed-${seed}.png` });

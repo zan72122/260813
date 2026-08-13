@@ -38,7 +38,7 @@ const game = new Game({
 
 /* ------------------------------------------------------- sizing / quality */
 let renderScale = 1.0;
-let maxScale = 1.0;
+const MAX_SCALE = 1.0;
 let cssW = 0, cssH = 0, dpr = 1;
 
 function computeDpr() {
@@ -135,6 +135,7 @@ canvas.addEventListener('pointerdown', (e) => {
     moved: 0, t0: performance.now(), lastT: performance.now(),
     press: mode === 'press' ? game.beginPress(w.x, w.y) : null,
   };
+  game.dragging = true;
   e.preventDefault();
 });
 
@@ -162,6 +163,7 @@ function endPointer(e) {
   if (active.press) game.endPress(active.press);
   if (active.moved < 0.10 && dur < 0.45) game.tap(w.x, w.y);
   active = null;
+  game.dragging = false;
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
@@ -270,7 +272,6 @@ function frame(now) {
   game.update(dt);
   game.uniforms(uni);
   renderer.draw(uni);
-  if (E2E) { window.__uniPost = uni.post; window.__uniPol = uni.pol; }
 
   frameNo++;
   updateHint();
@@ -286,7 +287,7 @@ function frame(now) {
       if (renderScale > 0.62) { renderScale = Math.max(0.6, renderScale - 0.16); syncSize(true); settled = true; }
       else if (game.quality > 0) { game.quality--; settled = true; }
     } else if (avg < 1 / 57 && !settled) {
-      if (renderScale < maxScale) { renderScale = Math.min(maxScale, renderScale + 0.1); syncSize(true); }
+      if (renderScale < MAX_SCALE) { renderScale = Math.min(MAX_SCALE, renderScale + 0.1); syncSize(true); }
     }
   }
 }
@@ -304,6 +305,7 @@ if (E2E) {
     press: (x, y) => { const p = game.beginPress(x, y); p.s = 1; return p; },
     tap: (x, y) => game.tap(x, y),
     frameNo: () => frameNo,
+    setRenderScale: (v) => { renderScale = v; syncSize(true); },
     /** advance n real rendered frames — SwiftShader is far slower than wall time */
     settle: (n = 3) => new Promise((res) => {
       const target = frameNo + n;

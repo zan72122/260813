@@ -51,16 +51,19 @@ test('clear plastic first, rainbow only after turning the ring', async ({ page }
   await page.evaluate(() => window.__ui.settle(2));
   const before = await page.evaluate(READ);
 
+  // spin it like a child would, then let go and let it coast to rest
   await page.evaluate(() => {
     const g = window.__game;
-    for (let i = 0; i < 300; i++) g.turn(0.06, 1 / 60);
-    g.ringVel = 0; g.ringAngle = Math.PI / 2;
-    for (let i = 0; i < 60; i++) g.update(1 / 60);
+    g.dragging = true;
+    for (let i = 0; i < 300; i++) { g.turn(0.06, 1 / 60); g.update(1 / 60); }
+    g.dragging = false;
+    for (let i = 0; i < 60 * 5; i++) g.update(1 / 60);
   });
   await page.evaluate(() => window.__ui.settle(2));
   const after = await page.evaluate(READ);
 
-  // it starts near-colourless and ends unmistakably colourful
+  // it starts near-colourless, and where it comes to rest is unmistakably
+  // colourful — that is the detent's whole job
   expect(before.sat).toBeLessThan(0.16);
   expect(after.sat).toBeGreaterThan(before.sat + 0.18);
   expect(errors).toEqual([]);
@@ -74,6 +77,7 @@ test('every increment of rotation changes the picture — no dead zone', async (
     g.tap(0, 0);
     for (let i = 0; i < 400; i++) g.turn(0.06, 1 / 60);   // fully charged
     g.ringVel = 0;
+    g.dragging = true;              // a finger is holding it at each angle
     const c = document.getElementById('gl');
     const gl = c.getContext('webgl2') || c.getContext('webgl');
     const grab = () => {
@@ -182,6 +186,7 @@ test('survives rotation between portrait and landscape without losing state', as
     for (let i = 0; i < 200; i++) g.turn(0.05, 1 / 60);
     g.ringVel = 0;
     for (let i = 0; i < 30; i++) g.update(1 / 60);
+    g.dragging = true;   // finger stays on the ring while the device is turned
   });
   const before = await page.evaluate(() => {
     const g = window.__game;
@@ -273,5 +278,28 @@ test('the sound toggle survives being pressed before anything else', async ({ pa
   await page.locator('#sound').click({ force: true });   // back on
   await page.mouse.click(195, 420);
   await page.waitForTimeout(300);
+  expect(errors).toEqual([]);
+});
+
+test('every step of the quality ladder still draws', async ({ page }) => {
+  const errors = await boot(page);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.tap(0, 0);
+    g.dragging = true;
+    for (let i = 0; i < 300; i++) { g.turn(0.06, 1 / 60); g.update(1 / 60); }
+    g.dragging = false;
+  });
+  // full → one blur pass → no bloom or sparkles, and the cheapest resolution
+  for (const [quality, scale] of [[2, 1.0], [1, 0.8], [0, 0.6]]) {
+    await page.evaluate(([q, s]) => {
+      window.__game.quality = q;
+      window.__ui.setRenderScale(s);
+    }, [quality, scale]);
+    await page.evaluate(() => window.__ui.settle(3));
+    const { lum, sat } = await page.evaluate(READ);
+    expect(lum, `quality ${quality} draws`).toBeGreaterThan(8);
+    expect(sat, `quality ${quality} keeps its colour`).toBeGreaterThan(0.10);
+  }
   expect(errors).toEqual([]);
 });
