@@ -1,0 +1,22 @@
+{
+  "name": "gyutto-niji-chikara-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ぎゅっと！にじちからラボ - 光弾性応力観察をテーマにした4歳児向けモバイルWebゲーム",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:smoke": "playwright test tests/e2e/smoke.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^26.2.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,479 @@
+:root {
+  --bg: #05070f;
+  --ink: #f4f8ff;
+  --pill: rgba(24, 38, 68, 0.86);
+  --pill-on: linear-gradient(180deg, #4fa9ff, #2f6ddb);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Hiragino Maru Gothic ProN', 'ヒラギノ丸ゴ ProN W4', 'Rounded Mplus 1c',
+    'Hiragino Sans', 'Yu Gothic', system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#hud button {
+  pointer-events: auto;
+  font-family: inherit;
+  color: var(--ink);
+  border: none;
+  cursor: pointer;
+  transition: transform 0.09s ease;
+}
+
+#hud button:active {
+  transform: scale(0.94);
+}
+
+svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------------------------------------------------------- タイトル */
+
+.title-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--safe-t) + 14px) 16px calc(var(--safe-b) + 18px);
+}
+
+/* 模型（虹）を主役にしたいので、文字の下だけそっと暗くする */
+.title-card {
+  text-align: center;
+  pointer-events: none;
+  padding: 10px 18px 16px;
+  border-radius: 30px;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    rgba(4, 6, 14, 0.86) 0%,
+    rgba(4, 6, 14, 0.6) 55%,
+    rgba(4, 6, 14, 0) 100%
+  );
+}
+
+.title-card h1 {
+  margin: 0;
+  font-size: clamp(26px, 8.4vmin, 56px);
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  text-shadow: 0 4px 22px rgba(90, 160, 255, 0.5);
+}
+
+.title-card .accent {
+  background: linear-gradient(90deg, #ff6f8b, #ffd24a, #5ce1c0, #6aa8ff, #c08bff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tagline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: clamp(15px, 3.6vmin, 22px);
+  opacity: 0.9;
+}
+
+.tagline svg {
+  width: clamp(24px, 5.6vmin, 38px);
+  height: clamp(24px, 5.6vmin, 38px);
+  animation: tap 1.5s ease-in-out infinite;
+}
+
+@keyframes tap {
+  0%,
+  100% {
+    transform: translateY(-4px);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+.menu {
+  padding: 16px 18px 4px;
+  border-radius: 34px;
+  background: radial-gradient(
+    ellipse at 50% 60%,
+    rgba(4, 6, 14, 0.86) 0%,
+    rgba(4, 6, 14, 0.55) 60%,
+    rgba(4, 6, 14, 0) 100%
+  );
+  display: flex;
+  gap: clamp(12px, 3vmin, 26px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.menu-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: clamp(112px, 30vmin, 170px);
+  padding: clamp(12px, 2.6vmin, 20px);
+  border-radius: 28px;
+  background: linear-gradient(180deg, #2a4a86, #16264a);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.18);
+  font-size: clamp(16px, 3.6vmin, 24px);
+  font-weight: 700;
+}
+
+.menu-btn.chal {
+  background: linear-gradient(180deg, #b8543f, #7a2f30);
+}
+
+.menu-btn .ic {
+  width: clamp(42px, 11vmin, 74px);
+  height: clamp(42px, 11vmin, 74px);
+}
+
+/* ------------------------------------------------------------ バー類 */
+
+.topbar {
+  position: absolute;
+  top: calc(var(--safe-t) + 8px);
+  left: calc(var(--safe-l) + 8px);
+  right: calc(var(--safe-r) + 8px);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.top-mid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.round {
+  width: clamp(46px, 11vmin, 62px);
+  height: clamp(46px, 11vmin, 62px);
+  flex: 0 0 auto;
+  padding: clamp(9px, 2.4vmin, 14px);
+  border-radius: 50%;
+  background: rgba(20, 32, 60, 0.82);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.14);
+}
+
+.round.primary {
+  background: linear-gradient(180deg, #3fbf72, #1f7a48);
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 16px 7px 8px;
+  border-radius: 999px;
+  background: rgba(14, 24, 46, 0.9);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: clamp(14px, 3.3vmin, 21px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.task-ic {
+  width: clamp(30px, 7vmin, 44px);
+  height: clamp(30px, 7vmin, 44px);
+  flex: 0 0 auto;
+}
+
+.task.pulse {
+  animation: pulse 0.9s ease-in-out 3;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.09);
+  }
+}
+
+.bar {
+  position: relative;
+  width: min(60vw, 320px);
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(10, 18, 36, 0.86);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6aa8ff, #5ce1c0, #ffd24a, #ff6f8b);
+  transition: width 0.16s linear;
+}
+
+.bar-star {
+  position: absolute;
+  right: -12px;
+  top: -10px;
+  width: 34px;
+  height: 34px;
+}
+
+/* --------------------------------------------------------- ラボの下部 */
+
+.bottombar {
+  position: absolute;
+  left: calc(var(--safe-l) + 8px);
+  right: calc(var(--safe-r) + 8px);
+  bottom: calc(var(--safe-b) + 8px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tools {
+  display: flex;
+  gap: 8px;
+}
+
+.pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: clamp(68px, 17vmin, 96px);
+  padding: 8px 6px 6px;
+  border-radius: 20px;
+  background: var(--pill);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.12);
+  font-size: clamp(12px, 2.8vmin, 17px);
+  font-weight: 700;
+}
+
+.pill.on {
+  background: var(--pill-on);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.pill .ic {
+  width: clamp(30px, 7.4vmin, 44px);
+  height: clamp(30px, 7.4vmin, 44px);
+}
+
+/* ------------------------------------------------------ チャレンジ選択 */
+
+.cards {
+  position: absolute;
+  inset: calc(var(--safe-t) + 84px) calc(var(--safe-r) + 12px) calc(var(--safe-b) + 16px)
+    calc(var(--safe-l) + 12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 3vmin, 26px);
+  flex-wrap: wrap;
+  align-content: center;
+  /* うしろの模型がすけて見えるが、カードは読みやすく */
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(4, 6, 14, 0.8) 0%,
+    rgba(4, 6, 14, 0.45) 55%,
+    rgba(4, 6, 14, 0) 100%
+  );
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: clamp(108px, 27vmin, 190px);
+  padding: clamp(10px, 2.4vmin, 20px);
+  border-radius: 26px;
+  background: linear-gradient(180deg, #24406f, #14223e);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.16);
+  font-size: clamp(14px, 3.2vmin, 21px);
+  font-weight: 700;
+}
+
+.card-ic {
+  width: clamp(52px, 14vmin, 96px);
+  height: clamp(52px, 14vmin, 96px);
+}
+
+.card-star {
+  position: absolute;
+  top: -10px;
+  right: -8px;
+  width: 38px;
+  height: 38px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+/* ------------------------------------------------------------ できた！ */
+
+/* 「できた！」の板は下に置く。まん中の模型（虹）を隠さないため */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 12px calc(var(--safe-b) + 14px);
+  background: linear-gradient(
+    to bottom,
+    rgba(3, 5, 12, 0) 40%,
+    rgba(3, 5, 12, 0.55) 72%,
+    rgba(3, 5, 12, 0.85) 100%
+  );
+  animation: fade 0.3s ease;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.win {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  align-items: center;
+  gap: clamp(10px, 2.6vmin, 22px);
+  padding: clamp(16px, 4vmin, 34px) clamp(22px, 6vmin, 50px);
+  border-radius: 34px;
+  background: linear-gradient(180deg, rgba(38, 62, 110, 0.95), rgba(14, 24, 46, 0.95));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.2);
+}
+
+.stars {
+  display: flex;
+  gap: 8px;
+}
+
+.stars svg {
+  width: clamp(42px, 11vmin, 76px);
+  height: clamp(42px, 11vmin, 76px);
+  animation: pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  filter: drop-shadow(0 0 12px rgba(255, 210, 74, 0.75));
+}
+
+.stars svg:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.stars svg:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.2) rotate(-40deg);
+    opacity: 0;
+  }
+}
+
+.win-text {
+  font-size: clamp(22px, 6vmin, 40px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.win-btns {
+  display: flex;
+  gap: clamp(10px, 3vmin, 20px);
+}
+
+.win-btns .round {
+  width: clamp(56px, 13vmin, 76px);
+  height: clamp(56px, 13vmin, 76px);
+}
+
+/* 横向きのときは要素をすこし詰める */
+/* よこ長で背が低いときは「できた！」を横ならびにして高さを節約 */
+@media (orientation: landscape) and (max-height: 520px) {
+  .win {
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 20px;
+    border-radius: 28px;
+  }
+  .stars svg {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  .title-screen {
+    gap: 3vh;
+  }
+  .menu-btn {
+    flex-direction: row;
+    width: auto;
+    padding: 10px 22px;
+  }
+  .menu-btn .ic {
+    width: 40px;
+    height: 40px;
+  }
+}
