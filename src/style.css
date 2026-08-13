@@ -1,0 +1,633 @@
+/* くるくる！にじいろいしけんびきょう
+   4さいの ゆびで さわる ゲーム。ボタンは おおきく、もじは すくなく。 */
+
+:root {
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-right: env(safe-area-inset-right, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+  --sa-left: env(safe-area-inset-left, 0px);
+
+  --top-bar: 84px;
+  --panel: 146px;
+  --field-cx: 50%;
+  --field-cy: 50%;
+  --field-r: 120px;
+
+  --ink: #4a3550;
+  --ink-soft: #7a6285;
+  --cream: #fff8f0;
+  --pink: #ff87b2;
+  --pink-deep: #ef5f92;
+  --mint: #6fd8c6;
+  --mint-deep: #3fb5a2;
+  --sun: #ffcc57;
+  --sun-deep: #f0a92c;
+  --violet: #b393f0;
+
+  --font: 'Hiragino Maru Gothic ProN', 'ヒラギノ丸ゴ ProN W4', 'Hiragino Sans',
+    'Yu Gothic UI', 'Zen Maru Gothic', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #fef6ee;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ---------- 画面きりかえ ---------- */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--sa-top) + 12px) calc(var(--sa-right) + 12px)
+    calc(var(--sa-bottom) + 12px) calc(var(--sa-left) + 12px);
+}
+
+#app[data-screen='title'] #screen-title,
+#app[data-screen='select'] #screen-select,
+#app[data-screen='observe'] #screen-observe,
+#app[data-screen='clear'] #screen-clear {
+  display: flex;
+  animation: fade-in 0.32s ease both;
+}
+
+/* かんさつ中は、ボタン以外は指をすり抜けさせて canvas に届ける */
+.screen.pass {
+  pointer-events: none;
+}
+.screen.pass button,
+.screen.pass .topbar,
+.screen.pass .panel {
+  pointer-events: auto;
+}
+.screen.pass .topbar,
+.screen.pass .panel {
+  pointer-events: none;
+}
+.screen.pass .topbar button,
+.screen.pass .panel button {
+  pointer-events: auto;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- ボタン ---------- */
+button {
+  font-family: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.big-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  min-height: 84px;
+  padding: 0.55em 1.1em;
+  border-radius: 999px;
+  font-size: clamp(22px, 5.2vmin, 40px);
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(180deg, var(--mint) 0%, var(--mint-deep) 100%);
+  box-shadow: 0 8px 0 rgba(0, 0, 0, 0.13), 0 12px 22px rgba(120, 90, 140, 0.22);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+  white-space: nowrap;
+}
+.big-btn.quest {
+  background: linear-gradient(180deg, var(--pink) 0%, var(--pink-deep) 100%);
+}
+.big-btn:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.13), 0 4px 10px rgba(120, 90, 140, 0.2);
+}
+.btn-emoji {
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.icon-btn {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 30px;
+  line-height: 1;
+  background: #fff;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.1), 0 8px 16px rgba(120, 90, 140, 0.18);
+  transition: transform 0.09s ease;
+  display: grid;
+  place-items: center;
+}
+.icon-btn:active {
+  transform: translateY(4px);
+}
+
+/* ---------- タイトル ---------- */
+.title-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 3vmin, 26px);
+  text-align: center;
+}
+.title-art {
+  position: relative;
+  font-size: clamp(64px, 17vmin, 150px);
+  line-height: 1;
+  animation: bob 2.6s ease-in-out infinite;
+}
+.art-spark {
+  position: absolute;
+  font-size: 0.36em;
+  animation: twinkle 1.9s ease-in-out infinite;
+}
+.art-spark-a {
+  top: -0.05em;
+  right: -0.22em;
+}
+.art-spark-b {
+  bottom: 0.05em;
+  left: -0.3em;
+  animation-delay: 0.7s;
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(3deg);
+  }
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.title {
+  font-size: clamp(26px, 7.4vmin, 62px);
+  line-height: 1.18;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 3px 0 #fff, 0 6px 10px rgba(140, 110, 160, 0.22);
+}
+.rainbow {
+  background: linear-gradient(
+    92deg,
+    #ff7a9e 0%,
+    #ffb24d 22%,
+    #ffe14d 40%,
+    #6fd88a 58%,
+    #56c2f0 76%,
+    #b98cf5 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2.4vmin, 20px);
+  width: min(84vw, 460px);
+}
+.menu .big-btn {
+  width: 100%;
+}
+
+.sound-btn {
+  position: absolute;
+  top: calc(var(--sa-top) + 14px);
+  right: calc(var(--sa-right) + 14px);
+}
+.sound-btn.off {
+  opacity: 0.45;
+}
+
+/* ---------- プレパラートえらび ---------- */
+#screen-select {
+  justify-content: flex-start;
+  gap: clamp(10px, 2.5vmin, 22px);
+}
+.select-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 4px 2px;
+}
+.select-title {
+  font-size: clamp(20px, 4.6vmin, 36px);
+  font-weight: 900;
+  text-shadow: 0 2px 0 #fff;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(10px, 2.6vmin, 22px);
+  width: 100%;
+  max-width: 780px;
+  flex: 1;
+  align-content: center;
+  padding-bottom: 6px;
+}
+@media (orientation: landscape) {
+  .cards {
+    grid-template-columns: repeat(4, 1fr);
+    max-width: 1100px;
+  }
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  min-height: 0;
+  height: 100%;
+  padding: clamp(8px, 2vmin, 18px);
+  border-radius: 28px;
+  background: linear-gradient(160deg, var(--c1), var(--c2));
+  box-shadow: 0 8px 0 rgba(0, 0, 0, 0.09), 0 12px 24px rgba(120, 90, 140, 0.2);
+  transition: transform 0.1s ease;
+  overflow: hidden;
+}
+.card:active {
+  transform: translateY(6px) scale(0.99);
+}
+.card-emoji {
+  font-size: clamp(34px, 8.5vmin, 66px);
+  line-height: 1;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.15));
+}
+.card-name {
+  font-size: clamp(17px, 3.9vmin, 30px);
+  font-weight: 900;
+  color: #4a3550;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.7);
+}
+.card-sub {
+  font-size: clamp(11px, 2.4vmin, 18px);
+  font-weight: 700;
+  color: rgba(74, 53, 80, 0.72);
+}
+.card-stars {
+  font-size: clamp(13px, 2.8vmin, 22px);
+  letter-spacing: 2px;
+  min-height: 1.2em;
+}
+
+/* ---------- かんさつ ---------- */
+.topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--top-bar);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 calc(var(--sa-right) + 12px) 0 calc(var(--sa-left) + 12px);
+  padding-top: var(--sa-top);
+}
+
+.quest-box,
+.free-box {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 14px rgba(80, 60, 110, 0.18);
+  backdrop-filter: blur(6px);
+}
+#app[data-mode='quest'] .quest-box {
+  display: flex;
+}
+#app[data-mode='free'] .free-box {
+  display: flex;
+}
+
+.quest-label {
+  font-size: clamp(12px, 2.7vmin, 20px);
+  font-weight: 800;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.quest-swatch {
+  width: clamp(34px, 7vmin, 52px);
+  height: clamp(34px, 7vmin, 52px);
+  border-radius: 50%;
+  background: #ccc;
+  box-shadow: 0 0 0 4px #fff, 0 0 14px 3px rgba(255, 255, 255, 0.8),
+    0 3px 10px rgba(0, 0, 0, 0.25);
+  animation: swatch-pulse 1.8s ease-in-out infinite;
+}
+@keyframes swatch-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.09);
+  }
+}
+.quest-stars {
+  font-size: clamp(16px, 3.6vmin, 28px);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.free-emoji {
+  font-size: clamp(18px, 3.8vmin, 28px);
+}
+.free-count {
+  font-size: clamp(18px, 3.8vmin, 28px);
+  font-weight: 900;
+  min-width: 1.4em;
+  text-align: center;
+}
+
+/* そうさパネル: たては下、よこは右 */
+.panel {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 3vmin, 26px);
+}
+@media (orientation: portrait) {
+  .panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--panel);
+    flex-direction: row;
+    padding-bottom: var(--sa-bottom);
+  }
+}
+@media (orientation: landscape) {
+  .panel {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: var(--panel);
+    flex-direction: column;
+    padding-right: var(--sa-right);
+  }
+}
+
+.round-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: clamp(72px, 15vmin, 104px);
+  height: clamp(72px, 15vmin, 104px);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.1), 0 10px 20px rgba(80, 60, 110, 0.22);
+  transition: transform 0.09s ease;
+}
+.round-btn:active {
+  transform: translateY(5px);
+}
+.round-btn .btn-emoji {
+  font-size: clamp(24px, 5.2vmin, 36px);
+}
+.round-btn .btn-label {
+  font-size: clamp(10px, 2.2vmin, 15px);
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+.round-btn.on {
+  background: linear-gradient(180deg, #fff0b8, #ffd257);
+}
+.round-btn.on .spin-emoji {
+  animation: spin 1.4s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* にじスイッチ */
+.polar-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: clamp(126px, 27vmin, 178px);
+  height: clamp(74px, 15.5vmin, 104px);
+  padding: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d9d2e6, #b9b0cc);
+  box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.22), 0 6px 0 rgba(0, 0, 0, 0.12),
+    0 10px 22px rgba(80, 60, 110, 0.25);
+  transition: background 0.35s ease;
+  overflow: hidden;
+}
+.polar-switch.on {
+  background: linear-gradient(
+    92deg,
+    #ff7a9e 0%,
+    #ffb24d 22%,
+    #ffe14d 42%,
+    #6fd88a 60%,
+    #56c2f0 78%,
+    #b98cf5 100%
+  );
+  justify-content: flex-end;
+}
+.polar-knob {
+  width: calc(clamp(74px, 15.5vmin, 104px) - 12px);
+  height: calc(clamp(74px, 15.5vmin, 104px) - 12px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #f0e8f5 60%, #ddd2e8);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.32s cubic-bezier(0.4, 1.6, 0.5, 1);
+  flex: 0 0 auto;
+}
+.polar-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: clamp(11px, 2.3vmin, 16px);
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  line-height: 1.15;
+}
+.polar-switch.attention {
+  animation: attention 1.15s ease-in-out infinite;
+}
+@keyframes attention {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+/* コーチ（あそびかたのヒント） */
+.coach {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--field-cy) + var(--field-r) * 0.52);
+  transform: translate(-50%, 0);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 20px rgba(60, 40, 90, 0.3);
+  animation: coach-in 0.4s ease both, coach-bob 1.8s ease-in-out 0.4s infinite;
+  max-width: 88vw;
+}
+.coach[hidden] {
+  display: none;
+}
+.coach-emoji {
+  font-size: clamp(24px, 5vmin, 36px);
+}
+.coach-text {
+  font-size: clamp(14px, 3.1vmin, 24px);
+  font-weight: 900;
+  white-space: nowrap;
+}
+@keyframes coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.9);
+  }
+}
+@keyframes coach-bob {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, -7px);
+  }
+}
+.coach.at-switch {
+  left: auto;
+  top: auto;
+}
+@media (orientation: portrait) {
+  .coach.at-switch {
+    left: 50%;
+    bottom: calc(var(--panel) + 6px);
+    top: auto;
+    transform: translate(-50%, 0);
+  }
+}
+@media (orientation: landscape) {
+  .coach.at-switch {
+    right: calc(var(--panel) + 6px);
+    left: auto;
+    top: 50%;
+    transform: translate(0, -50%);
+    animation: coach-in 0.4s ease both;
+  }
+}
+
+/* ---------- できた！ ---------- */
+.clear-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(10px, 2.6vmin, 22px);
+  text-align: center;
+}
+.clear-art {
+  font-size: clamp(60px, 16vmin, 130px);
+  animation: bob 2.2s ease-in-out infinite;
+}
+.clear-title {
+  font-size: clamp(32px, 9vmin, 74px);
+  font-weight: 900;
+  color: var(--pink-deep);
+  text-shadow: 0 3px 0 #fff, 0 8px 14px rgba(150, 90, 130, 0.28);
+}
+.clear-sub {
+  font-size: clamp(15px, 3.4vmin, 26px);
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

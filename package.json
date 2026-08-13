@@ -1,0 +1,20 @@
+{
+  "name": "kurukuru-nijiiro-ishi-kenbikyou",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "くるくる！にじいろいしけんびきょう - 4歳から遊べる偏光岩石薄片の顕微鏡ごっこ",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview --port 4173",
+    "test:e2e": "playwright test",
+    "test:e2e:fast": "E2E_FAST=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}

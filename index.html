@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#fef6ee" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta
+      name="description"
+      content="うすい いしを けんびきょうで のぞいて、くるくる まわすと にじいろに かわる あそび"
+    />
+    <title>くるくる！にじいろいしけんびきょう</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%AC%3C/text%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app" data-screen="title">
+      <canvas id="stage"></canvas>
+
+      <!-- ===== タイトル ===== -->
+      <section class="screen" id="screen-title" aria-label="タイトル">
+        <div class="title-wrap">
+          <div class="title-art" aria-hidden="true">
+            <span class="art-scope">🔬</span>
+            <span class="art-spark art-spark-a">✨</span>
+            <span class="art-spark art-spark-b">🌈</span>
+          </div>
+          <h1 class="title">
+            <span class="title-line">くるくる！</span>
+            <span class="title-line rainbow">にじいろいし</span>
+            <span class="title-line">けんびきょう</span>
+          </h1>
+          <div class="menu">
+            <button class="big-btn free" id="btn-free" data-testid="btn-free">
+              <span class="btn-emoji">👀</span>
+              <span class="btn-label">じゆうに みる</span>
+            </button>
+            <button class="big-btn quest" id="btn-quest" data-testid="btn-quest">
+              <span class="btn-emoji">⭐</span>
+              <span class="btn-label">さがしもの</span>
+            </button>
+          </div>
+        </div>
+        <button class="icon-btn sound-btn" id="btn-sound" data-testid="btn-sound" aria-label="おと">
+          🔊
+        </button>
+      </section>
+
+      <!-- ===== プレパラートえらび ===== -->
+      <section class="screen" id="screen-select" aria-label="いしをえらぶ">
+        <div class="select-head">
+          <button class="icon-btn" id="btn-select-back" data-testid="btn-select-back" aria-label="もどる">
+            🏠
+          </button>
+          <h2 class="select-title" id="select-title">どの いし を みる？</h2>
+        </div>
+        <div class="cards" id="slide-cards" data-testid="slide-cards"></div>
+      </section>
+
+      <!-- ===== かんさつ ===== -->
+      <section class="screen pass" id="screen-observe" aria-label="かんさつ">
+        <div class="topbar">
+          <button class="icon-btn" id="btn-home" data-testid="btn-home" aria-label="もどる">🏠</button>
+          <div class="quest-box" id="quest-box">
+            <span class="quest-label">この いろ さがそう</span>
+            <span class="quest-swatch" id="quest-swatch" data-testid="quest-swatch"></span>
+            <span class="quest-stars" id="quest-stars" data-testid="quest-stars"></span>
+          </div>
+          <div class="free-box" id="free-box">
+            <span class="free-emoji">✨</span>
+            <span class="free-count" id="free-count" data-testid="free-count">0</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <button
+            class="polar-switch"
+            id="btn-polar"
+            data-testid="btn-polar"
+            aria-label="にじいろスイッチ"
+          >
+            <span class="polar-knob"></span>
+            <span class="polar-text" id="polar-text">にじ<br />スイッチ</span>
+          </button>
+          <button class="round-btn" id="btn-spin" data-testid="btn-spin">
+            <span class="btn-emoji spin-emoji">🔄</span>
+            <span class="btn-label">くるくる</span>
+          </button>
+          <button class="round-btn" id="btn-next-slide" data-testid="btn-next-slide">
+            <span class="btn-emoji">🪨</span>
+            <span class="btn-label">ほかのいし</span>
+          </button>
+        </div>
+
+        <div class="coach" id="coach" data-testid="coach" hidden>
+          <span class="coach-emoji" id="coach-emoji">👆</span>
+          <span class="coach-text" id="coach-text"></span>
+        </div>
+      </section>
+
+      <!-- ===== できた！ ===== -->
+      <section class="screen" id="screen-clear" aria-label="できた">
+        <div class="clear-wrap">
+          <div class="clear-art" aria-hidden="true">🌈</div>
+          <h2 class="clear-title" data-testid="clear-title">やったね！</h2>
+          <p class="clear-sub" id="clear-sub">ぜんぶ みつけたよ</p>
+          <div class="menu">
+            <button class="big-btn free" id="btn-again" data-testid="btn-again">
+              <span class="btn-emoji">🔁</span>
+              <span class="btn-label">もういちど</span>
+            </button>
+            <button class="big-btn quest" id="btn-other" data-testid="btn-other">
+              <span class="btn-emoji">🪨</span>
+              <span class="btn-label">ほかの いし</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
