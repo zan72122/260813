@@ -136,7 +136,7 @@ export class Game {
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i];
       if (p.presence < 0.5) continue;
-      const d = Math.hypot(wx - p.x, wy - p.y) / (p.scale * 1.25);
+      const d = Math.hypot(wx - p.x, wy - p.y) / (p.scale * p.r.size * 1.30);
       if (d < 1 && d < bestD) { bestD = d; best = i; }
     }
     return best;
@@ -214,6 +214,18 @@ export class Game {
     this.stageT += dt;
     this.idle += dt;
 
+    // Nobody has touched anything for a while: the ring starts turning by
+    // itself, slowly. It demonstrates the whole game without a word, it keeps
+    // the screen alive, and it only creeps the chain forward — any real touch
+    // is worth far more, so a child who plays always outruns the demo.
+    if (this.idle > 10 && this.stage >= STAGE.RING && this.stage < STAGE.DONE) {
+      const ease = Math.min(1, (this.idle - 10) / 2.5);
+      const d = 0.80 * ease * dt;
+      this.ringAngle += d;
+      this.totalRot += d;
+      this.stageRot += d * 0.5;
+    }
+
     // ring flywheel
     if (Math.abs(this.ringVel) > 0.0005) {
       this.ringAngle += this.ringVel * dt;
@@ -275,7 +287,8 @@ export class Game {
         if (this.stageT > 8.5) this.placeHero();
         break;
       case STAGE.RING:
-        if (this.stageRot > TAU * 2.1 && this.stageT > 5.0 && this.celebrate <= 0) {
+        if (this.stageRot > TAU * 2.1 && this.stageT > 5.0 &&
+            this.pendingStage === null && this.celebrate <= 0) {
           this.celebrate = 1.5;
           if (this.audio) this.audio.celebrate();
           this.pendingStage = STAGE.PRESS;
@@ -381,9 +394,22 @@ export class Game {
     }
 
     const chargeScale = 0.13 + 0.87 * Math.pow(this.charge, 0.85);
-    u.cam[0] = this.cam.x; u.cam[1] = this.cam.y; u.cam[2] = this.cam.z; u.cam[3] = 0;
-    u.pol[0] = this.ringAngle; u.pol[1] = 0; u.pol[2] = chargeScale; u.pol[3] = this.sweet;
-    u.ring[0] = this.ring.r; u.ring[1] = this.ring.w; u.ring[2] = this.ring.o; u.ring[3] = this.ringAngle;
+
+    // After a few idle seconds, nudge without words: the piece pulses and the
+    // ring gives a little shiver — and because the colours move with the ring,
+    // the shiver itself demonstrates what turning does.
+    const idleOn = this.idle > 3.4 ? Math.min(1, (this.idle - 3.4) * 1.2) : 0;
+    const ph = (this.time % 2.6) / 2.6;
+    const env = Math.exp(-Math.pow((ph - 0.10) * 8.0, 2));
+    const canShiver = this.stage >= STAGE.RING;
+    const wobble = idleOn * env * (canShiver ? 0.075 * Math.sin(this.time * 24) : 0);
+    const glow = idleOn * env * (canShiver ? 0.10 : 0.34);
+
+    u.cam[0] = this.cam.x; u.cam[1] = this.cam.y; u.cam[2] = this.cam.z; u.cam[3] = glow;
+    u.pol[0] = this.ringAngle + wobble; u.pol[1] = 0;
+    u.pol[2] = chargeScale; u.pol[3] = this.sweet;
+    u.ring[0] = this.ring.r; u.ring[1] = this.ring.w; u.ring[2] = this.ring.o;
+    u.ring[3] = this.ringAngle + wobble;
     u.fin[0] = this.windowMix;
     u.fin[1] = this.burst;
     u.fin[2] = 1.0 + 0.16 * this.celebrate + 0.25 * this.burst;

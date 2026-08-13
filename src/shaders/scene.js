@@ -8,7 +8,7 @@ export const SCENE_FRAG = /* glsl */ `
 
 uniform vec2  uRes;
 uniform float uTime;
-uniform vec4  uCam;    // xy pan, z zoom, w unused
+uniform vec4  uCam;    // xy pan, z zoom, w idle-nudge glow
 uniform vec4  uPol;    // x analyser angle, y polariser angle, z charge, w sweet
 uniform vec4  uRing;   // x radius, y width, z opacity, w angle
 uniform vec4  uFin;    // x windowMix, y burst, z roomLight, w quality
@@ -164,7 +164,10 @@ struct Obj {
 
 void drawObject(inout vec3 col, vec3 incident, vec2 world, Obj o, float pxW){
   if (o.presence <= 0.002) return;
-  vec2 q = rot2(world - o.pos, -o.rot) / o.scale;
+  vec2 dw = world - o.pos;
+  float lim = o.scale * 1.75;
+  if (dot(dw, dw) > lim*lim) return;
+  vec2 q = rot2(dw, -o.rot) / o.scale;
   float sd0 = shapeSD(q, o.mode, o.sh);
   if (sd0 > 0.22) return;
 
@@ -251,6 +254,8 @@ void drawObject(inout vec3 col, vec3 incident, vec2 world, Obj o, float pxW){
   objC *= 1.0 - 0.22*smoothstep(0.14, 0.0, dIn);   // slight edge absorption
   // sweet-spot shimmer: when the ring hits this piece's best angle
   objC += ml * uPol.w * 0.55 * (0.35 + 0.65*B);
+  // "I'm here, touch me" pulse after a few idle seconds
+  objC += vec3(0.92,0.96,1.12) * uCam.w * (rim*1.5 + 0.055);
 
   col = mix(col, objC, cov);
 }

@@ -122,9 +122,9 @@ export class Renderer {
       powerPreference: 'high-performance',
       failIfMajorPerformanceCaveat: false,
     };
-    const gl =
-      this.canvas.getContext('webgl2', opts) ||
-      this.canvas.getContext('webgl', opts);
+    const gl = /** @type {WebGL2RenderingContext} */ (
+      this.canvas.getContext('webgl2', opts) || this.canvas.getContext('webgl', opts)
+    );
     if (!gl) throw new Error('WebGL unavailable');
     this.gl = gl;
     this.ver = gl.getParameter(gl.VERSION).indexOf('WebGL 2') >= 0 ? 2 : 1;

@@ -50,7 +50,7 @@ export class Audio {
     const freqs = [BASE / 2, (BASE / 2) * 1.5, BASE * 0.752];
     this.padOsc = freqs.map((f, i) => {
       const o = ctx.createOscillator();
-      o.type = i === 2 ? 'sine' : 'triangle';
+      o.type = /** @type {OscillatorType} */ (i === 2 ? 'sine' : 'triangle');
       o.frequency.value = f;
       const og = ctx.createGain();
       og.gain.value = i === 2 ? 0.35 : 0.6;
@@ -75,6 +75,7 @@ export class Audio {
     this.pad.gain.setTargetAtTime(0.05 * level, this.ctx.currentTime, 0.4);
   }
 
+  /** @param {OscillatorType} type */
   #tone(freq, gain, dur, type = 'sine', when = 0) {
     const ctx = this.ctx;
     if (!ctx) return;
