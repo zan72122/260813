@@ -191,27 +191,40 @@
     {
       "id": "S4",
       "title": "ゲームループ+UX: intro/餌選択/隠す操作/ヒント/ゲート/探索順/アルバム/再プレイ/自由遊び/縦横UI",
-      "status": "pending",
+      "status": "passed",
       "owner": "sonnet",
       "ownedPaths": [
         "src/ui/",
         "src/game/session.ts",
         "src/game/album.ts",
         "src/game/hints.ts",
-        "src/main.ts"
+        "src/main.ts",
+        "src/debug/qa.ts",
+        "src/styles.css",
+        "src/scene/world.ts",
+        "src/scene/cameras.ts",
+        "vitest.config.ts"
       ],
       "dependsOn": [
         "S3c"
       ],
       "acceptanceCommands": [
+        "npm run lint",
         "npm run typecheck",
         "npm run test",
         "npm run build"
       ],
       "reportPath": "ops/reports/S4.md",
-      "commit": "",
+      "commit": "4ac33fcee9937b84b8e400036ace16d8c5e258a2",
       "attempt": 1,
-      "evidence": []
+      "evidence": [
+        "npm run lint: PASS (0 errors)",
+        "npm run typecheck: PASS (0 errors)",
+        "npm run test: PASS (14 files, 154 tests; 既存113(S3c時点)+新規41: session17/album9/hints8/integration-loop7)",
+        "npm run build: PASS (dist/ generated)",
+        "Playwright実プレイ一周(playthrough.mjs, scratchpad)完走、ページエラー0件(favicon 404のみ、既存事象)",
+        "artifacts/screenshots/dev-s4-{title,hide,gate,seek,album}.png(390x844)+dev-s4-hide-landscape.png(844x390)で4歳児UX(大きな操作対象/絵中心/暖色)を目視確認"
+      ]
     },
     {
       "id": "S5",

@@ -46,6 +46,11 @@ export interface World extends WorldApi {
   /** main.tsがcameras.tsのCameraRigを接続するための差し込み口(main.ts編集不可のためS4完成まで任意)。
    * 未接続の間はwindow.__cameraRigDebug(?qa=1時にcameras.tsが公開するQAブリッジ)を代わりに探す。 */
   setCameraRig(rig: BehaviorCamera | null): void;
+  /** S4: intro演出(飼育員がカートを押して入場する)。keeper/cartを画面外相当の開始位置から定位置まで
+   * tweenで動かす。2回目以降/スキップ時はopts.instantで即座に定位置へ確定する(冪等)。 */
+  playIntro(opts?: { instant?: boolean }): Promise<void>;
+  /** S4: ヒント演出用。飼育員にワールド座標を指差させ、視線も向ける。nullで自然な姿勢へ戻す。 */
+  keeperPointAt(pos: Vec3 | null): void;
 }
 
 interface RunningAnim {
@@ -114,12 +119,14 @@ export function createWorld(opts?: {
   scene.add(cart);
 
   const keeper = createKeeper();
-  // S3c小修正: keeper.group.positionはこれまで既定値(0,0,0)のままで、地面が完全に平らな前提の
-  // 高さだった。terrain.tsのgroundHeight(x,z)は放飼場全体に緩やかな起伏(最大約±0.4)を付けている
-  // ため、y=0固定だとkeeperの足元が地面の起伏に埋まって/浮いて見えていた。x/zは変えず(=従来通り
-  // マップ中心付近)、yだけ実際の地面の高さに合わせる(keeper.ts内部のモデル構造は変更しない、
-  // 配置のみの最小修正)。
-  keeper.group.position.y = groundHeight(keeper.group.position.x, keeper.group.position.z);
+  // S4: intro演出(飼育員がカートを押して入場)のため、既定の立ち位置をカート((0,0,8)付近、
+  // 「手前中央」=観察デッキそば)のすぐ脇に変更した(S3c時点はx=0,z=0=放飼場中央付近に佇んでいて
+  // カートと無関係な位置だった)。x/zはcameras.tsの"keeper"プリセット(target z≈7.6)に合わせ、
+  // yはgroundHeight(x,z)から算出(起伏に足元を合わせる、S3cの修正方針を踏襲)。
+  const KEEPER_REST_X = 0.9;
+  const KEEPER_REST_Z = 7.35;
+  keeper.group.position.set(KEEPER_REST_X, groundHeight(KEEPER_REST_X, KEEPER_REST_Z), KEEPER_REST_Z);
+  keeper.group.rotation.y = Math.PI; // 局所+Z向きの顔を-Z(放飼場中心/ゲート側)へ向ける
   scene.add(keeper.group);
 
   // ゾウ本体(S3)。enter()が呼ばれるまで非表示(Elephantのコンストラクタで初期visible=false)。
@@ -374,6 +381,47 @@ export function createWorld(opts?: {
     await runSpotBehavior(spot.id, food);
   }
 
+  // S4: intro演出。keeper/cartの「定位置」は構築時点の位置(keeperは上のKEEPER_REST、cartはcreateCart()
+  // 内で設定した(0,0,8))をそのまま使う。開始位置はそこから-X方向へ離れた場所(観察デッキの外側寄り、
+  // カメラ"keeper"プリセットのx=2.4付近から見て画面手前から奥へ押して入ってくるように読める向き)。
+  const keeperRestPos = keeper.group.position.clone();
+  const cartRestPos = cart.position.clone();
+  const INTRO_START_OFFSET_X = -3.4;
+  let introSettled = false;
+  async function playIntro(opts?: { instant?: boolean }): Promise<void> {
+    if (opts?.instant || introSettled) {
+      keeper.group.position.copy(keeperRestPos);
+      cart.position.copy(cartRestPos);
+      introSettled = true;
+      return;
+    }
+    const kStart = keeperRestPos.clone().add(new THREE.Vector3(INTRO_START_OFFSET_X, 0, 0));
+    const cStart = cartRestPos.clone().add(new THREE.Vector3(INTRO_START_OFFSET_X, 0, 0));
+    keeper.group.position.copy(kStart);
+    cart.position.copy(cStart);
+    const duration = reducedMotion ? 0.7 : 2.2;
+    await animateValue(duration, (t) => {
+      keeper.group.position.x = THREE.MathUtils.lerp(kStart.x, keeperRestPos.x, t);
+      cart.position.x = THREE.MathUtils.lerp(cStart.x, cartRestPos.x, t);
+      // 押しているカートの微かな上下(轍を乗り越える感じ)。因果を強調しすぎない小さな揺れ。
+      cart.position.y = cartRestPos.y + (reducedMotion ? 0 : Math.sin(t * Math.PI * 5) * 0.012 * (1 - t));
+    });
+    keeper.group.position.copy(keeperRestPos);
+    cart.position.copy(cartRestPos);
+    introSettled = true;
+  }
+
+  function keeperPointAt(pos: Vec3 | null): void {
+    if (!pos) {
+      keeper.point(null);
+      keeper.lookAt(null);
+      return;
+    }
+    const target = new THREE.Vector3(pos.x, pos.y, pos.z);
+    keeper.point(target);
+    keeper.lookAt(target);
+  }
+
   async function openGate(): Promise<void> {
     if (hooks.openGate) {
       await hooks.openGate();
@@ -482,7 +530,9 @@ export function createWorld(opts?: {
     getDebugInfo,
     events,
     playBehaviorDirect,
-    setCameraRig
+    setCameraRig,
+    playIntro,
+    keeperPointAt
   };
 
   // S3b: playBehaviorDirect()をQAスクリプトから直接叩けるようworld自体もwindowへ公開する

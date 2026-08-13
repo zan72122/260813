@@ -1,8 +1,10 @@
 import { createClock } from "./core/clock";
+import { createFsm } from "./core/fsm";
 import { createRenderer } from "./scene/renderer";
 import { installDebugApi } from "./debug/qa";
 import { createWorld } from "./scene/world";
 import { createCameraRig } from "./scene/cameras";
+import { createGameApp } from "./ui/app";
 import type { GamePhase, Quality } from "./core/types";
 
 const QUALITY_VALUES: readonly Quality[] = ["low", "medium", "high"];
@@ -46,8 +48,9 @@ function main(): void {
   const config = parseLaunchConfig(window.location.search);
 
   const sceneRoot = document.getElementById("scene-root");
-  if (!sceneRoot) {
-    throw new Error("[main] #scene-root not found");
+  const uiRoot = document.getElementById("ui-root");
+  if (!sceneRoot || !uiRoot) {
+    throw new Error("[main] #scene-root/#ui-root not found");
   }
 
   const clock = createClock();
@@ -56,10 +59,11 @@ function main(): void {
   const initialQuality: Quality = config.quality ?? "medium";
   const renderer = createRenderer(sceneRoot, initialQuality);
 
-  // S2: 放飼場environment(world)とカメラプリセット(cameras)を構築して配線する。
-  // ゾウ本体はS3で world.registerHooks(...) により差し込まれる(未登録の間はフォールバックで動作)。
-  const world = createWorld({ quality: initialQuality, timeOfDay: "morning" });
+  const world = createWorld({ quality: initialQuality, timeOfDay: "morning", seed: config.seed });
   const cameraRig = createCameraRig({ orientation: window.innerWidth >= window.innerHeight ? "landscape" : "portrait" });
+  // S3bの既知の制限: world.tsのresolveCamera()はsetCameraRig()未接続の間?qa=1のwindowブリッジ頼みになる。
+  // 本番(qa未指定)でも5固有行動のカメラカットが効くよう、ここで正式に接続する。
+  world.setCameraRig(cameraRig);
 
   function onResize(): void {
     renderer.resize();
@@ -72,6 +76,9 @@ function main(): void {
   window.addEventListener("orientationchange", onResize);
   onResize();
 
+  const fsm = createFsm();
+  const app = createGameApp({ uiRoot, world, cameraRig, fsm, seed: config.seed });
+
   const debugApi = installDebugApi(config.qa);
   debugApi.registerHandlers({
     getState: () => ({
@@ -79,7 +86,8 @@ function main(): void {
       quality: renderer.quality,
       timeScale: clock.timeScale,
       elapsed: clock.elapsed,
-      seed: config.seed
+      seed: config.seed,
+      ...(app.getDebugSnapshot() as Record<string, unknown>)
     }),
     setTimeScale: (v: number) => {
       clock.timeScale = v;
@@ -88,6 +96,10 @@ function main(): void {
       renderer.setQuality(v);
       world.setQuality(v);
     },
+    jumpTo: (phase: GamePhase) => {
+      app.jumpTo(phase);
+    },
+    playBehavior: (id) => world.playBehaviorDirect(id),
     reset: (seed?: number) => {
       const url = new URL(window.location.href);
       if (seed !== undefined) url.searchParams.set("seed", String(seed));
@@ -95,6 +107,15 @@ function main(): void {
     },
     screenshotReady: () => true
   });
+  // hideFoodDirectはdocs/INTERFACES.mdのDebugApi契約には含まれない、S4向けE2E補助の追加プロパティ。
+  // 既存インスタンスを丸ごと差し替えると(spread等)プロトタイプ上のメソッド群が失われるため、
+  // 同一オブジェクトへ直接プロパティを生やす(ドラッグ操作のE2E化が難しい場合の代替経路。
+  // 手動ドラッグ経路はscreens/hide.tsに別途残っている)。
+  const debugApiHandle = window.__ELEPHANT_GAME_DEBUG__ as unknown as Record<string, unknown> | undefined;
+  if (debugApiHandle) {
+    debugApiHandle.hideFoodDirect = (spotId: Parameters<typeof app.hideFoodDirect>[0], food: Parameters<typeof app.hideFoodDirect>[1]) =>
+      app.hideFoodDirect(spotId, food);
+  }
 
   if (config.nosw) {
     // service worker登録はS5で追加する。E2E安定化のため、現時点では未登録なので何もしない。
@@ -102,7 +123,6 @@ function main(): void {
   }
 
   if (config.act) {
-    // jumpToはS3b/S4で実装が差し込まれるまでno-op+warnになる（registerHandlers未登録のため）。
     debugApi.jumpTo(config.act);
   }
 
