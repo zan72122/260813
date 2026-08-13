@@ -70,6 +70,32 @@ test.describe('ぎゅっと！にじちからラボ', () => {
     expect(s.maxOrder).toBeGreaterThan(1.5);
   });
 
+  test('はじめの30秒：説明ぬきで「おすと虹」が伝わる（実時間）', async ({ page }) => {
+    await boot(page);
+
+    // ① なにもしなくても、2秒で自動デモが虹を咲かせている
+    await page.waitForTimeout(2000);
+    expect((await snap(page)).maxOrder).toBeGreaterThan(1.5);
+
+    // ② 迷うボタンは2つだけ
+    expect(await page.locator('#hud button').count()).toBe(2);
+
+    // ③ はじめて指を置いて1.2秒で、はっきり虹になる（力のたまり方の速さ）
+    await page.evaluate(() => {
+      const g = window.__lab!;
+      g.pressAt(g.specimen.hint.x, g.specimen.hint.y + 26);
+    });
+    await page.waitForTimeout(1200);
+    const s = await snap(page);
+    expect(s.force).toBeGreaterThan(2.5);
+    expect(s.maxOrder).toBeGreaterThan(2.5);
+
+    // ④ 指を離すと1秒以内にまた透明（黒）にもどる＝因果がはっきりしている
+    await page.evaluate(() => window.__lab!.release());
+    await page.waitForTimeout(1000);
+    expect((await snap(page)).force).toBeLessThan(0.5);
+  });
+
   test('ラボ：3つの模型すべてで、押すと虹が出る', async ({ page }, info) => {
     await boot(page);
     await page.getByRole('button', { name: 'ラボ' }).click();

@@ -451,6 +451,14 @@ svg {
 /* 横向きのときは要素をすこし詰める */
 /* よこ長で背が低いときは「できた！」を横ならびにして高さを節約 */
 @media (orientation: landscape) and (max-height: 520px) {
+  /* 説明の一行より、虹そのものを見せたほうが早い */
+  .tagline {
+    display: none;
+  }
+  .title-card {
+    padding: 6px 18px 10px;
+  }
+
   .win {
     flex-direction: row;
     align-items: center;

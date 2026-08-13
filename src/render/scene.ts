@@ -21,9 +21,15 @@ export function drawBackground(ctx: CanvasRenderingContext2D, cam: Camera): void
   ctx.fillRect(v.x, v.y, v.w, v.h);
 }
 
-/** 前面の偏光板のわく（実験装置らしさ）。 */
+/**
+ * 前面の偏光板のわく（実験装置らしさ）。
+ * 接写になったら消す —— 模型に寄っているときは、まわりはまっ黒なほうが虹が映える。
+ */
 export function drawPolariscopeFrame(ctx: CanvasRenderingContext2D, zoom: number): void {
+  const a = Math.max(0, Math.min(1, (0.62 - zoom) / 0.2));
+  if (a < 0.02) return;
   ctx.save();
+  ctx.globalAlpha = a;
   roundRectPath(ctx, 96, 140, 1008, 760, 46);
   ctx.strokeStyle = 'rgba(96,132,190,0.30)';
   ctx.lineWidth = 7 / zoom;

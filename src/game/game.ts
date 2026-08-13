@@ -223,7 +223,7 @@ export class Game {
     this.weights = [];
     this.params = defaultParams();
     this.params.bloom = 0.45;
-    this.press.force = 0;
+    this.resetPress();
     this.rebuild();
     this.hud.show({ kind: 'lab', model: this.modelId });
     this.intro();
@@ -238,7 +238,7 @@ export class Game {
     this.params = defaultParams();
     this.params.bloom = 0;
     this.weights = [];
-    this.press.force = 0;
+    this.resetPress();
     this.done = false;
     this.doneTimer = 0;
     this.progress = 0;
@@ -333,7 +333,10 @@ export class Game {
   private onUp(): void {
     this.dragAnchor = null;
     this.press.active = false;
-    if (this.mode === 'title') this.demoT = 0; // デモを頭から流しなおす
+    if (this.mode === 'title') {
+      // 指を離したところから自動デモの「力がぬけていく」区間につなぐ（急に消えない）
+      this.demoT = 1.9 + (1 - clamp(this.press.force / FORCE_MAX, 0, 1)) * 0.55;
+    }
   }
 
   /** 指の位置を模型の上へ寄せる（すこしずれても必ず虹が出る）。 */
@@ -392,10 +395,13 @@ export class Game {
     this.audio.unlock();
     if (this.mode !== 'lab' || this.weights.length >= MAX_WEIGHTS) return;
     const bb = this.specimen.bbox;
-    const x = this.press.valid
-      ? this.press.x
-      : bb.x + bb.w * (0.32 + this.rng() * 0.36);
-    const surface = this.surfaceYAt(x) ?? bb.y;
+    let x = this.press.valid ? this.press.x : bb.x + bb.w * (0.32 + this.rng() * 0.36);
+    let surface = this.surfaceYAt(x);
+    if (surface === null) {
+      // その x に模型がなければ、まん中の上に落とす
+      x = bb.x + bb.w / 2;
+      surface = this.surfaceYAt(x) ?? bb.y;
+    }
     this.weights.push({ x, y: surface - 420, restY: surface, vy: 0, landed: false });
   }
 
@@ -413,9 +419,15 @@ export class Game {
     this.weights = [];
     this.params = defaultParams();
     this.params.bloom = 0.45;
-    this.press.force = 0;
+    this.resetPress();
     this.rebuild();
     this.intro();
+  }
+
+  /** 指の状態をまっさらにする（模型を切りかえたときなど） */
+  private resetPress(): void {
+    this.press = { active: false, x: 0, y: 0, force: 0, valid: false };
+    this.lastChime = 0;
   }
 
   /* ------------------------------------------------------------ 更新 */
