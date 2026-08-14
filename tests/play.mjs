@@ -229,6 +229,38 @@ const run = async () => {
   else ok(`回転しても継続 (${s.w}x${s.h})`);
   await shot('10-rotated');
 
+  /* --- 因果の検証：混ぜが足りないと、糸は伸びきらずに切れる --- */
+  await page.setViewportSize(size);
+  await page.waitForTimeout(250);          // 回転の反映を待ってから座標を取る
+  await page.evaluate(() => window.__natto.goto('finale'));
+  await advance(0.3);
+  let p2 = await page.evaluate(() => window.__natto.packScreen());
+  await page.mouse.move(p2.x, p2.y - p2.h * 0.3);
+  await page.mouse.down();
+  for (let i = 1; i <= 14; i++) await page.mouse.move(p2.x, p2.y - p2.h * 0.3 - i * (H * 0.02));
+  await page.mouse.up();
+  await advance(1.2);
+  if ((await state()).phase !== 'mix') fail('検証用のパックが開かない');
+  p2 = await page.evaluate(() => window.__natto.packScreen());
+  await page.mouse.move(p2.x + p2.w * 0.2, p2.y);
+  await page.mouse.down();
+  for (let turn = 0; turn < 2; turn++) {          // ちょっとだけ混ぜる
+    for (let i = 0; i <= 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      await page.mouse.move(p2.x + Math.cos(a) * p2.w * 0.2, p2.y + Math.sin(a) * p2.h * 0.16);
+    }
+  }
+  const little = await state();
+  for (let i = 1; i <= 24; i++) await page.mouse.move(p2.x, Math.max(6, p2.y - i * (H * 0.028)));
+  await advance(0.5);
+  const weak = await state();
+  await page.mouse.up();
+  await shot('11-undermixed');
+  if (!(little.sticky < 0.6)) fail(`前提が崩れている（少ししか混ぜていないのに sticky=${little.sticky}）`);
+  else if (weak.wowCount > 0) fail(`混ぜ足りないのに「あっ！」が出る sticky=${little.sticky.toFixed(2)}`);
+  else ok(`混ぜ足りないと糸は伸びきらない (sticky=${little.sticky.toFixed(2)} → 糸 ${weak.threads} 本)`);
+  await advance(1);
+
   /* --- 全シーン × 向き の総当たり（回転で落ちないこと） --- */
   const scenes = ['title', 'soak', 'steam', 'spray', 'pack', 'ferment', 'finale', 'reveal'];
   for (const name of scenes) {

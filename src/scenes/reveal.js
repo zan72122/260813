@@ -27,8 +27,8 @@ export class RevealScene extends Scene {
       });
     }
     this.webs = [];
-    for (let i = 0; i < 10; i++) {
-      this.webs.push({ a: (rand() * 22) | 0, b: (rand() * 22) | 0, ph: rand() * TAU, w: rrange(0.6, 1.3) });
+    for (let i = 0; i < 18; i++) {
+      this.webs.push({ a: (rand() * 22) | 0, b: (rand() * 22) | 0, ph: rand() * TAU, w: rrange(0.7, 1.4) });
     }
     this.layout(f);
   }
@@ -106,7 +106,7 @@ export class RevealScene extends Scene {
     const b = this.beans[i];
     const bl = this.bowl;
     const drop = clamp((this.tip - b.delay * 0.5) * 2.2, 0, 1);
-    const onRice = { x: bl.x + b.bx * bl.r * 0.5, y: bl.y - bl.r * 0.62 + b.by * bl.r * 0.22 };
+    const onRice = { x: bl.x + b.bx * bl.r * 0.58, y: bl.y - bl.r * 0.63 + b.by * bl.r * 0.24 };
     const inPack = { x: this.pack.x + b.bx * this.pack.w * 0.3, y: this.pack.y + b.by * this.pack.h * 0.3 };
     return {
       x: lerp(inPack.x, onRice.x, easeOut(drop)),
@@ -182,8 +182,8 @@ export class RevealScene extends Scene {
       const A = this.beanPos(w.a, f), B = this.beanPos(w.b, f);
       if (A.drop < 0.3 || B.drop < 0.3) continue;
       drawStrand(ctx, A.x + jitter, A.y, B.x - jitter, B.y, {
-        width: S * 0.009 * w.w,
-        sag: S * 0.01,
+        width: S * 0.011 * w.w,
+        sag: S * 0.012,
         wobble: S * 0.005,
         phase: w.ph + this.t * 2,
         alpha: 0.85,

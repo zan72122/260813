@@ -286,9 +286,29 @@ export class FinaleScene extends Scene {
       }
     }
 
+    // 棒についた糸も、粘りが足りなければ切れる。
+    // ぜんぶ切れたら豆はパックへ戻る＝「もっと混ぜよう」が体で分かる。
+    if (this.held.length) {
+      const tipLimit = S * (0.22 + this.sticky * 1.45);
+      for (let i = this.tipThreads.length - 1; i >= 0; i--) {
+        const th = this.tipThreads[i];
+        const A = this.beanPos(th.a, f);
+        const d = Math.hypot(this.tip.x + th.ox - A.x, this.tip.y + th.oy - A.y);
+        if (d > tipLimit) {
+          this.tipThreads.splice(i, 1);
+          for (let k = 0; k < 2; k++) this.px.fleck((A.x + this.tip.x) / 2, (A.y + this.tip.y) / 2);
+          sfx.snap();
+        }
+      }
+      // パックとつながっている糸が 1 本もなくなったら、豆は落ちて戻る
+      const linked = this.webs.some((w) => this.beans[w.a].held !== this.beans[w.b].held);
+      if (this.tipThreads.length === 0 && !linked) this.releaseHeld();
+    }
+
     // 「あっ！」の瞬間
     if (this.lift > this.liftPeak) this.liftPeak = this.lift;
-    if (this.lift > 0.62 && this.sticky > 0.5 && this.wowFlash <= 0 && this.held.length && this.webs.length >= 5) {
+    const strands = this.webs.length + this.tipThreads.length;
+    if (this.lift > 0.62 && this.sticky > 0.5 && this.wowFlash <= 0 && this.held.length && strands >= 8) {
       const first = this.wowCount === 0;
       this.wowCount++;
       this.wowFlash = 1;
@@ -361,7 +381,16 @@ export class FinaleScene extends Scene {
 
   releaseHeld() {
     if (!this.held.length) return;
-    for (const i of this.held) this.beans[i].held = false;
+    for (const i of this.held) {
+      const b = this.beans[i];
+      const cur = this.beanPos(i);          // 離した瞬間の位置
+      b.held = false;
+      b.jx = 0; b.jy = 0;
+      const base = this.beanSlot(b);        // 元のます目
+      // ずれを jx/jy に入れておくと、減衰しながらパックへ落ちて戻る
+      b.jx = cur.x - base.x;
+      b.jy = cur.y - base.y;
+    }
     this.held.length = 0;
     this.tipThreads.length = 0;
     this.lastStretchStep = 0;
@@ -385,7 +414,8 @@ export class FinaleScene extends Scene {
   beanPos(i, f) {
     const b = this.beans[i];
     if (b.held) {
-      const sway = Math.sin(this.t * 3.2 + b.ph) * (f.S * 0.008) * clamp(this.lift, 0, 1);
+      const S = f ? f.S : this.game.S;
+      const sway = Math.sin(this.t * 3.2 + b.ph) * (S * 0.008) * clamp(this.lift, 0, 1);
       return { x: this.tip.x + b.ox + sway, y: this.tip.y + b.oy };
     }
     return this.beanSlot(b, f);
