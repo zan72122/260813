@@ -119,11 +119,11 @@ const gather = {
         state: 'idle', t: 0, sx: 0, sy: 0, cx: 0, cy: 0,
       });
     }
-    camera.fit(0, 40, 820, 820, true);
+    camera.fit(0, 46, 700, 700, true);
     this.merged = 0;
     this.celebrate = -1;
   },
-  view() { camera.fit(0, 40, 820, 820); },
+  view() { camera.fit(0, 46, 700, 700); },
   grab() {
     for (const b of W.blobs) {
       if (b.state !== 'idle') continue;
@@ -205,8 +205,8 @@ const stretch1 = {
   },
   view() {
     const p = clamp01(W.rope.len / W.rope.maxLen);
-    const w = lerp(840, 1380, p);
-    camera.fit(lerp(0, 140, p), 50, w, w * 0.9);
+    const w = lerp(700, 1000, p);
+    camera.fit(lerp(-40, 90, p), 60, w, w * 0.86);
   },
   update(dt) {
     const r = W.rope;
@@ -283,9 +283,9 @@ const hang = {
     this.phase = 'drag';
     this.windT = 0;
     this.spawned = 0;
-    camera.fit(0, -140, 880, 880);
+    camera.fit(0, -170, 800, 800);
   },
-  view() { camera.fit(0, -140, 880, 880); },
+  view() { camera.fit(0, -170, 800, 800); },
   update(dt) {
     W.rack.alpha = damp(W.rack.alpha, 1, 3.5, dt);
     W.boardAlpha = damp(W.boardAlpha, 0, 2.5, dt);
@@ -369,7 +369,7 @@ const stretch2 = {
   },
   view() {
     const p = W.stretch;
-    camera.fit(0, lerp(-60, 175, p), lerp(950, 1400, p), lerp(950, 1400, p));
+    camera.fit(0, lerp(-110, 165, p), lerp(820, 1020, p), lerp(820, 1020, p));
   },
   update(dt) {
     const rk = W.rack;
@@ -395,11 +395,11 @@ const stretch2 = {
       }
 
       W.stretch = clamp01(invLerp(ROD_TOP, ROD_MAX, rk.rodBotY));
-      W.baseThick = lerp(30, 6.5, W.stretch);
+      W.baseThick = lerp(32, 9, W.stretch);
       W.backRacks = damp(W.backRacks, W.stretch > 0.3 ? 1 : 0, 2.2, dt);
 
       // more strands appear as the dough thins — the "wow, so many" beat
-      const want = Math.round(lerp(10, 44, W.stretch));
+      const want = Math.round(lerp(10, 46, W.stretch));
       if (want > this.lastCount) {
         setStrandCount(want);
         relayout();
@@ -455,9 +455,9 @@ const align = {
     this.grabbed = false;
     this.chime = 0;
     this.alignedCount = 0;
-    camera.fit(0, 175, 1400, 1400);
+    camera.fit(0, 170, 1010, 1010);
   },
-  view() { camera.fit(0, 175, 1400, 1400); },
+  view() { camera.fit(0, 170, 1010, 1010); },
   update(dt) {
     W.combAlpha = damp(W.combAlpha, 1, 4, dt);
 
@@ -522,9 +522,9 @@ const dry = {
     this.accum = 0;
     this.gusts = 0;
     this.cool = 0;
-    camera.fit(0, 140, 1560, 1560);
+    camera.fit(0, 150, 1150, 1150);
   },
-  view() { camera.fit(0, 140, 1560, 1560); },
+  view() { camera.fit(0, 150, 1150, 1150); },
   update(dt) {
     W.combAlpha = damp(W.combAlpha, 0, 3, dt);
     W.floorAlpha = damp(W.floorAlpha, 0, 2, dt);
@@ -586,9 +586,9 @@ const cut = {
     setMood('table');
     morphTo('board', 1 / 1.3);
     for (const s of W.strands) { s.tangleAmp = 0; s.sway = 0; }
-    camera.fit(0, 0, 1180, 1180);
+    camera.fit(0, 0, 1000, 1000);
   },
-  view() { camera.fit(0, 0, 1180, 1180); },
+  view() { camera.fit(0, 0, 1000, 1000); },
   update(dt) {
     W.rack.alpha = damp(W.rack.alpha, 0, 3, dt);
     W.backRacks = damp(W.backRacks, 0, 3, dt);
@@ -678,9 +678,9 @@ const bundle = {
     W.band.x = 0; W.band.y = 330; W.band.on = false; W.band.t = 0; W.band.alpha = 0;
     this.grabbed = false;
     this.doneT = -1;
-    camera.fit(0, 60, 950, 950);
+    camera.fit(0, 55, 810, 810);
   },
-  view() { camera.fit(0, W.band.on ? 10 : 60, W.band.on ? 800 : 960, W.band.on ? 800 : 960); },
+  view() { camera.fit(0, W.band.on ? 6 : 55, W.band.on ? 690 : 810, W.band.on ? 690 : 810); },
   update(dt) {
     W.cut.guides = damp(W.cut.guides, 0, 5, dt);
     W.band.alpha = damp(W.band.alpha, 1, 3.5, dt);
@@ -734,7 +734,7 @@ const reveal = {
     this.bubbleT = 0;
     this.steamT = 0;
     this.fired = {};
-    camera.fit(0, 0, 760, 760);
+    camera.fit(0, 0, 660, 660);
   },
   update(dt) {
     const R = W.reveal;
@@ -746,7 +746,7 @@ const reveal = {
     if (T < 1.5) {
       W.spotlight = damp(W.spotlight, 0.55, 2.2, dt);
       W.glow = damp(W.glow, 1, 2, dt);
-      camera.fit(0, 0, lerp(760, 640, clamp01(T / 1.5)), lerp(760, 640, clamp01(T / 1.5)));
+      camera.fit(0, 0, lerp(660, 560, clamp01(T / 1.5)), lerp(660, 560, clamp01(T / 1.5)));
       W.bundle.rot = damp(W.bundle.rot, -0.1 + Math.sin(T * 1.2) * 0.03, 3, dt);
     }
 
@@ -755,7 +755,7 @@ const reveal = {
       once(this, 'drop', () => {
         setMood('dark');
         sfx.whoosh(1.2);
-        camera.fit(0, 60, 1000, 1000);
+        camera.fit(0, 55, 860, 860);
       });
       const k = clamp01((T - 1.5) / 0.6);
       W.strandOffsetY = lerp(0, 620, easeIn3(k));
@@ -801,7 +801,7 @@ const reveal = {
         setMood('summer');
         W.potA = 0; W.boilA = 0;
         W.flash = 0.95;
-        camera.fit(0, 230, 900, 900, true);
+        camera.fit(0, 215, 780, 780, true);
         sfx.furin();
         sfx.fanfare();
         for (let i = 0; i < 3; i++) {
@@ -818,7 +818,7 @@ const reveal = {
 
     // --- beat 5: settle, sparkle, invite another go
     if (T >= 5.6) {
-      camera.fit(0, 240, 1080, 1080);
+      camera.fit(0, 235, 800, 800);
       if (Math.random() < dt * 4) {
         emit('star', rr(W.rng, -520, 520), rr(W.rng, -300, 240), {
           count: 1, color: '#ffffff', size: 7, speed: 40, life: 1.4,

@@ -92,19 +92,23 @@ export function roundRect(ctx, x, y, w, h, r) {
 }
 
 /** Draw a smooth curve through a flat [x0,y0,x1,y1,...] point list. */
-export function strokeThrough(ctx, pts, from = 0, to = pts.length / 2) {
+export function strokeThrough(ctx, pts, step = 1, from = 0, to = pts.length / 2) {
   const n = to - from;
   if (n < 2) return;
   if (ctx.beginPath) ctx.beginPath(); // Path2D has no beginPath
 
   ctx.moveTo(pts[from * 2], pts[from * 2 + 1]);
-  for (let i = from; i < to - 2; i++) {
+  // `step` decimates the polyline: a nearly straight noodle does not need
+  // twenty control points, and stroke geometry is the dominant cost when
+  // forty of them are on screen.
+  let i = from;
+  for (; i < to - 1 - step; i += step) {
     const x0 = pts[i * 2], y0 = pts[i * 2 + 1];
-    const x1 = pts[i * 2 + 2], y1 = pts[i * 2 + 3];
+    const x1 = pts[(i + step) * 2], y1 = pts[(i + step) * 2 + 1];
     ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
   }
   ctx.quadraticCurveTo(
-    pts[(to - 2) * 2], pts[(to - 2) * 2 + 1],
+    pts[i * 2], pts[i * 2 + 1],
     pts[(to - 1) * 2], pts[(to - 1) * 2 + 1]
   );
 }

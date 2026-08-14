@@ -6,6 +6,56 @@ import {
 } from './util.js';
 import { W, RACK_HALF, GUIDE, strandPoints, noodleColor } from './world.js';
 import { screenSize } from './scene.js';
+import { LIGHT, LIT, SHADE, AMBIENT } from './light.js';
+import { texStyle, pattern } from './textures.js';
+
+// How many world units one tile of each material spans. These are chosen so
+// the grain of every surface lands at a similar size on screen — a consistent
+// grain scale is most of what separates "photographed" from "drawn".
+const SPAN = {
+  wall: 620,
+  floor: 560,
+  rod: 300,
+  board: 460,
+  bamboo: 230,    // the woven placemat, where the canes read small
+  cane: 900,      // a single bamboo pole: one or two canes across the stick
+  cloth: 330,
+  dough: 260,
+  flour: 70,      // flour is a powder, so its grain must stay very fine
+  ice: 260,
+};
+
+// --- soft contact shadow ------------------------------------------------
+// One radial sprite, built once, stamped wherever something meets a surface.
+// Far cheaper than creating a gradient per object per frame, and it gives
+// every object the same falloff so they read as sharing a room.
+
+let shadowSprite = null;
+function getShadowSprite() {
+  if (shadowSprite) return shadowSprite;
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = S; c.height = S;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(38,22,10,0.62)');
+  grd.addColorStop(0.45, 'rgba(38,22,10,0.34)');
+  grd.addColorStop(1, 'rgba(38,22,10,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  shadowSprite = c;
+  return c;
+}
+
+/** Stamp a contact shadow, offset the way the one light says it should fall. */
+export function softShadow(ctx, x, y, rx, ry, alpha = 1) {
+  if (alpha <= 0.01) return;
+  const s = getShadowSprite();
+  ctx.save();
+  ctx.globalAlpha = clamp01(alpha);
+  ctx.drawImage(s, x - rx + SHADE.x * rx * 0.28, y - ry + SHADE.y * ry * 0.2, rx * 2, ry * 2);
+  ctx.restore();
+}
 
 const PAL = {
   shop:    { top: '#d9b184', bot: '#a87c50', warm: '#c99a63' },
@@ -22,7 +72,7 @@ const WOOD_C = '#e0b47f';
 // ---------------------------------------------------------------- shapes
 
 /** Filled ribbon of variable width along a spine. */
-function ribbon(ctx, spine, widthAt, color) {
+function ribbon(ctx, spine, widthAt, style) {
   const n = spine.length / 2;
   if (n < 2) return;
   ctx.beginPath();
@@ -49,7 +99,7 @@ function ribbon(ctx, spine, widthAt, color) {
     ctx.lineTo(x + ty * w, y - tx * w);
   }
   ctx.closePath();
-  ctx.fillStyle = color;
+  ctx.fillStyle = style;
   ctx.fill();
 }
 
@@ -66,36 +116,102 @@ function blobPath(ctx, x, y, r, squash, seed, t) {
   ctx.closePath();
 }
 
-function doughFill(ctx, x, y, r) {
-  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.25);
-  g.addColorStop(0, '#fffdf5');
-  g.addColorStop(0.55, '#f6e9cf');
-  g.addColorStop(1, '#e0c9a4');
+/**
+ * A lump of dough. Drawn in its own local frame so the fibre texture travels
+ * with the lump instead of sliding underneath it, then lit as a sphere: a
+ * bright terminator toward the light, a dark rim, and a faint bounce on the
+ * shadow side because dough is slightly translucent.
+ */
+function doughShape(ctx, x, y, r, squash, seed, alpha = 1) {
+  if (alpha <= 0.01 || r <= 0.5) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  softShadow(ctx, x, y + r * 0.92, r * 1.15, r * 0.42, 0.85);
+
+  ctx.translate(x, y);
+  blobPath(ctx, 0, 0, r, squash, seed, W.time);
+
+  // fibrous, flour-dusted skin
+  ctx.fillStyle = texStyle(ctx, 'dough', SPAN.dough, '#f4e7cd');
+  ctx.fill();
+
+  // sphere lighting
+  const lx = LIT.x * r * 0.42, ly = LIT.y * r * 0.42;
+  const g = ctx.createRadialGradient(lx, ly, r * 0.05, 0, 0, r * 1.14);
+  g.addColorStop(0, 'rgba(255,253,244,0.62)');
+  g.addColorStop(0.45, 'rgba(255,250,235,0.12)');
+  g.addColorStop(0.84, 'rgba(126,88,44,0.13)');
+  g.addColorStop(1, 'rgba(104,70,32,0.26)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // a light dusting of flour, only on lumps big enough to show it
+  if (r > 46) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = alpha * 0.16;
+    ctx.fillStyle = texStyle(ctx, 'flour', SPAN.flour, 'rgba(255,255,255,0.15)');
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Shading across a round bar, solved as an actual cylinder rather than a
+ * guessed three-stop gradient. `lp` is the light's component perpendicular to
+ * the bar's axis; the bar is assumed to lie along local +x.
+ */
+function cylinderShade(ctx, thick, lp, strength = 1) {
+  const g = ctx.createLinearGradient(0, -thick / 2, 0, thick / 2);
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const n = t * 2 - 1;                       // surface normal, across the bar
+    const nz = Math.sqrt(Math.max(0, 1 - n * n));
+    const ndl = Math.max(0, n * lp + nz * LIGHT.z);
+    const v = AMBIENT + (1 - AMBIENT) * ndl;   // 0..1 brightness
+    g.addColorStop(t, `rgba(26,14,4,${(1 - v) * 0.62 * strength})`);
+  }
   return g;
 }
 
-function woodRod(ctx, x0, y0, x1, y1, thick) {
+/** A wooden bar: real timber, lit as a cylinder, with a contact shadow. */
+function woodRod(ctx, x0, y0, x1, y1, thick, opts = {}) {
   const ang = Math.atan2(y1 - y0, x1 - x0);
   const L = Math.hypot(x1 - x0, y1 - y0);
+  const span = opts.span ?? SPAN.rod;
   ctx.save();
   ctx.translate(x0, y0);
   ctx.rotate(ang);
-  const g = ctx.createLinearGradient(0, -thick / 2, 0, thick / 2);
-  g.addColorStop(0, WOOD_C);
-  g.addColorStop(0.45, WOOD_A);
-  g.addColorStop(1, WOOD_B);
-  ctx.fillStyle = g;
+
+  // The pattern rides the rotated frame, so the grain runs along the bar.
   roundRect(ctx, 0, -thick / 2, L, thick, thick / 2);
+  ctx.fillStyle = texStyle(ctx, opts.material || 'wood', span, WOOD_A);
   ctx.fill();
-  ctx.globalAlpha = 0.25;
-  ctx.strokeStyle = '#7d5330';
-  ctx.lineWidth = Math.max(1, thick * 0.06);
-  ctx.beginPath();
-  ctx.moveTo(L * 0.12, -thick * 0.12);
-  ctx.lineTo(L * 0.85, -thick * 0.05);
-  ctx.stroke();
-  ctx.restore();
+  if (opts.tint) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = opts.tintAlpha ?? 0.5;
+    ctx.fillStyle = opts.tint;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // light's component across the bar
+  const lp = -LIT.x * Math.sin(ang) + LIT.y * Math.cos(ang);
+  ctx.fillStyle = cylinderShade(ctx, thick, lp);
+  ctx.fill();
+
+  // the glint along the lit side
+  const litY = lp * thick * 0.3;
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#fff6e2';
+  roundRect(ctx, thick * 0.35, litY - thick * 0.07, Math.max(0, L - thick * 0.7), thick * 0.14, thick * 0.07);
+  ctx.fill();
   ctx.globalAlpha = 1;
+
+  ctx.restore();
 }
 
 // ------------------------------------------------------------ background
@@ -126,9 +242,40 @@ export function drawVignette(ctx) {
   }
 }
 
-/** Sun, clouds and distant hills — only visible in the outdoor moods. */
+/** Outdoor visibility, 0..1, so both halves of the sky fade together. */
+function outdoorAmount() {
+  if (W.mood.to === 'outdoor') return smooth(W.mood.t);
+  if (W.mood.from === 'outdoor') return 1 - smooth(W.mood.t);
+  return 0;
+}
+
+/** Hills and field — static given the camera, so this half is cached. */
 export function drawSky(ctx) {
-  const out = W.mood.to === 'outdoor' ? smooth(W.mood.t) : (W.mood.from === 'outdoor' ? 1 - smooth(W.mood.t) : 0);
+  const out = outdoorAmount();
+  if (out < 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = out;
+  ctx.fillStyle = '#8fbf76';
+  ctx.beginPath();
+  ctx.moveTo(-2400, 420);
+  for (let i = -6; i <= 6; i++) {
+    ctx.quadraticCurveTo(i * 400 - 200, 250 - (i % 2) * 90, i * 400, 400);
+  }
+  ctx.lineTo(2400, 1400);
+  ctx.lineTo(-2400, 1400);
+  ctx.closePath();
+  ctx.fill();
+  const gg = ctx.createLinearGradient(0, 400, 0, 1200);
+  gg.addColorStop(0, '#a8cf8a');
+  gg.addColorStop(1, '#7fae66');
+  ctx.fillStyle = gg;
+  ctx.fillRect(-2400, 430, 4800, 1000);
+  ctx.restore();
+}
+
+/** Sun and clouds — these move, so they stay out of the cached backdrop. */
+export function drawSkyLive(ctx) {
+  const out = outdoorAmount();
   if (out < 0.01) return;
   ctx.save();
   ctx.globalAlpha = out;
@@ -164,23 +311,6 @@ export function drawSky(ctx) {
     const cy = -720 + (i % 3) * 150;
     cloud(ctx, cx, cy, 92 + (i % 3) * 22);
   }
-
-  // distant hills + a green field so the bottom of a tall screen has ground
-  ctx.fillStyle = '#8fbf76';
-  ctx.beginPath();
-  ctx.moveTo(-2400, 420);
-  for (let i = -6; i <= 6; i++) {
-    ctx.quadraticCurveTo(i * 400 - 200, 250 - (i % 2) * 90, i * 400, 400);
-  }
-  ctx.lineTo(2400, 1400);
-  ctx.lineTo(-2400, 1400);
-  ctx.closePath();
-  ctx.fill();
-  const gg = ctx.createLinearGradient(0, 400, 0, 1200);
-  gg.addColorStop(0, '#a8cf8a');
-  gg.addColorStop(1, '#7fae66');
-  ctx.fillStyle = gg;
-  ctx.fillRect(-2400, 430, 4800, 1000);
   ctx.restore();
 }
 
@@ -253,21 +383,18 @@ export function drawFloor(ctx, y = 300, alpha = 1) {
   if (alpha <= 0.01) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  const g = ctx.createLinearGradient(0, y, 0, y + 1100);
-  g.addColorStop(0, '#c69255');
-  g.addColorStop(1, '#8f6033');
+  ctx.fillStyle = texStyle(ctx, 'floor', SPAN.floor, '#b8834b');
+  ctx.fillRect(-2400, y, 4800, 1400);
+  // ambient occlusion where the floor meets the wall, and light spilling
+  // forward — the same trick a photographer's bounce card plays
+  const g = ctx.createLinearGradient(0, y, 0, y + 900);
+  g.addColorStop(0, 'rgba(52,30,12,0.5)');
+  g.addColorStop(0.22, 'rgba(52,30,12,0.1)');
+  g.addColorStop(1, 'rgba(52,30,12,0.3)');
   ctx.fillStyle = g;
   ctx.fillRect(-2400, y, 4800, 1400);
-  ctx.strokeStyle = 'rgba(104,64,32,0.3)';
-  ctx.lineWidth = 5;
-  for (let i = -6; i <= 6; i++) {
-    ctx.beginPath();
-    ctx.moveTo(i * 300, y);
-    ctx.lineTo(i * 380, y + 1400);
-    ctx.stroke();
-  }
-  ctx.fillStyle = 'rgba(255,238,204,0.22)';
-  ctx.fillRect(-2400, y, 4800, 16);
+  ctx.fillStyle = 'rgba(255,242,214,0.28)';
+  ctx.fillRect(-2400, y, 4800, 12);
   ctx.restore();
 }
 
@@ -278,23 +405,27 @@ export function drawBoard(ctx, cx, cy, r, alpha = 1) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = 'rgba(90,58,30,0.18)';
   ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.42, r * 1.02, r * 0.38, 0, 0, TAU); ctx.fill();
-  const g = ctx.createLinearGradient(cx, cy - r * 0.5, cx, cy + r * 0.6);
-  g.addColorStop(0, '#e8c493');
-  g.addColorStop(1, '#c99a63');
-  ctx.fillStyle = g;
-  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.25, r, r * 0.34, 0, 0, TAU); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,240,215,0.5)';
-  ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.25, r * 0.86, r * 0.28, 0, 0, TAU); ctx.stroke();
-  // scattered flour
-  ctx.fillStyle = 'rgba(255,252,240,0.5)';
-  for (let i = 0; i < 22; i++) {
-    const a = i * 2.399;
-    const rr = r * 0.9 * Math.sqrt((i + 1) / 23);
-    ctx.beginPath();
-    ctx.arc(cx + Math.cos(a) * rr, cy + r * 0.25 + Math.sin(a) * rr * 0.3, 2.6 + (i % 3), 0, TAU);
-    ctx.fill();
-  }
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.25, r, r * 0.34, 0, 0, TAU);
+  ctx.fillStyle = texStyle(ctx, 'wood', SPAN.board, '#d2a067');
+  ctx.fill();
+  // the board is a shallow disc: dim it away from the light, catch its rim
+  const bg = ctx.createLinearGradient(cx - r, cy - r * 0.34, cx + r * 0.4, cy + r * 0.6);
+  bg.addColorStop(0, 'rgba(255,246,224,0.22)');
+  bg.addColorStop(0.5, 'rgba(60,36,14,0.04)');
+  bg.addColorStop(1, 'rgba(60,36,14,0.3)');
+  ctx.fillStyle = bg;
+  ctx.fill();
+  // worked-in flour: two plain fills, heavier in the middle where the dough
+  // sits. (A destination-in mask would punch through the opaque canvas.)
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.4;
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.26, r * 0.72, r * 0.245, 0, 0, TAU);
+  ctx.fillStyle = texStyle(ctx, 'flour', SPAN.flour, 'rgba(255,255,255,0.3)');
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,244,220,0.4)';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.25, r * 0.995, r * 0.338, 0, 0, TAU); ctx.stroke();
   ctx.restore();
 }
 
@@ -303,43 +434,14 @@ export function drawBoard(ctx, cx, cy, r, alpha = 1) {
 export function drawBlobs(ctx) {
   for (const b of W.blobs) {
     if (b.alpha <= 0.01) continue;
-    ctx.save();
-    ctx.globalAlpha = b.alpha;
-    ctx.fillStyle = 'rgba(96,62,32,0.16)';
-    ctx.beginPath();
-    ctx.ellipse(b.x, b.y + b.r * 0.85, b.r * 0.9, b.r * 0.3, 0, 0, TAU);
-    ctx.fill();
-    blobPath(ctx, b.x, b.y, b.r, b.squash, b.seed, W.time);
-    ctx.fillStyle = doughFill(ctx, b.x, b.y, b.r);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.beginPath();
-    ctx.ellipse(b.x - b.r * 0.3, b.y - b.r * 0.38, b.r * 0.26, b.r * 0.17, -0.5, 0, TAU);
-    ctx.fill();
-    ctx.restore();
+    doughShape(ctx, b.x, b.y, b.r, b.squash, b.seed, b.alpha);
   }
 }
 
 export function drawBall(ctx) {
   const b = W.ball;
   if (b.alpha <= 0.01 || b.r <= 1) return;
-  ctx.save();
-  ctx.globalAlpha = b.alpha;
-  ctx.fillStyle = 'rgba(96,62,32,0.2)';
-  ctx.beginPath();
-  ctx.ellipse(b.x, b.y + b.r * 0.88, b.r * 1.0, b.r * 0.3, 0, 0, TAU);
-  ctx.fill();
-  blobPath(ctx, b.x, b.y, b.r, b.squash, 1.7, W.time);
-  ctx.fillStyle = doughFill(ctx, b.x, b.y, b.r);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(214,183,140,0.6)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.beginPath();
-  ctx.ellipse(b.x - b.r * 0.32, b.y - b.r * 0.4, b.r * 0.3, b.r * 0.19, -0.5, 0, TAU);
-  ctx.fill();
-  ctx.restore();
+  doughShape(ctx, b.x, b.y, b.r, b.squash, 1.7, b.alpha);
 }
 
 const ropeSpine = new Float32Array(28 * 2);
@@ -362,21 +464,38 @@ export function drawRope(ctx) {
   const thickHead = r.thick;
   const thickTail = r.thick * 0.62;
   const widthAt = (t) => lerp(thickHead, thickTail, easeOut(t)) * (t > 0.97 ? 0.55 : 1);
-  ctx.fillStyle = 'rgba(96,62,32,0.14)';
+  // cast shadow first
   ctx.save();
-  ctx.translate(0, thickHead * 0.75);
-  ribbon(ctx, ropeSpine, widthAt, 'rgba(96,62,32,0.14)');
+  ctx.translate(SHADE.x * thickHead * 0.5, thickHead * 0.8);
+  ribbon(ctx, ropeSpine, widthAt, 'rgba(84,52,24,0.2)');
   ctx.restore();
-  ribbon(ctx, ropeSpine, widthAt, '#f0e0c2');
-  // rounded tip
-  ctx.fillStyle = '#f0e0c2';
+
+  // the rope's own skin, then a proper cylinder gradient across it
+  ribbon(ctx, ropeSpine, widthAt, texStyle(ctx, 'dough', SPAN.dough, '#f0e0c2'));
+  ctx.fillStyle = 'rgba(255,255,255,0)';
   ctx.beginPath();
   ctx.arc(r.hx, ropeSpine[(n - 1) * 2 + 1], thickTail * 0.42, 0, TAU);
+  ctx.fillStyle = texStyle(ctx, 'dough', SPAN.dough, '#f0e0c2');
   ctx.fill();
-  // sheen
+
+  // The rope runs left to right, so its axis is x and the light's across-
+  // axis component is simply LIT.y.
+  const midY = r.ay;
+  const cg = ctx.createLinearGradient(0, midY - thickHead * 0.62, 0, midY + thickHead * 0.62);
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const nn = t * 2 - 1;
+    const nz = Math.sqrt(Math.max(0, 1 - nn * nn));
+    const ndl = Math.max(0, nn * LIT.y + nz * LIGHT.z);
+    const v = AMBIENT + (1 - AMBIENT) * ndl;
+    cg.addColorStop(t, `rgba(70,44,18,${(1 - v) * 0.5})`);
+  }
+  ribbon(ctx, ropeSpine, widthAt, cg);
+
+  // glint along the lit side
   ctx.save();
-  ctx.translate(0, -thickHead * 0.2);
-  ribbon(ctx, ropeSpine, (t) => widthAt(t) * 0.3, 'rgba(255,253,244,0.85)');
+  ctx.translate(LIT.x * thickHead * 0.1, LIT.y * thickHead * 0.3);
+  ribbon(ctx, ropeSpine, (t) => widthAt(t) * 0.22, 'rgba(255,252,240,0.75)');
   ctx.restore();
   ctx.restore();
 }
@@ -389,13 +508,15 @@ export function drawRack(ctx) {
   ctx.save();
   ctx.globalAlpha = rk.alpha;
   const px = RACK_HALF + 130;
-  woodRod(ctx, -px, rk.postTop, -px, rk.postBot, 46);
-  woodRod(ctx, px, rk.postTop, px, rk.postBot, 46);
+  const post = { span: 520, tint: '#c08d55', tintAlpha: 0.35 };
+  woodRod(ctx, -px, rk.postTop, -px, rk.postBot, 46, post);
+  woodRod(ctx, px, rk.postTop, px, rk.postBot, 46, post);
   // cross braces top and bottom
-  woodRod(ctx, -px, rk.postTop + 60, px, rk.postTop + 60, 26);
-  woodRod(ctx, -px, rk.postBot - 60, px, rk.postBot - 60, 26);
-  // fixed rod the noodles hang from
-  woodRod(ctx, -px - 56, rk.rodTopY, px + 56, rk.rodTopY, 30);
+  woodRod(ctx, -px, rk.postTop + 60, px, rk.postTop + 60, 26, post);
+  woodRod(ctx, -px, rk.postBot - 60, px, rk.postBot - 60, 26, post);
+  // the rod the noodles hang from: handled timber, darker with use
+  woodRod(ctx, -px - 56, rk.rodTopY, px + 56, rk.rodTopY, 30,
+    { span: 300, tint: '#b07d45', tintAlpha: 0.42 });
   ctx.restore();
 }
 
@@ -413,43 +534,53 @@ export function drawBottomRod(ctx) {
     ctx.lineTo(RACK_HALF + 70, rk.rodBotY);
     ctx.stroke();
   }
-  woodRod(ctx, -RACK_HALF - 60, rk.rodBotY, RACK_HALF + 60, rk.rodBotY, 24);
+  woodRod(ctx, -RACK_HALF - 60, rk.rodBotY, RACK_HALF + 60, rk.rodBotY, 24,
+    { span: 300, tint: '#b07d45', tintAlpha: 0.42 });
   ctx.restore();
 }
 
-/** Rows of noodles receding behind the player's rack: the "ずらっ" moment. */
+/**
+ * Rows of noodles receding behind the player's rack — the "ずらっ" moment.
+ *
+ * They are deliberately dense, short and hazy: sparse long lines read as
+ * scratches on the sky, whereas a packed curtain tinted toward the
+ * background reads as depth. That tint is atmospheric perspective, and it is
+ * doing more work here than any amount of extra detail would.
+ */
 export function drawBackRacks(ctx) {
   const a = clamp01(W.backRacks);
   if (a <= 0.01) return;
   const rk = W.rack;
   const spanTop = rk.rodTopY;
-  const spanBot = rk.rodBotY;
+  const len = (rk.rodBotY - spanTop) * 0.58;
+  const haze = W.mood.to === 'outdoor' ? '#bfe0ef' : '#d9b184';
   ctx.save();
   ctx.lineCap = 'round';
   for (let row = 3; row >= 1; row--) {
-    const s = 1 - row * 0.17;             // perspective shrink
-    const alpha = a * (0.46 - row * 0.1);
+    const s = 1 - row * 0.16;
+    const fade = row / 3.0;                      // how far into the haze
+    const alpha = a * (0.5 - row * 0.115);
     ctx.save();
     ctx.globalAlpha = alpha;
-    // hang each row from its own rod, higher and smaller than the last
-    ctx.translate(row * 34, spanTop - row * 105);
+    ctx.translate(row * 46, spanTop - row * 116);
     ctx.scale(s, s);
     ctx.translate(0, -spanTop);
 
-    ctx.globalAlpha = Math.min(1, alpha * 2.4);
-    woodRod(ctx, -RACK_HALF - 620, spanTop, RACK_HALF + 620, spanTop, 26);
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = Math.min(1, alpha * 1.4);
+    woodRod(ctx, -RACK_HALF - 700, spanTop, RACK_HALF + 700, spanTop, 20,
+      { span: 300, tint: haze, tintAlpha: 0.35 + fade * 0.5 });
 
-    ctx.strokeStyle = W.dryness > 0.4 ? '#ffffff' : '#f4e9d0';
-    ctx.lineWidth = Math.max(6, W.baseThick * 1.6);
-    const count = 26;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = mix(W.dryness > 0.4 ? '#fffdf6' : '#f2e6cc', haze, 0.3 + fade * 0.6);
+    ctx.lineWidth = Math.max(4, W.baseThick * 1.25);
+    const count = 46;
     for (let i = 0; i < count; i++) {
       const u = (i + 0.5) / count;
-      const x = lerp(-RACK_HALF - 560, RACK_HALF + 560, u);
-      const sway = Math.sin(W.time * 0.9 + i * 0.7 + row) * 6;
+      const x = lerp(-RACK_HALF - 640, RACK_HALF + 640, u);
+      const sway = Math.sin(W.time * 0.9 + i * 0.7 + row) * 5;
       ctx.beginPath();
       ctx.moveTo(x, spanTop);
-      ctx.quadraticCurveTo(x + sway, (spanTop + spanBot) / 2, x, spanBot);
+      ctx.quadraticCurveTo(x + sway, spanTop + len * 0.5, x, spanTop + len);
       ctx.stroke();
     }
     ctx.restore();
@@ -460,61 +591,144 @@ export function drawBackRacks(ctx) {
 
 // --------------------------------------------------------------- strands
 
+// --------------------------------------------------------------- strands
+
+// Scratch buffers reused for every strand: the shading offsets are recomputed
+// each frame, but nothing is allocated.
+let shiftBuf = null;
+
+/**
+ * Move every point of a polyline sideways *toward the light*, along the local
+ * surface normal. This is what turns a stroked line into a lit cylinder: the
+ * offset follows the curve instead of being a fixed screen-space nudge, so a
+ * hanging strand and a strand lying on a board are both shaded correctly.
+ */
+function shiftTowardLight(pts, d, out) {
+  const n = pts.length / 2;
+  for (let i = 0; i < n; i++) {
+    const i0 = i > 0 ? i - 1 : 0;
+    const i1 = i < n - 1 ? i + 1 : n - 1;
+    let tx = pts[i1 * 2] - pts[i0 * 2];
+    let ty = pts[i1 * 2 + 1] - pts[i0 * 2 + 1];
+    const L = Math.hypot(tx, ty) || 1;
+    tx /= L; ty /= L;
+    // remove the component along the strand: what is left is the normal
+    const dot = LIT.x * tx + LIT.y * ty;
+    out[i * 2] = pts[i * 2] + d * (LIT.x - dot * tx);
+    out[i * 2 + 1] = pts[i * 2 + 1] + d * (LIT.y - dot * ty);
+  }
+}
+
+/**
+ * Colour of a noodle at brightness `v` (0 = fully shaded, 1 = facing the
+ * light). Dried somen is faintly translucent, so the shaded side keeps a warm
+ * cast rather than going grey — that warmth is what stops a white noodle
+ * looking like a white line.
+ */
+function noodleTone(s, v, dry) {
+  const warm = 1 - v;
+  const r = (lerp(238, 255, dry) + s.tint * 14) * v + 96 * warm;
+  const g = (lerp(224, 252, dry) + s.tint * 11) * v + 74 * warm;
+  const b = (lerp(196, 244, dry) + s.tint * 8) * v + 48 * warm;
+  return `rgb(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, b) | 0})`;
+}
+
 export function drawStrands(ctx) {
   const strands = W.strands;
   if (!strands.length || W.strandAlpha <= 0.01) return;
   const A = clamp01(W.strandAlpha);
-  const vertical = W.layout.to !== 'board' && W.layout.to !== 'bundle';
+  const dry = clamp01(W.dryness);
+  const hanging = W.layout.to === 'hang';
+  // Straight layouts need far fewer control points than a hanging curve.
+  const step = hanging ? 2 : 4;
+
+  if (!shiftBuf || shiftBuf.length < strands[0].pts.length) {
+    shiftBuf = new Float32Array(strands[0].pts.length);
+  }
+
   ctx.save();
   ctx.translate(0, W.strandOffsetY);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // soft shadow pass keeps the curtain from looking like flat lines
-  ctx.save();
-  ctx.globalAlpha = 0.3 * A;
-  ctx.strokeStyle = '#6b4c2a';
-  ctx.translate(vertical ? 7 : 0, vertical ? 0 : 8);
-  for (const s of strands) {
-    if (s.birth <= 0.02) continue;
-    const pts = strandPoints(s);
-    ctx.lineWidth = Math.max(1.2, s.thick * s.birth);
-    strokeThrough(ctx, pts);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  for (const s of strands) {
-    if (s.birth <= 0.02) continue;
-    const pts = strandPoints(s);
-    const p = new Path2D();
-    strokeThrough(p, pts);
-    const w = Math.max(1.2, s.thick * s.birth);
-
-    ctx.globalAlpha = clamp01(s.birth) * A;
-    ctx.strokeStyle = noodleColor(s, 0.16);
-    ctx.lineWidth = w;
-    ctx.stroke(p);
-
+  // --- 1. shadow.
+  // Hanging strands each throw their own, because the gaps between them are
+  // the whole point. Once they are packed into a board or a bundle the
+  // individual shadows merge anyway, so one shape stands in for all of them
+  // — forty fewer strokes for a better result.
+  if (hanging) {
     ctx.save();
-    ctx.translate(vertical ? -w * 0.2 : 0, vertical ? 0 : -w * 0.22);
-    ctx.strokeStyle = noodleColor(s, -0.55);
-    ctx.lineWidth = w * 0.42;
-    ctx.stroke(p);
+    ctx.globalAlpha = 0.26 * A;
+    ctx.strokeStyle = '#5d3f20';
+    ctx.translate(SHADE.x * 9, SHADE.y * 9 + 4);
+    for (const s of strands) {
+      if (s.birth <= 0.02) continue;
+      ctx.lineWidth = Math.max(1.1, s.thick * s.birth * 0.95);
+      strokeThrough(ctx, strandPoints(s), step);
+      ctx.stroke();
+    }
     ctx.restore();
-
-    if (W.dryness > 0.35) {
-      ctx.save();
-      ctx.globalAlpha = clamp01(s.birth) * (W.dryness - 0.35) * 0.9 * A;
-      ctx.translate(vertical ? -w * 0.26 : 0, vertical ? 0 : -w * 0.28);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(0.7, w * 0.18);
-      ctx.stroke(p);
-      ctx.restore();
+  } else {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const s of strands) {
+      const p = strandPoints(s);
+      for (let i = 0; i < p.length; i += 2) {
+        if (p[i] < x0) x0 = p[i];
+        if (p[i] > x1) x1 = p[i];
+        if (p[i + 1] < y0) y0 = p[i + 1];
+        if (p[i + 1] > y1) y1 = p[i + 1];
+      }
+    }
+    if (x1 > x0) {
+      softShadow(ctx, (x0 + x1) / 2 + SHADE.x * 10,
+        (y0 + y1) / 2 + SHADE.y * 6 + 10,
+        (x1 - x0) * 0.62, (y1 - y0) * 0.85, 0.5 * A);
     }
   }
-  ctx.restore();
+
+  // --- 2. the noodles themselves, shaded as cylinders
+  for (const s of strands) {
+    if (s.birth <= 0.02) continue;
+    const pts = strandPoints(s);
+    const w = Math.max(1.1, s.thick * s.birth);
+    const a = clamp01(s.birth) * A;
+
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = noodleTone(s, 0.88, dry);
+    ctx.lineWidth = w;
+    strokeThrough(ctx, pts, step);
+    ctx.stroke();
+
+    // Below about three pixels the shading bands stop being visible, so we
+    // simply skip them — which is also why the thinnest, most numerous stage
+    // is not the most expensive one.
+    if (w >= 3) {
+      shiftTowardLight(pts, -w * 0.34, shiftBuf);
+      ctx.strokeStyle = noodleTone(s, 0.6, dry);
+      ctx.lineWidth = w * 0.28;
+      strokeThrough(ctx, shiftBuf, step);
+      ctx.stroke();
+
+      shiftTowardLight(pts, w * 0.28, shiftBuf);
+      ctx.strokeStyle = noodleTone(s, 1, dry);
+      ctx.lineWidth = w * 0.46;
+      strokeThrough(ctx, shiftBuf, step);
+      ctx.stroke();
+
+      // The glint only appears once the noodles dry and harden — it is the
+      // single clearest signal that the dough has become something else.
+      if (dry > 0.25 && w >= 5) {
+        shiftTowardLight(pts, w * 0.4, shiftBuf);
+        ctx.globalAlpha = a * (dry - 0.25) * 1.15;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(0.7, w * 0.15);
+        strokeThrough(ctx, shiftBuf, step);
+        ctx.stroke();
+      }
+    }
+  }
   ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 export function drawOffcuts(ctx) {
@@ -557,25 +771,31 @@ export function drawComb(ctx, alpha = 1) {
   ctx.fillStyle = 'rgba(80,52,26,0.22)';
   roundRect(ctx, x - half + 16, y0 + 12, half * 2, y1 - y0, half);
   ctx.fill();
-  const g = ctx.createLinearGradient(x - half, 0, x + half, 0);
-  g.addColorStop(0, '#c79a5c');
-  g.addColorStop(0.35, '#f3dbaa');
-  g.addColorStop(1, '#9d6f3c');
-  ctx.fillStyle = g;
   roundRect(ctx, x - half, y0, half * 2, y1 - y0, half);
+  ctx.fillStyle = texStyle(ctx, 'bamboo', SPAN.cane, '#d2a468');
   ctx.fill();
-  // bamboo nodes
-  ctx.strokeStyle = 'rgba(133,92,46,0.55)';
-  ctx.lineWidth = 4;
-  for (let i = 1; i < 4; i++) {
-    const yy = lerp(y0, y1, i / 4);
-    ctx.beginPath();
-    ctx.moveTo(x - half, yy);
-    ctx.lineTo(x + half, yy);
-    ctx.stroke();
+  // A working bamboo stick is pale and polished, not dark: lift the tile
+  // before shading, or the cylinder gradient takes it to near-black.
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#c69a5a';
+  ctx.fill();
+  ctx.restore();
+  // the stick stands vertically, so the light crosses it in x
+  const g = ctx.createLinearGradient(x - half, 0, x + half, 0);
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const nn = t * 2 - 1;
+    const nz = Math.sqrt(Math.max(0, 1 - nn * nn));
+    const ndl = Math.max(0, nn * LIT.x + nz * LIGHT.z);
+    const v = AMBIENT + (1 - AMBIENT) * ndl;
+    g.addColorStop(t, `rgba(64,38,14,${(1 - v) * 0.42})`);
   }
-  ctx.fillStyle = 'rgba(255,250,230,0.65)';
-  roundRect(ctx, x - half * 0.62, y0 + 12, 8, y1 - y0 - 24, 4);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,250,230,0.5)';
+  roundRect(ctx, x + LIT.x * half * 0.34 - 4, y0 + 12, 8, y1 - y0 - 24, 4);
   ctx.fill();
   // a grip knob so it reads as a tool to pick up
   ctx.fillStyle = '#e2604a';
@@ -622,24 +842,23 @@ export function drawCuttingBoard(ctx, alpha) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = 'rgba(90,58,30,0.2)';
-  roundRect(ctx, -600, -282, 1200, 580, 42);
+  roundRect(ctx, -520, -262, 1040, 540, 40);
   ctx.fill();
-  const g = ctx.createLinearGradient(0, -300, 0, 300);
-  g.addColorStop(0, '#e9c99b');
-  g.addColorStop(1, '#cfa670');
+  roundRect(ctx, -520, -280, 1040, 540, 36);
+  ctx.fillStyle = texStyle(ctx, 'wood', SPAN.board, '#d9ab74');
+  ctx.fill();
+  const g = ctx.createLinearGradient(-520, -280, 330, 260);
+  g.addColorStop(0, 'rgba(255,248,228,0.2)');
+  g.addColorStop(0.55, 'rgba(70,42,16,0.03)');
+  g.addColorStop(1, 'rgba(70,42,16,0.26)');
   ctx.fillStyle = g;
-  roundRect(ctx, -600, -300, 1200, 580, 38);
   ctx.fill();
-  ctx.globalAlpha = alpha * 0.28;
-  ctx.strokeStyle = '#a97b47';
-  ctx.lineWidth = 3;
-  for (let i = 0; i < 7; i++) {
-    const y = lerp(-280, 260, i / 6);
-    ctx.beginPath();
-    ctx.moveTo(-580, y);
-    ctx.bezierCurveTo(-160, y + 8, 160, y - 8, 580, y);
-    ctx.stroke();
-  }
+  // a dusting of flour left over from the work
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.22;
+  ctx.fillStyle = texStyle(ctx, 'flour', SPAN.flour, 'rgba(255,255,255,0.2)');
+  ctx.fill();
+  ctx.restore();
   ctx.restore();
   ctx.globalAlpha = 1;
 }
@@ -657,27 +876,25 @@ export function drawBand(ctx) {
   ctx.save();
   ctx.translate(x, y);
   if (!b.on) ctx.rotate(Math.sin(W.time * 2.4) * 0.08);
-  const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-  g.addColorStop(0, '#c94a38');
-  g.addColorStop(0.4, '#ec6a52');
-  g.addColorStop(1, '#b53d2c');
-  ctx.fillStyle = g;
+  // paper, not plastic: the cloth weave carries the fibre, a red multiply
+  // gives it colour without flattening the texture
   roundRect(ctx, -w / 2, -h / 2, w, h, b.on ? 10 : 16);
+  // A pale fibrous base multiplied with vermilion: multiplying onto the dark
+  // indigo cloth would only ever give maroon.
+  ctx.fillStyle = texStyle(ctx, 'flour', 110, '#e85e42');
   ctx.fill();
-  ctx.fillStyle = 'rgba(255,236,224,0.55)';
-  roundRect(ctx, -w / 2 + 10, -h / 2 + 6, 12, h - 12, 6);
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = '#e8492c';
   ctx.fill();
-  // little woven pattern so it reads as paper, not a plastic bar
-  ctx.globalAlpha = b.alpha * 0.3;
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 3;
-  for (let i = 0; i < 5; i++) {
-    const yy = -h / 2 + 12 + (i * (h - 24)) / 4;
-    ctx.beginPath();
-    ctx.moveTo(-w / 2 + 6, yy);
-    ctx.lineTo(w / 2 - 6, yy);
-    ctx.stroke();
-  }
+  ctx.restore();
+  // the band wraps a round bundle, so it curves away at both edges
+  const bg2 = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+  bg2.addColorStop(0, 'rgba(84,16,6,0.34)');
+  bg2.addColorStop(0.34, 'rgba(255,238,226,0.3)');
+  bg2.addColorStop(1, 'rgba(84,16,6,0.3)');
+  ctx.fillStyle = bg2;
+  ctx.fill();
   ctx.restore();
   ctx.restore();
   ctx.globalAlpha = 1;
@@ -750,6 +967,44 @@ export function drawBoilingNoodles(ctx, t) {
   ctx.globalAlpha = 1;
 }
 
+
+/** The table and mat under the finished bowl — static, so it is cached. */
+export function drawRevealTable(ctx, t) {
+  const a = clamp01(t);
+  if (a <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = texStyle(ctx, 'floor', SPAN.floor, '#b8834b');
+  ctx.fillRect(-2400, 60, 4800, 1400);
+  const tg = ctx.createLinearGradient(0, 60, 0, 820);
+  tg.addColorStop(0, 'rgba(255,238,206,0.16)');
+  tg.addColorStop(0.32, 'rgba(46,26,10,0.02)');
+  tg.addColorStop(1, 'rgba(46,26,10,0.3)');
+  ctx.fillStyle = tg;
+  ctx.fillRect(-2400, 60, 4800, 1400);
+  ctx.fillStyle = 'rgba(255,244,216,0.3)';
+  ctx.fillRect(-2400, 60, 4800, 10);
+
+  ctx.fillStyle = 'rgba(90,58,30,0.22)';
+  roundRect(ctx, -690, 108, 1380, 320, 24);
+  ctx.fill();
+  roundRect(ctx, -690, 90, 1380, 320, 24);
+  ctx.fillStyle = texStyle(ctx, 'bamboo', SPAN.bamboo, '#e0c795');
+  ctx.fill();
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = a * 0.34;
+  ctx.fillStyle = '#f6e6bd';
+  ctx.fill();
+  ctx.restore();
+  const mg = ctx.createLinearGradient(-690, 90, 200, 410);
+  mg.addColorStop(0, 'rgba(255,250,232,0.24)');
+  mg.addColorStop(1, 'rgba(70,44,16,0.24)');
+  ctx.fillStyle = mg;
+  ctx.fill();
+  ctx.restore();
+}
+
 /** The payoff: a glass bowl of ice-cold somen. */
 export function drawBowlScene(ctx, t) {
   const a = clamp01(t);
@@ -758,31 +1013,6 @@ export function drawBowlScene(ctx, t) {
   ctx.globalAlpha = a;
   const rise = lerp(70, 0, easeOut(clamp01(t * 1.4)));
   ctx.translate(0, rise);
-
-  // table top
-  const tg = ctx.createLinearGradient(0, 60, 0, 900);
-  tg.addColorStop(0, '#c68f55');
-  tg.addColorStop(1, '#94643a');
-  ctx.fillStyle = tg;
-  ctx.fillRect(-2400, 60, 4800, 1400);
-  ctx.fillStyle = 'rgba(255,240,210,0.25)';
-  ctx.fillRect(-2400, 60, 4800, 12);
-
-  // bamboo placemat
-  ctx.save();
-  ctx.fillStyle = 'rgba(90,58,30,0.22)';
-  roundRect(ctx, -690, 108, 1380, 320, 24);
-  ctx.fill();
-  ctx.fillStyle = '#e8d3a4';
-  roundRect(ctx, -690, 90, 1380, 320, 24);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(160,126,74,0.4)';
-  ctx.lineWidth = 5;
-  for (let i = 0; i < 18; i++) {
-    const x = -660 + i * 78;
-    ctx.beginPath(); ctx.moveTo(x, 96); ctx.lineTo(x, 404); ctx.stroke();
-  }
-  ctx.restore();
 
   // ---- glass bowl
   const by = 150, brx = 330, bry = 118;
@@ -811,20 +1041,28 @@ export function drawBowlScene(ctx, t) {
   ctx.fillStyle = 'rgba(126,196,226,0.85)';
   ctx.fillRect(-brx, by - ry - 4, brx * 2, 300);
 
-  // the somen mound — drawn with a shadow pass so it reads as many noodles
+  // The somen mound. Same cylinder treatment as the hanging strands: a
+  // shadow sinking into the water, a warm body, then a glint along the top
+  // edge. The glint is what makes cold noodles look wet rather than chalky.
   ctx.lineCap = 'round';
-  for (const pass of [0, 1]) {
-    ctx.strokeStyle = pass ? '#fffdf6' : 'rgba(90,130,155,0.5)';
-    ctx.lineWidth = pass ? 9 : 12;
-    for (let i = 0; i < 30; i++) {
-      const u = i / 29;
-      const yy = by + 34 + u * 126 + Math.sin(i * 2.3) * 8 + (pass ? 0 : 5);
-      const half = lerp(258, 92, Math.abs(u - 0.35) * 1.5);
+  const passes = [
+    { off: 3.2, w: 7.5, c: 'rgba(52,104,138,0.45)' },
+    { off: 0, w: 6.2, c: '#faf4e6' },
+    { off: LIT.y * 1.8, w: 2.6, c: '#fffdf7' },
+  ];
+  const ROWS = 44;
+  for (const pass of passes) {
+    ctx.strokeStyle = pass.c;
+    ctx.lineWidth = pass.w;
+    for (let i = 0; i < ROWS; i++) {
+      const u = i / (ROWS - 1);
+      const yy = by + 30 + u * 132 + Math.sin(i * 2.3) * 4 + pass.off;
+      const half = lerp(268, 108, Math.abs(u - 0.34) * 1.4);
       ctx.beginPath();
-      for (let k = 0; k <= 14; k++) {
-        const kk = k / 14;
+      for (let k = 0; k <= 12; k++) {
+        const kk = k / 12;
         const x = lerp(-half, half, kk);
-        const wav = Math.sin(kk * 7 + i * 1.9 + W.time * 0.6) * 9;
+        const wav = Math.sin(kk * 4.2 + i * 1.9 + W.time * 0.5) * 5;
         if (k === 0) ctx.moveTo(x, yy + wav); else ctx.lineTo(x, yy + wav);
       }
       ctx.stroke();
@@ -837,14 +1075,23 @@ export function drawBowlScene(ctx, t) {
     ctx.translate(ix, iy);
     ctx.rotate(rot);
     ctx.scale(s, s);
-    ctx.fillStyle = 'rgba(238,251,255,0.82)';
     roundRect(ctx, -46, -40, 92, 80, 16);
+    ctx.fillStyle = texStyle(ctx, 'ice', 60, 'rgba(238,251,255,0.82)');
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    roundRect(ctx, -32, -28, 30, 22, 8);
+    ctx.save();
+    ctx.globalAlpha = 0.68;
+    ctx.fillStyle = 'rgba(246,253,255,0.92)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 4;
+    ctx.restore();
+    // a bright facet toward the light and a cool edge away from it
+    const ig = ctx.createLinearGradient(-46, -40, 46, 40);
+    ig.addColorStop(0, 'rgba(255,255,255,0.75)');
+    ig.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    ig.addColorStop(1, 'rgba(122,176,204,0.4)');
+    ctx.fillStyle = ig;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 3.5;
     roundRect(ctx, -46, -40, 92, 80, 16);
     ctx.stroke();
     ctx.restore();
@@ -923,25 +1170,31 @@ export function drawBowlScene(ctx, t) {
     ctx.translate(40, by - 196 - lift * 18 + Math.sin(W.time * 1.4) * 6);
     ctx.rotate(0.42);
     // the drape first, so the sticks sit on top
-    ctx.strokeStyle = '#fffdf6';
     ctx.lineCap = 'round';
-    ctx.lineWidth = 7;
-    for (let i = 0; i < 12; i++) {
-      const x = -46 + i * 8.5;
-      const drop = 150 + Math.sin(i * 1.7) * 46;
-      ctx.beginPath();
-      ctx.moveTo(x, 6);
-      ctx.quadraticCurveTo(x + 16 + Math.sin(W.time * 1.2 + i) * 6, drop * 0.6, x + 4, drop);
-      ctx.stroke();
+    for (const dp of [{ o: 2.4, w: 8, c: 'rgba(120,150,168,0.45)' },
+                      { o: 0, w: 7, c: '#fbf6e9' },
+                      { o: -2.1, w: 2.6, c: '#ffffff' }]) {
+      ctx.strokeStyle = dp.c;
+      ctx.lineWidth = dp.w;
+      for (let i = 0; i < 12; i++) {
+        const x = -46 + i * 8.5 + dp.o;
+        const drop = 150 + Math.sin(i * 1.7) * 46;
+        ctx.beginPath();
+        ctx.moveTo(x, 6);
+        ctx.quadraticCurveTo(x + 16 + Math.sin(W.time * 1.2 + i) * 6, drop * 0.6, x + 4, drop);
+        ctx.stroke();
+      }
     }
     for (const off of [-26, 22]) {
       ctx.save();
       ctx.rotate(off * 0.0045);
-      const g2 = ctx.createLinearGradient(0, -300, 0, 40);
-      g2.addColorStop(0, '#e6c491');
-      g2.addColorStop(1, '#b98a52');
-      ctx.fillStyle = g2;
       roundRect(ctx, off - 9, -300, 18, 340, 9);
+      ctx.fillStyle = texStyle(ctx, 'bamboo', SPAN.cane, '#d8b073');
+      ctx.fill();
+      const g2 = ctx.createLinearGradient(off - 9, 0, off + 9, 0);
+      g2.addColorStop(0, 'rgba(255,246,224,0.4)');
+      g2.addColorStop(1, 'rgba(58,34,12,0.4)');
+      ctx.fillStyle = g2;
       ctx.fill();
       ctx.restore();
     }

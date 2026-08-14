@@ -12,6 +12,8 @@ import {
 } from './stages.js';
 import { updateFx, drawFx, updateRings, drawRings } from './fx.js';
 import { unlock, toggleMute, audio, updateAudio, sfx } from './audio.js';
+import { loadTextures, textures, setDisable } from './textures.js';
+import { drawBackdrop, invalidateBackdrop, q } from './layer.js';
 import * as art from './art.js';
 
 const canvas = document.getElementById('stage');
@@ -96,19 +98,39 @@ function updateAuto(dt) {
 
 // ---------------------------------------------------------------- render
 
+/** Everything the cached backdrop's appearance depends on, besides the camera. */
+function backdropKey() {
+  return [
+    W.mood.from, W.mood.to, q(W.mood.t, 0.02),
+    q(W.shopAlpha, 0.05), q(W.floorAlpha, 0.05), q(W.floorY, 8),
+    q(W.bowlA, 0.05), q(W.dryness, 0.08),
+    q(W.boardAlpha, 0.05), q(W.cutBoardAlpha, 0.05), q(W.ball.x, 10),
+  ].join(',');
+}
+
 function render() {
   beginScreen();
   art.drawBackground(ctx);
   end();
 
+  // The wall, floor and table are expensive to paint (repeating materials
+  // are resampled per pixel) but only change when the camera does — so they
+  // are cached and blitted while the camera holds still.
+  beginScreen();
+  drawBackdrop(ctx, backdropKey(), (g) => {
+    art.drawSky(g);
+    art.drawShop(g, W.shopAlpha);
+    art.drawFloor(g, W.floorY, W.floorAlpha);
+    art.drawBoard(g, W.ball.x * 0.6, 60, 340, W.boardAlpha);
+    art.drawCuttingBoard(g, W.cutBoardAlpha);
+    if (W.bowlA > 0.01) art.drawRevealTable(g, W.bowlA);
+  });
+  end();
+
   beginWorld();
-  art.drawSky(ctx);
-  art.drawShop(ctx, W.shopAlpha);
-  art.drawFloor(ctx, W.floorY, W.floorAlpha);
+  art.drawSkyLive(ctx);
   art.drawBackRacks(ctx);
   art.drawRack(ctx);
-  art.drawBoard(ctx, W.ball.x * 0.6, 60, 340, W.boardAlpha);
-  art.drawCuttingBoard(ctx, W.cutBoardAlpha);
   art.drawGuides(ctx);
   art.drawBundleGlow(ctx, W.glow);
 
@@ -215,6 +237,10 @@ document.addEventListener('visibilitychange', () => {
   last = performance.now();
 });
 
+// Materials stream in behind the game: every draw call has a flat-colour
+// fallback, so the first frame paints immediately and simply gets richer.
+loadTextures();
+
 initStages();
 requestAnimationFrame(frame);
 
@@ -230,10 +256,12 @@ window.__somen = {
   get stages() { return stageIds(); },
   get world() { return W; },
   get done() { return W.done; },
+  get texturesReady() { return textures.ready; },
   auto(on = true) { auto.on = on; },
   speed(x) { timeScale = x; },
   get renderScale() { return getRenderScale(); },
   setRenderScale(k) { setRenderScale(k); },
+  noTextures(v) { setDisable(v); },
   jump(i) { goTo(i); },
   restart() { restart(); },
 };
