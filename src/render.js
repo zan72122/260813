@@ -465,7 +465,8 @@ function paintWater(r, sim) {
       // 全部の浅い水を白くすると、水ではなく霧に見えてしまう。
       const dry = 0.0016;
       const front = (d[i - 1] < dry || d[i + 1] < dry || d[i - W] < dry || d[i + W] < dry) ? 1 : 0;
-      let f = Math.min(0.4, front * 0.1 + Math.min(0.28, sp * 0.065));
+      // あわは「進んでいく水の先っぽ」のもの。深くたまった水のふちは白く光らせない。
+      let f = Math.min(0.4, front * 0.12 * (1 - deep) + Math.min(0.28, sp * 0.065));
       // 壁ぎわは白くあわ立たせる（水が当たって左右へ分かれるのを見せる）
       if (solid[i - 1] === 2 || solid[i + 1] === 2 || solid[i - W] === 2 || solid[i + W] === 2) {
         f = Math.min(0.72, f + 0.3);
