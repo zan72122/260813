@@ -3,7 +3,7 @@
 //   高い所から低い所へ / 壁にあたると回りこむ / 穴へ吸いこまれる / 流れが合流する
 // DOM を使わない純ロジック。
 
-import { W, H, TT, idx, rebuildHeights } from './city.js';
+import { W, H, TT, idx, rebuildHeights, MAX_WALLS } from './city.js';
 import { makeRng } from './rng.js';
 
 export const RAIN_SEED = 424242;
@@ -17,7 +17,9 @@ const FLOW = 4.0;          // 流れの速さの調整（模型スケールな�
 const MIN_DEPTH = 2e-4;    // これ以下は乾いたことにする
 const MAX_V = 7;
 
-const DROP_VOL = 0.038;    // 一滴が足す水の量
+// 一滴が足す水の量。ここが強すぎると「何をしても水びたし」、
+// 弱すぎると「何もしなくても平気」になる。ひとつの良い手で守りきれる量に合わせてある。
+const DROP_VOL = 0.024;
 const FALL_TICKS = 16;     // 雨つぶが落ちるのにかかる時間
 const MAX_DROPS = 260;
 const MAX_FLOATERS = 70;
@@ -61,7 +63,7 @@ export function createSim(city) {
     running: false,
     rainRng: makeRng(RAIN_SEED),
     fxRng: makeRng(7777),
-    stats: { under: 0, drained: 0, shop: 0, plaza: 0, wet: 0 },
+    stats: { under: 0, drained: 0, plaza: 0, wet: 0, watch: { under: 0, shop: 0, play: 0 } },
     flags: {},
     drainFlow: 0,
     entranceFlow: 0,
@@ -88,7 +90,7 @@ export function resetWater(sim) {
   sim.fxRng = makeRng(7777);
   sim._rainAcc = 0;   // ← これを消し忘れると「まったく同じ雨」でなくなる
   for (const dr of city.drains) dr.flow = 0;
-  sim.stats = { under: 0, drained: 0, shop: 0, plaza: 0, wet: 0 };
+  sim.stats = { under: 0, drained: 0, plaza: 0, wet: 0, watch: { under: 0, shop: 0, play: 0 } };
   sim.flags = {};
   sim.drainFlow = 0;
   sim.entranceFlow = 0;
@@ -294,7 +296,8 @@ function drainStep(sim) {
   for (let i = 0; i < ab.length; i++) {
     const a = ab[i];
     if (a === 0 || d[i] <= 0) continue;
-    const take = Math.min(d[i], d[i] * a + 0.004);
+    // しみこむ量は水の深さに比例させる（固定量を足すと、少ない水を全部飲んでしまう）
+    const take = Math.min(d[i], d[i] * a);
     d[i] -= take;
     if (city.type[i] === TT.ENTRANCE) {
       sim.stats.under += take;
@@ -425,18 +428,29 @@ function floaterStep(sim) {
 function recordStep(sim) {
   const { d, maxd, city } = sim;
   let wet = 0;
+  let plaza = 0;
   for (let i = 0; i < d.length; i++) {
     if (d[i] > maxd[i]) maxd[i] = d[i];
-    if (d[i] > 0.012 && city.type[i] !== TT.RIVER) wet++;
+    const t = city.type[i];
+    if (d[i] > 0.012 && t !== TT.RIVER) wet++;
+    if (t === TT.PLAZA && d[i] > plaza) plaza = d[i];
   }
   sim.stats.wet = wet;
+  if (plaza > sim.stats.plaza) sim.stats.plaza = plaza;
 
+  // 守るもの 3 つが「どれだけ沈んだか」を 0..1 で記録する。
+  // 介入によって、助かるものと沈むものが入れかわる（＝裏目）。
   for (const w of city.watch) {
-    if (w.kind !== 'depth') continue;
-    let m = 0;
-    for (const i of w.cells) if (d[i] > m) m = d[i];
-    if (w.id === 'shop') sim.stats.shop = Math.max(sim.stats.shop, m);
-    if (w.id === 'plaza') sim.stats.plaza = Math.max(sim.stats.plaza, m);
+    let v;
+    if (w.kind === 'volume') {
+      v = sim.stats.under;
+    } else {
+      v = 0;
+      for (const i of w.cells) if (d[i] > v) v = d[i];
+    }
+    const lo = w.floor || 0;
+    const n = Math.min(1, Math.max(0, (v - lo) / (w.scale - lo)));
+    if (n > sim.stats.watch[w.id]) sim.stats.watch[w.id] = n;
   }
 
   // 見どころのタイミングを教える（カメラ用）
@@ -467,8 +481,13 @@ export function openDrain(sim, id) {
   return was;
 }
 
+// wall を足す（null で全部どける）。土のうは MAX_WALLS 個まで。
 export function setWall(sim, wall) {
-  sim.city.walls = wall ? [wall] : [];
+  if (!wall) sim.city.walls = [];
+  else {
+    sim.city.walls = sim.city.walls.concat([wall]);
+    while (sim.city.walls.length > MAX_WALLS) sim.city.walls.shift();
+  }
   rebuildHeights(sim.city);
   // 壁の下にあった水は横へ逃がす
   if (wall) {

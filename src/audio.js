@@ -94,6 +94,8 @@ export function createAudio() {
       setTimeout(() => blip(180, 0.5, 'sine', 0.14, 0.4), 180);
     },
     splash() { noiseBurst(0.25, 2600, 700, 0.16); },
+    // すなをほる音
+    dig() { noiseBurst(0.16, 900, 260, 0.14); },
     thud() { blip(150, 0.18, 'square', 0.14, 0.7); },
     chime() {
       blip(784, 0.35, 'sine', 0.2, 1);

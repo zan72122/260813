@@ -15,6 +15,7 @@ export default [
         process: 'readonly',
         fetch: 'readonly',
         navigator: 'readonly',
+        Path2D: 'readonly',
       },
     },
     rules: {

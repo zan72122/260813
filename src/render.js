@@ -2,6 +2,7 @@
 // 水がヒーロー: 青〜水色ではっきり輪郭が見えること、流れの向きが見えることを優先する。
 
 import { W, H, TT, idx, wallCells } from './city.js';
+import { worldToScreen } from './camera.js';
 import { TW2, TH2, isoX, isoY } from './iso.js';
 
 const S = 3; // 水ビットマップの解像度倍率
@@ -51,6 +52,8 @@ export function createRenderer(canvas) {
     time: 0,
     quality: 1,
     prof: null,
+    digPath: null, digVersion: -1,      // ほったみぞ（変わったときだけ作りなおす）
+    ghostPath: null, ghostKey: null,    // まえの回に水が来た所のふちどり
   };
 
   r.bg = document.createElement('canvas');
@@ -151,6 +154,8 @@ function draw(r, sim, cam, ui) {
 
   drawBoard(ctx);
   drawGround(ctx, city, detail);
+  drawDig(ctx, r, city);
+  if (ui && ui.ghost) drawGhost(ctx, r, ui.ghost);
   if (P) { mark('ground', t0); t0 = performance.now(); }
   drawCloudShadow(ctx, sim);
   paintWater(r, sim);
@@ -168,10 +173,13 @@ function draw(r, sim, cam, ui) {
   drawCloud(ctx, sim);
   if (P) { mark('fxRainCloud', t0); t0 = performance.now(); }
   if (ui && ui.wallGhost) drawWallGhost(ctx, city, ui.wallGhost);
+  if (ui && ui.digAt) drawDigBrush(ctx, ui.digAt, r.time);
 
   ctx.restore();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (ui && ui.badges) drawBadges(ctx, cam, city, ui.badges, r.time, dpr);
+
   tt = r.prof ? performance.now() : 0;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(r.vg, 0, 0);
@@ -426,6 +434,154 @@ function drawOutfall(ctx, city) {
   ctx.globalAlpha = 0.8;
   fillQuad(ctx, o.x - 0.2, o.y - 1, o.x + 1, o.y + 1, '#3d4650');
   ctx.restore();
+}
+
+// ---------- ほったみぞ ----------
+function buildDigPath(city) {
+  const p = new Path2D();
+  const { dig } = city;
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = idx(x, y);
+      if (!dig[i]) continue;
+      p.moveTo(isoX(x, y), isoY(x, y));
+      p.lineTo(isoX(x + 1, y), isoY(x + 1, y));
+      p.lineTo(isoX(x + 1, y + 1), isoY(x + 1, y + 1));
+      p.lineTo(isoX(x, y + 1), isoY(x, y + 1));
+      p.closePath();
+    }
+  }
+  return p;
+}
+
+function drawDig(ctx, r, city) {
+  if (city.digVersion !== r.digVersion) {
+    r.digPath = buildDigPath(city);
+    r.digVersion = city.digVersion;
+  }
+  if (!r.digPath || city.digLeft >= 240) {
+    if (city.dig.indexOf(1) < 0) return;
+  }
+  ctx.save();
+  ctx.fillStyle = '#7a6647';
+  ctx.fill(r.digPath);
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#5d4c33';
+  ctx.lineWidth = 0.7;
+  ctx.stroke(r.digPath);
+  ctx.restore();
+}
+
+// ほるところの目じるし
+function drawDigBrush(ctx, at, time) {
+  const pulse = 0.5 + 0.5 * Math.sin(time * 0.15);
+  pushGrid(ctx, at.x, at.y);
+  ctx.beginPath();
+  ctx.arc(0, 0, at.r + 0.3 + pulse * 0.2, 0, 6.2832);
+  ctx.fillStyle = at.ok ? `rgba(255,240,170,${0.3 + pulse * 0.2})` : 'rgba(255,120,110,.3)';
+  ctx.fill();
+  ctx.strokeStyle = at.ok ? 'rgba(255,255,255,.9)' : 'rgba(255,120,110,.9)';
+  ctx.lineWidth = 0.3;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- まえの回に水が来た所（ゴースト） ----------
+function drawGhost(ctx, r, ghost) {
+  if (ghost.key !== r.ghostKey) {
+    r.ghostKey = ghost.key;
+    r.ghostPath = buildGhostPath(ghost.maxd);
+  }
+  if (!r.ghostPath) return;
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+  ctx.strokeStyle = '#ffb02e';
+  ctx.lineWidth = 1.1;
+  ctx.setLineDash([3, 3]);
+  ctx.stroke(r.ghostPath);
+  ctx.restore();
+}
+
+function buildGhostPath(maxd) {
+  const TH_D = 0.05;
+  const p = new Path2D();
+  const wet = (i) => maxd[i] > TH_D;
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = idx(x, y);
+      if (!wet(i)) continue;
+      // 濡れていないとなりとの間に線を引く＝前回の水ぎわ
+      if (!wet(i - 1)) { p.moveTo(isoX(x, y), isoY(x, y)); p.lineTo(isoX(x, y + 1), isoY(x, y + 1)); }
+      if (!wet(i + 1)) { p.moveTo(isoX(x + 1, y), isoY(x + 1, y)); p.lineTo(isoX(x + 1, y + 1), isoY(x + 1, y + 1)); }
+      if (!wet(i - W)) { p.moveTo(isoX(x, y), isoY(x, y)); p.lineTo(isoX(x + 1, y), isoY(x + 1, y)); }
+      if (!wet(i + W)) { p.moveTo(isoX(x, y + 1), isoY(x, y + 1)); p.lineTo(isoX(x + 1, y + 1), isoY(x + 1, y + 1)); }
+    }
+  }
+  return p;
+}
+
+// ---------- 守るもののバッジ（画面座標。ズームで大きさが変わらない） ----------
+const PICTO = {
+  under: (c, s) => { c.moveTo(-s, s); c.lineTo(-s * 0.3, s); c.lineTo(-s * 0.3, 0);
+    c.lineTo(s * 0.3, 0); c.lineTo(s * 0.3, -s); c.lineTo(s, -s); },
+  shop: (c, s) => { c.moveTo(-s, -s * 0.2); c.lineTo(-s, s); c.lineTo(s, s); c.lineTo(s, -s * 0.2);
+    c.moveTo(-s * 1.15, -s * 0.2); c.lineTo(-s * 0.75, -s * 0.85); c.lineTo(s * 0.75, -s * 0.85);
+    c.lineTo(s * 1.15, -s * 0.2); },
+  play: (c, s) => { c.moveTo(-s, s); c.lineTo(0, -s); c.lineTo(s, s); c.moveTo(0, -s); c.lineTo(0, s * 0.1);
+    c.moveTo(-s * 0.45, s * 0.1); c.lineTo(s * 0.45, s * 0.1); },
+};
+
+function drawBadges(ctx, cam, city, values, time, dpr) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const w of city.watch) {
+    const v = Math.max(0, Math.min(1, values[w.id] || 0));
+    const p = worldToScreen(cam, isoX(w.x, w.y), isoY(w.x, w.y, 1.4));
+    const R = 19;
+    if (p.x < -R || p.y < -R || p.x > cam.vw + R || p.y > cam.vh + R) continue;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // ゆびさし
+    ctx.beginPath();
+    ctx.moveTo(-5, R - 3); ctx.lineTo(5, R - 3); ctx.lineTo(0, R + 8);
+    ctx.closePath();
+    ctx.fillStyle = '#fffdf6'; ctx.fill();
+
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.2832);
+    ctx.fillStyle = '#fffdf6'; ctx.fill();
+    // たまった水
+    if (v > 0.01) {
+      ctx.save();
+      ctx.clip();
+      const lv = R - 2 * R * v;
+      const g = ctx.createLinearGradient(0, lv, 0, R);
+      g.addColorStop(0, '#8ddcf7'); g.addColorStop(1, '#2b8fd8');
+      ctx.fillStyle = g;
+      ctx.fillRect(-R, lv, R * 2, R * 2);
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (let k = -R; k <= R; k += 3) {
+        const yy = lv + Math.sin(time * 0.08 + k * 0.4) * 1.2;
+        if (k === -R) ctx.moveTo(k, yy); else ctx.lineTo(k, yy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    // わく
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.2832);
+    ctx.strokeStyle = v > 0.75 ? '#e0534d' : '#8a7f6a';
+    ctx.lineWidth = v > 0.75 ? 3.4 : 2.4;
+    ctx.stroke();
+    // え
+    ctx.beginPath();
+    (PICTO[w.id] || PICTO.shop)(ctx, R * 0.42);
+    ctx.strokeStyle = '#23303a';
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ---------- 水 ----------
@@ -1163,7 +1319,7 @@ export function drawMinimap(canvas, city, maxd, under = 0) {
       // 深い所ほど濃い青。1回目と2回目のちがいが色で分かるように。
       // うすい水は水色、ふかく沈んだ所はこい紺色。
       // 「1回目はここが真っ青だったのに、2回目はうすい」が色でわかるようにする。
-      const k = Math.min(1, (d - 0.018) / 0.26);
+      const k = Math.min(1, (d - 0.018) / 0.185);
       const e = Math.pow(k, 0.8);
       const wr = 165 - 155 * e, wg = 220 - 150 * e, wb = 248 - 92 * e;
       const mix = 0.55 + 0.45 * e;

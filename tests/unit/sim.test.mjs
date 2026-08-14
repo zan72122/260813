@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createCity, TT, idx } from '../../src/city.js';
+import { createCity, TT, idx, canDig, digAt, clearDig } from '../../src/city.js';
 import { createSim, resetWater, stepSim, openDrain, setWall, RUN_TICKS } from '../../src/sim.js';
 
 function freshCity() {
@@ -14,6 +14,7 @@ function freshCity() {
 }
 
 function restore(city, sim) {
+  clearDig(city);
   for (const d of city.drains) {
     d.state = d.id === 'plaza' ? 'clogged' : d.id === 'big' ? 'closed' : 'open';
     d.flow = 0;
@@ -70,11 +71,12 @@ test('水はこわれない: 負の水深も NaN も出ない', () => {
 
 test('水は高い所から低い所へ行く: ひろばの底に集まる', () => {
   const { city, sim } = freshCity();
-  runTicks(sim, 620);
-  const atLow = sim.d[idx(city.low.x, city.low.y + 3)];
-  const atHigh = sim.d[idx(80, 10)]; // 街の高い角の街区
-  assert.ok(atLow > 0.03, `ひろばの底に水がたまるはず (${atLow})`);
-  assert.ok(atLow > atHigh * 3, 'ひろばの水は高い所よりずっと深いはず');
+  runTicks(sim, 900);
+  const atHigh = sim.d[idx(80, 10)];   // 街の高い角の街区
+  assert.ok(sim.stats.plaza > 0.08, `ひろばに水がたまるはず (${sim.stats.plaza})`);
+  assert.ok(sim.stats.plaza > atHigh * 5, 'ひろばの水は高い所よりずっと深いはず');
+  assert.ok(city.ground[idx(city.low.x, city.low.y)] < city.ground[idx(80, 10)],
+    'ひろばの底は街の高い所より低いはず');
 });
 
 test('同じ雨は何度でも同じ: 2 回まわして結果が一致する', () => {
@@ -96,7 +98,7 @@ test('何もしないと、水は地下入口へ入ってしまう', () => {
   const { city, sim } = freshCity();
   restore(city, sim);
   runTicks(sim, RUN_TICKS);
-  assert.ok(sim.stats.under > 40, `地下に入る水 (${sim.stats.under}) が少なすぎる`);
+  assert.ok(sim.stats.under > 25, `地下に入る水 (${sim.stats.under}) が少なすぎる`);
   assert.ok(sim.flags.overflow > 0, '越流のタイミングが記録されるはず');
   assert.ok(sim.flags.overflow > 300 && sim.flags.overflow < 1100,
     `越流は途中で起きてほしい (t=${sim.flags.overflow})`);
@@ -114,9 +116,9 @@ test('詰まった排水口をそうじすると、同じ雨でも地下が守�
   runTicks(sim, RUN_TICKS);
   const after = sim.stats.under;
 
-  assert.ok(after < before * 0.25,
-    `そうじ後 (${after.toFixed(1)}) は そうじ前 (${before.toFixed(1)}) の 1/4 未満であってほしい`);
-  assert.ok(sim.stats.drained > 60, '排水口がたくさん飲みこむはず');
+  assert.ok(after < before * 0.05,
+    `そうじ後 (${after.toFixed(1)}) は そうじ前 (${before.toFixed(1)}) のほぼゼロであってほしい`);
+  assert.ok(sim.stats.drained > 40, '排水口がたくさん飲みこむはず');
 });
 
 test('大きな排水口のふたを開けても、水の行き先は変わる', () => {
@@ -131,7 +133,7 @@ test('大きな排水口のふたを開けても、水の行き先は変わる',
   runTicks(sim, RUN_TICKS);
 
   assert.ok(sim.stats.under < before * 0.8, '地下へ行く水が減るはず');
-  assert.ok(sim.stats.drained > 25, '大きな排水口が水を横取りするはず');
+  assert.ok(sim.stats.drained > 20, '大きな排水口が水を横取りするはず');
 });
 
 test('壁を置くと、濡れる場所そのものが変わる', () => {
@@ -183,4 +185,90 @@ test('1 tick の計算が十分に速い（モバイルで 60fps を保つため
   runTicks(sim, 200);
   const per = (performance.now() - t0) / 200;
   assert.ok(per < 4, `1 tick あたり ${per.toFixed(2)}ms は遅すぎる`);
+});
+
+// ---------------- 分岐点を増やしたぶんのテスト ----------------
+
+test('みぞをほると、水は掘った線にそって流れ、地下へ行く水が減る', () => {
+  const { city, sim } = freshCity();
+  restore(city, sim);
+  runTicks(sim, RUN_TICKS);
+  const before = sim.stats.under;
+
+  restore(city, sim);
+  // ひろばへ向かう道の水を、みぞで横取りして川のほうへ流す
+  let dug = 0;
+  for (let k = 0; k <= 66; k++) dug += digAt(city, 44 - k * 0.45, 51 - k * 0.03, 2.4);
+  assert.ok(dug > 80, `みぞがほれているはず (${dug} セル)`);
+  resetWater(sim);
+  runTicks(sim, RUN_TICKS);
+
+  assert.ok(sim.stats.under < before * 0.5,
+    `みぞで半分以下になってほしい (${before.toFixed(1)} → ${sim.stats.under.toFixed(1)})`);
+});
+
+test('ほれるのは地面だけ。建物・川・地下入口はほれない', () => {
+  const { city } = freshCity();
+  const b = city.buildings[0];
+  assert.equal(canDig(city, b.x0 + 1, b.y0 + 1), false, '建物はほれない');
+  assert.equal(canDig(city, city.river.x0 + 2, 40), false, '川はほれない');
+  assert.equal(canDig(city, city.entrance.x0 + 1, city.entrance.y0 + 1), false, '地下入口はほれない');
+  assert.equal(canDig(city, city.low.x, city.plaza.y0 - 4), true, '道路はほれる');
+});
+
+test('スコップには限りがあり、使うと減る。もどせば戻る', () => {
+  const { city } = freshCity();
+  clearDig(city);
+  const start = city.digLeft;
+  const n = digAt(city, 40, 30, 2.0);
+  assert.ok(n > 0);
+  assert.equal(city.digLeft, start - n);
+  clearDig(city);
+  assert.equal(city.digLeft, start);
+  assert.equal(city.dig.indexOf(1), -1, 'みぞは消えているはず');
+});
+
+test('裏目: 壁で入口をふさぐと地下は守られるが、こうえんの前が水びたしになる', () => {
+  const { city, sim } = freshCity();
+  restore(city, sim);
+  runTicks(sim, RUN_TICKS);
+  const base = { under: sim.stats.watch.under, play: sim.stats.watch.play };
+
+  restore(city, sim);
+  setWall(sim, { x: 40, y: 51, horizontal: true, len: 11 });
+  resetWater(sim);
+  runTicks(sim, RUN_TICKS);
+
+  assert.ok(sim.stats.watch.under < base.under * 0.6,
+    `地下は守られるはず (${base.under.toFixed(2)} → ${sim.stats.watch.under.toFixed(2)})`);
+  assert.ok(base.play < 0.1 && sim.stats.watch.play > 0.4,
+    `こうえんは、壁を置いたときだけ沈むはず (${base.play.toFixed(2)} → ${sim.stats.watch.play.toFixed(2)})`);
+});
+
+test('土のうは 3 つまで置ける。2 つで両方の入口をふさぐと地下は守りきれる', () => {
+  const { city, sim } = freshCity();
+  restore(city, sim);
+  setWall(sim, { x: 40, y: 51, horizontal: true, len: 11 });
+  setWall(sim, { x: 41, y: 76, horizontal: true, len: 11 });
+  assert.equal(city.walls.length, 2);
+  resetWater(sim);
+  runTicks(sim, RUN_TICKS);
+  assert.ok(sim.stats.watch.under < 0.05,
+    `両方ふさげば地下は無事のはず (${sim.stats.watch.under.toFixed(2)})`);
+
+  for (let k = 0; k < 4; k++) setWall(sim, { x: 30 + k, y: 30, horizontal: true, len: 11 });
+  assert.equal(city.walls.length, 3, '3 つをこえては置けない');
+});
+
+test('排水口はふたを開け閉めできる（何度でも試せる）', () => {
+  const { city, sim } = freshCity();
+  restore(city, sim);
+  const big = city.drains.find((d) => d.id === 'big');
+  assert.equal(big.state, 'closed');
+  openDrain(sim, 'big');
+  assert.equal(big.state, 'open');
+  big.state = 'closed';
+  assert.equal(big.state, 'closed');
+  openDrain(sim, 'big');
+  assert.equal(big.state, 'open');
 });

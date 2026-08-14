@@ -124,7 +124,21 @@ html, body {
 
 .tool { background: linear-gradient(#fffdf6, #efe7d6); }
 .tool.is-on { background: linear-gradient(#ffe9a8, #ffcf5c); outline: 4px solid #fff; }
-.tool.is-used { opacity: .45; }
+.tool { position: relative; overflow: hidden; }
+.tool.is-empty { opacity: .5; }
+
+/* 道具の残り（下からの水位のように見せる。文字を使わずに残量が分かる） */
+.tool .gauge {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: var(--fill, 100%);
+  background: rgba(120, 200, 120, .28);
+  border-top: 2px solid rgba(90, 170, 90, .55);
+  pointer-events: none;
+  transition: height .25s ease;
+}
+
+
 
 /* 横向きで幅が広いときはトレイを縦のまま左端に、コントロールと重ならないよう調整 */
 @media (orientation: landscape) and (max-height: 460px) {
@@ -173,7 +187,8 @@ html, body {
   background: #efe7d6;
   display: block;
 }
-.result.first-run #slot-before, .result.first-run .vs { display: none; }
+.result.first-run #slot-before, .result.first-run .vs,
+.result.first-run .tag-after { display: none; }
 .slot-tag {
   position: absolute;
   top: -8px;
@@ -212,6 +227,18 @@ html, body {
 }
 .score svg { width: clamp(22px, 6vmin, 36px); height: clamp(22px, 6vmin, 36px); }
 .score .ink { stroke-width: 4; }
+.score.is-safe .glass { box-shadow: inset 0 0 0 3px #7fd08a; }
+.score.is-bad .glass { box-shadow: inset 0 0 0 3px #e0534d; }
+.score .delta {
+  position: absolute;
+  top: 4px; left: 50%;
+  width: 0; height: 0;
+  margin-left: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+.score .delta.down { border-top: 10px solid #3fbf63; }
+.score .delta.up { border-bottom: 10px solid #e0534d; top: auto; bottom: 4px; }
 
 .btn-again {
   width: var(--btn-big);
@@ -223,7 +250,7 @@ html, body {
 /* ---------- ゆびヒント ---------- */
 .hint {
   position: absolute;
-  z-index: 4;
+  z-index: 6;          /* ボタンより上（さわってほしい所を指さすため） */
   width: clamp(46px, 12vmin, 80px);
   height: clamp(46px, 12vmin, 80px);
   pointer-events: none;

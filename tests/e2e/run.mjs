@@ -91,14 +91,36 @@ async function main() {
   await page.evaluate(() => window.__test.run(1400));
   const run1 = await page.evaluate(() => window.__test.stats());
   check('道に細い流れができ、水がひろばへ集まった', run1.plaza > 0.15, `plaza=${run1.plaza.toFixed(3)}`);
-  check('水が地下入口へ入ってしまった', run1.under > 40, `under=${run1.under.toFixed(1)}`);
+  check('水が地下入口へ入ってしまった', run1.under > 25, `under=${run1.under.toFixed(1)}`);
+  check('守るもの 3 つのうち、地下とお店が水につかった',
+    run1.watch.under > 0.8 && run1.watch.shop > 0.8, JSON.stringify(run1.watch));
+  check('こうえんは、なにもしなければ無事', run1.watch.play < 0.1, `play=${run1.watch.play}`);
   check('結果くらべが出た', await page.evaluate(() => window.__test.resultVisible()));
 
   // ---------------------------------------------------------------
+  console.log('\n▶ 2b. 立ち尽くさせない案内');
+  await page.click('#btn-again', { force: true });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window.__test.restoreCity());
+  await page.evaluate(() => { window.__game.runs.length = 0; window.__game.autoStopped = false; });
+  await page.evaluate(() => window.__test.reset());
+  await page.waitForTimeout(300);
+  check('はじめは PLAY ボタンを指さしている',
+    (await page.evaluate(() => window.__test.hintTarget())) === 'btn-play'
+    && (await page.evaluate(() => window.__test.hintVisible())));
+
+  await page.click('#btn-play', { force: true });
+  await page.evaluate(() => window.__test.run(900));   // 越流するまで
+  await page.waitForTimeout(3200);
+  check('水が入った所でゲームが自分でとまる',
+    (await page.evaluate(() => window.__test.state())) === 'paused'
+    && (await page.evaluate(() => window.__test.autoStopped())));
+  check('そのまま「詰まった排水口をさわって」と指さす',
+    (await page.evaluate(() => window.__test.hintTarget())) === 'plaza'
+    && (await page.evaluate(() => window.__test.hintVisible())));
+
+  // ---------------------------------------------------------------
   console.log('\n▶ 3. とめて、詰まった排水口をタップしてそうじする');
-  await page.click('#btn-again', { force: true });            // 結果をとじて、かわいた街へ
-  await page.waitForTimeout(500);
-  await page.evaluate(() => window.__test.pause());
   const clog = await page.evaluate(() => window.__test.drain('plaza'));
   check('ひろばの排水口は葉っぱで詰まっている', clog.state === 'clogged' && clog.leaves > 0);
   check('どこをさわればいいか光っている', (await page.evaluate(() => window.__test.ui())).hintDrain === 'plaza');
@@ -108,11 +130,26 @@ async function main() {
   check('タップで葉っぱが取れて、穴があいた', cleaned.state === 'open' && cleaned.leaves === 0);
   await page.waitForTimeout(2200);
   check('地下のようすが出る（断面カット）', (await page.evaluate(() => window.__test.ui())).crossFade > 0.2);
+  // もう一度さわるとふたが閉まる＝なんど でも 試せる
+  await tapGrid(page, clog.x + 0.5, clog.y + 0.5);
+  check('もう一度さわるとふたが閉まる（可逆）',
+    (await page.evaluate(() => window.__test.drain('plaza'))).state === 'closed');
+  await tapGrid(page, clog.x + 0.5, clog.y + 0.5);
+  check('また開けられる', (await page.evaluate(() => window.__test.drain('plaza'))).state === 'open');
 
   // ---------------------------------------------------------------
   console.log('\n▶ 4. RESET → おなじ雨をもういちど（2回目）');
+  // まず「なにもしない 1 回」を最後まで走らせて、くらべる相手を作る
+  await page.evaluate(() => window.__test.restoreCity());
+  await page.click('#btn-play', { force: true });
+  await page.evaluate(() => window.__test.run(1400));
+  await page.waitForTimeout(300);
+  await page.click('#btn-again', { force: true });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window.__test.openDrain('plaza'));
   await page.click('#btn-reset');
   await page.waitForTimeout(300);
+  await page.waitForTimeout(200);
   const dry = await page.evaluate(() => window.__test.stats());
   check('街はまたかわいた', dry.land < 0.01 && dry.tick === 0);
   check('そうじした穴はあいたまま', dry.drains.find((d) => d.id === 'plaza').state === 'open');
@@ -121,8 +158,9 @@ async function main() {
   await page.evaluate(() => window.__test.run(1400));
   const run2 = await page.evaluate(() => window.__test.stats());
   check('おなじ雨なのに、地下へ入る水がぐんと減った',
-    run2.under < run1.under * 0.3, `${run1.under.toFixed(1)} → ${run2.under.toFixed(1)}`);
-  check('排水口がたくさん飲みこんだ', run2.drained > 60, `drained=${run2.drained.toFixed(1)}`);
+    run2.under < run1.under * 0.15, `${run1.under.toFixed(1)} → ${run2.under.toFixed(1)}`);
+  check('地下のゲージが空になった', run2.watch.under < 0.05, `${run2.watch.under}`);
+  check('排水口がたくさん飲みこんだ', run2.drained > 40, `drained=${run2.drained.toFixed(1)}`);
   const maps = await page.evaluate(() => {
     // ふかく水びたしになった所（濃い青）を 2 まいで数える
     const deep = (id) => {
@@ -134,45 +172,84 @@ async function main() {
     return { before: deep('map-before'), after: deep('map-after') };
   });
   check('まえ / いま の 2 まいで、水びたしの所がはっきりちがう',
-    maps.before > 400 && maps.after < maps.before * 0.4,
+    maps.before > 900 && maps.after < maps.before * 0.4,
     `before=${maps.before} after=${maps.after}`);
 
   // ---------------------------------------------------------------
-  console.log('\n▶ 5. 壁をドラッグして置くと、水が別の所へ行く');
+  console.log('\n▶ 5. 壁をドラッグして置くと、地下は守れるが「こうえん」が沈む（裏目）');
   await page.click('#btn-again', { force: true });
   await page.waitForTimeout(500);
-  await page.evaluate(() => window.__test.pause());
-  // 排水口の介入はもどして、「壁だけ」で何が変わるかを見る
   await page.evaluate(() => window.__test.restoreCity());
-  await page.click('#tool-wall');
-  check('壁の道具がえらばれた', (await page.evaluate(() => window.__test.ui())).tool === 'wall');
 
-  // ひろばの入口を横切るように、指で線をひく → その線にそって壁ができる
-  const from = await page.evaluate(() => window.__test.screenOf(33, 51));
+  // 道具トレイのボタンを押したまま、地図までドラッグできる
+  const trayBox = await page.evaluate(() => {
+    const r = document.querySelector('#tool-wall').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
   const to = await page.evaluate(() => window.__test.screenOf(40, 51));
-  await page.mouse.move(from.x, from.y);
+  const via = await page.evaluate(() => window.__test.screenOf(33, 51));
+  await page.mouse.move(trayBox.x, trayBox.y);
   await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 12 });
+  await page.mouse.move(via.x, via.y, { steps: 10 });
+  await page.mouse.move(to.x, to.y, { steps: 10 });
   await page.mouse.up();
   await page.waitForTimeout(150);
-  check('ドラッグで壁が置けた', (await page.evaluate(() => window.__test.stats())).walls === 1);
+  check('トレイから地図へ、そのままドラッグして置けた',
+    (await page.evaluate(() => window.__test.stats())).walls === 1);
   check('壁はなぞった線の向きにできる',
     await page.evaluate(() => window.__game.city.walls[0].horizontal === true));
-  check('置いたら手の道具にもどる', (await page.evaluate(() => window.__test.ui())).tool === 'hand');
 
   await page.click('#btn-reset');
   await page.waitForTimeout(250);
   await page.click('#btn-play', { force: true });
   await page.evaluate(() => window.__test.run(1400));
   const run3 = await page.evaluate(() => window.__test.stats());
-  check('壁が水をせき止めて、地下へ行く水が減った',
-    run3.under < run1.under * 0.85, `${run1.under.toFixed(1)} → ${run3.under.toFixed(1)}`);
+  check('壁で、地下へ行く水が減った',
+    run3.watch.under < run1.watch.under * 0.7,
+    `${run1.watch.under.toFixed(2)} → ${run3.watch.under.toFixed(2)}`);
+  check('そのかわり、こうえんの前が水びたしになった（裏目）',
+    run1.watch.play < 0.1 && run3.watch.play > 0.4,
+    `${run1.watch.play.toFixed(2)} → ${run3.watch.play.toFixed(2)}`);
   check('せき止められた水は、べつの所を濡らした',
-    run3.wet > run1.wet * 1.15, `${run1.wet} → ${run3.wet}`);
+    run3.wet > run1.wet * 1.3, `${run1.wet} → ${run3.wet}`);
+
+  // ---------------------------------------------------------------
+  console.log('\n▶ 5b. みぞをほると、水はその線にそって川へ行く');
+  await page.click('#btn-again', { force: true });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window.__test.restoreCity());
+  await page.click('#tool-dig');
+  check('スコップがえらばれた', (await page.evaluate(() => window.__test.ui())).tool === 'dig');
+
+  const d0 = await page.evaluate(() => window.__test.screenOf(44, 51));
+  const d1 = await page.evaluate(() => window.__test.screenOf(30, 50));
+  const d2 = await page.evaluate(() => window.__test.screenOf(16, 49));
+  await page.mouse.move(d0.x, d0.y);
+  await page.mouse.down();
+  await page.mouse.move(d1.x, d1.y, { steps: 25 });
+  await page.mouse.move(d2.x, d2.y, { steps: 25 });
+  await page.mouse.up();
+  const dug = (await page.evaluate(() => window.__test.stats())).dug;
+  check('ゆびでなぞった所がほれた', dug > 60, `${dug} セル`);
+  check('スコップの残りが減った',
+    await page.evaluate(() => window.__game.el.toolDig.style.getPropertyValue('--fill') !== '100%'));
+
+  await page.click('#btn-reset');
+  await page.waitForTimeout(250);
+  await page.click('#btn-play', { force: true });
+  await page.evaluate(() => window.__test.run(1400));
+  const run4 = await page.evaluate(() => window.__test.stats());
+  check('みぞで水を横取りして、地下へ行く水が減った',
+    run4.under < run1.under * 0.6, `${run1.under.toFixed(1)} → ${run4.under.toFixed(1)}`);
+
+  await page.click('#btn-again', { force: true });
+  await page.waitForTimeout(400);
+  await page.click('#tool-dig');
+  check('スコップをもう一度おすと、ほったみぞが全部もどる',
+    (await page.evaluate(() => window.__test.stats())).dug === 0);
 
   // ---------------------------------------------------------------
   console.log('\n▶ 6. おなじ操作をすると、おなじ結果になる（実験としてなりたつ）');
-  await page.click('#btn-again', { force: true });
   await page.waitForTimeout(400);
   await page.evaluate(() => window.__test.restoreCity());   // 1 回目とまったく同じ条件
   await page.click('#btn-play', { force: true });
@@ -200,7 +277,7 @@ async function main() {
     check(`${name}: ズームが正しく決まる`, cam.fit > 0 && cam.zoom > 0);
 
     // ボタンが指で押せる大きさ（44pt 以上）かつ画面の中
-    const btns = await p2.evaluate(() => ['#btn-play', '#btn-reset', '#tool-wall', '#btn-sound']
+    const btns = await p2.evaluate(() => ['#btn-play', '#btn-reset', '#tool-wall', '#tool-dig', '#btn-sound']
       .map((s) => {
         const r = document.querySelector(s).getBoundingClientRect();
         return { s, w: r.width, h: r.height, inside: r.left >= 0 && r.top >= 0

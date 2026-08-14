@@ -28,7 +28,19 @@ export const TT = {
   LIP: 12,      // 地下入口のふち（ここを越えると入っちゃう）
   GRATE: 13,    // 排水口
   OUTFALL: 14,  // 地下管から川への出口
+  PLAY: 15,     // すなば（こうえん）。水がたまると分かりやすい低い場所
 };
+
+// 指でほったみぞ。まわりの地面より 14cm 低い所まで削る。
+// 段差（ひろばのふち・歩道）も越えられる深さにしないと「みぞを通って水が行く」が成立しない。
+export const DIG_DROP = 0.14;
+export const DIG_MAX = 240;
+
+// ほったみぞは、西の川へ向かってかならず下る。
+// こうしないと「ひろばから川まで水を逃がす」という、いちばん自然な思いつきが
+// どこも掘れない（ひろばが街でいちばん低いので、掘っても水は動かない）ことになる。
+const RIVER_DATUM = -0.09;
+const DIG_SLOPE = 0.009;
 
 const VROADS = [[26, 32], [54, 60], [82, 88]];
 const HROADS = [[16, 22], [46, 52], [76, 82]];
@@ -45,6 +57,8 @@ const CITY_Y = [4, 92];
 export const PLAZA = { x0: 33, x1: 53, y0: 53, y1: 75 };
 export const ENTRANCE = { x0: 45, x1: 50, y0: 65, y1: 70 };
 const SHOP = { x0: 34, x1: 39, y0: 58, y1: 63 };
+// ひろばの北がわの街区。入口を壁でふさぐと、行き場をなくした水がここへ来る。
+const PLAYGROUND = { x0: 36, x1: 48, y0: 38, y1: 45 };
 
 // 谷の底（街でいちばん低い所）。ここへ向かって全体がゆるく傾いている。
 const LOW = { x: 38, y: 70 };
@@ -129,6 +143,12 @@ export function createCity(seed = 20260814) {
     }
   }
 
+  // こうえん（すなば）。道路がわに小さなふちがある、浅いおわん。
+  // ふつうの雨では入らないが、壁で道路の水がふくらむと、ふちを越えて入ってくる。
+  for (let y = PLAYGROUND.y0; y <= PLAYGROUND.y1; y++) {
+    for (let x = PLAYGROUND.x0; x <= PLAYGROUND.x1; x++) type[idx(x, y)] = TT.PLAY;
+  }
+
   // 歩道（街区のうち道路/ひろばに近い所）
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -158,6 +178,14 @@ export function createCity(seed = 20260814) {
         case TT.RIVER: h = riverHeight(y); break;
         case TT.BANK: h = b + 0.42; break;
         case TT.PARK: h = b + 0.17; break;
+        case TT.PLAY: {
+          // すなば。まわりは高いふちで囲まれ、道路がわ（南）のふちだけが低い。
+          //   ふつうの雨  … 道路の水はふちに届かない → かわいたまま
+          //   壁でせき止め … 道路の水がふくらんでふちを越える → 水びたし（＝裏目）
+          const rim = x === PLAYGROUND.x0 || x === PLAYGROUND.x1 || y === PLAYGROUND.y0;
+          h = b + (rim ? 0.2 : y === PLAYGROUND.y1 ? 0.055 : 0.02);
+          break;
+        }
         case TT.WALK: h = b + 0.145; break;
         case TT.BLOCK: h = b + 0.175; break;
         case TT.CROSS: h = b; break;
@@ -195,6 +223,22 @@ export function createCity(seed = 20260814) {
       }
       ground[i] = h;
     }
+  }
+
+  // みぞをほったときに到達する高さ（＝まわりの素の地面より DIG_DROP 低い面）
+  const digTarget = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      digTarget[idx(x, y)] = Math.min(
+        baseHeight(x, y) - DIG_DROP,
+        RIVER_DATUM + DIG_SLOPE * Math.max(0, x - (BANK_X[1][1] - 1)));
+    }
+  }
+
+  // すなばは砂なので、降った雨はゆっくりしみこむ（自分の雨ではたまらない）。
+  // ただし道路からどっと入ってくると、しみこみが追いつかずに水びたしになる。
+  for (let y = PLAYGROUND.y0 + 1; y <= PLAYGROUND.y1 - 1; y++) {
+    for (let x = PLAYGROUND.x0 + 1; x < PLAYGROUND.x1; x++) absorb[idx(x, y)] = 0.012;
   }
 
   // 川の出口（南端）と地下入口は水を飲み込む
@@ -247,22 +291,30 @@ export function createCity(seed = 20260814) {
   const city = {
     W, H, type, ground, solid, absorb, drains, buildings, trees,
     outfall,
+    dig: new Uint8Array(W * H),
+    digVersion: 0,
+    digTarget,
+    digLeft: DIG_MAX,
     layout: {
       vroads: VROADS, hroads: HROADS,
       xBands: X_BANDS, yBands: Y_BANDS,
       riverX: RIVER_X, bankX: BANK_X, parkX: PARK_X,
       cityX: CITY_X, cityY: CITY_Y,
     },
-    plaza: PLAZA, entrance: ENTRANCE, shop: SHOP, low: LOW,
+    plaza: PLAZA, entrance: ENTRANCE, shop: SHOP, play: PLAYGROUND, low: LOW,
     ramps: { north: RAMP_N, south: RAMP_S },
     river: { x0: RIVER_X[0], x1: RIVER_X[1] },
     walls: [],
     h: new Float32Array(W * H),
+    // 守るもの 3 つ。介入によって助かるものと沈むものが入れかわる。
     watch: [
-      // 4歳児に見せる 3 つのゲージ（少ないほどよい）
-      { id: 'under', x: 47, y: 68, cells: rectCells(ENTRANCE), kind: 'volume', scale: 120 },
-      { id: 'shop', x: 37, y: 65, cells: rectCells({ x0: SHOP.x0 - 1, x1: SHOP.x1 + 1, y0: SHOP.y1 + 1, y1: SHOP.y1 + 3 }), kind: 'depth', scale: 0.24 },
-      { id: 'plaza', x: LOW.x, y: LOW.y, cells: discCells(LOW.x, LOW.y - 4, 5), kind: 'depth', scale: 0.28 },
+      { id: 'under', kind: 'volume', x: (ENTRANCE.x0 + ENTRANCE.x1) / 2, y: ENTRANCE.y0 - 1.5,
+        cells: rectCells(ENTRANCE), scale: 45 },
+      { id: 'shop', kind: 'depth', x: (SHOP.x0 + SHOP.x1) / 2, y: SHOP.y1 + 2,
+        cells: rectCells({ x0: SHOP.x0 - 1, x1: SHOP.x1 + 1, y0: SHOP.y1 + 1, y1: SHOP.y1 + 3 }), scale: 0.16 },
+      { id: 'play', kind: 'depth', x: (PLAYGROUND.x0 + PLAYGROUND.x1) / 2, y: PLAYGROUND.y1 + 1,
+        cells: rectCells({ x0: PLAYGROUND.x0, x1: PLAYGROUND.x1, y0: PLAYGROUND.y1, y1: PLAYGROUND.y1 + 2 }),
+        floor: 0.062, scale: 0.10 },
     ],
   };
 
@@ -273,16 +325,6 @@ export function createCity(seed = 20260814) {
 function rectCells(r) {
   const out = [];
   for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) out.push(idx(x, y));
-  return out;
-}
-
-function discCells(cx, cy, rad) {
-  const out = [];
-  for (let y = Math.floor(cy - rad); y <= cy + rad; y++) {
-    for (let x = Math.floor(cx - rad); x <= cx + rad; x++) {
-      if (Math.hypot(x - cx, y - cy) <= rad && x >= 0 && y >= 0 && x < W && y < H) out.push(idx(x, y));
-    }
-  }
   return out;
 }
 
@@ -366,9 +408,14 @@ function placeProps(rng, type, ground) {
 
 // 建物・防水壁を足した「水がぶつかる高さ」を作りなおす
 export function rebuildHeights(city) {
-  const { h, ground, solid, buildings, walls } = city;
+  const { h, ground, solid, buildings, walls, dig, digTarget } = city;
   h.set(ground);
   solid.fill(0);
+
+  // ほったみぞ（地面を下げる。上げることはしない）
+  for (let i = 0; i < dig.length; i++) {
+    if (dig[i] && digTarget[i] < h[i]) h[i] = digTarget[i];
+  }
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -411,6 +458,47 @@ export function wallCells(wl) {
   }
   return out;
 }
+
+// ほれるのは「地面」だけ。建物・川・排水口・地下入口はほれない。
+export function canDig(city, x, y) {
+  if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return false;
+  const i = idx(x, y);
+  if (city.solid[i]) return false;
+  const t = city.type[i];
+  return t === TT.ROAD || t === TT.CROSS || t === TT.WALK || t === TT.BLOCK
+      || t === TT.PLAZA || t === TT.CURB || t === TT.RAMP || t === TT.PARK
+      || t === TT.BANK || t === TT.PLAY;
+}
+
+// 指のあとにそって、まるくほる。ほった数を返す。
+export function digAt(city, gx, gy, radius = 1.6) {
+  if (city.digLeft <= 0) return 0;
+  let n = 0;
+  const r = Math.ceil(radius);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (Math.hypot(dx, dy) > radius) continue;
+      const x = Math.round(gx) + dx, y = Math.round(gy) + dy;
+      if (!canDig(city, x, y)) continue;
+      const i = idx(x, y);
+      if (city.dig[i]) continue;
+      if (city.digLeft - n <= 0) break;
+      city.dig[i] = 1;
+      n++;
+    }
+  }
+  if (n) { city.digLeft -= n; city.digVersion++; rebuildHeights(city); }
+  return n;
+}
+
+export function clearDig(city) {
+  city.dig.fill(0);
+  city.digLeft = DIG_MAX;
+  city.digVersion++;
+  rebuildHeights(city);
+}
+
+export const MAX_WALLS = 3;
 
 export function canPlaceWall(city, wl) {
   const cells = wallCells(wl);

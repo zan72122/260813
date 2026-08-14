@@ -3,7 +3,7 @@
 //   → 排水口/壁をひとつ変える → やりなおす → おなじ雨 → くらべる
 // この輪をなんども回せることがいちばん大事。
 
-import { createCity, W, H, idx, TT, canPlaceWall } from './city.js';
+import { createCity, W, H, idx, TT, canPlaceWall, canDig, digAt, clearDig, DIG_MAX, MAX_WALLS } from './city.js';
 import { createSim, resetWater, stepSim, openDrain, setWall, RUN_TICKS, rainRate } from './sim.js';
 import { createRenderer, drawMinimap } from './render.js';
 import { createCamera, fitCamera, look, lookWide, updateCamera, snapCamera, screenToWorld, worldToScreen } from './camera.js';
@@ -11,6 +11,7 @@ import { unproject, isoX, isoY, setProjection } from './iso.js';
 import { createAudio } from './audio.js';
 
 const WALL_LEN = 11;
+const DIG_R = 1.7;      // ゆびでほるみぞの太さ
 
 export function createGame(root) {
   const canvas = root.querySelector('#view');
@@ -26,6 +27,7 @@ export function createGame(root) {
     sound: root.querySelector('#btn-sound'),
     again: root.querySelector('#btn-again'),
     toolWall: root.querySelector('#tool-wall'),
+    toolDig: root.querySelector('#tool-dig'),
     toolHand: root.querySelector('#tool-hand'),
     result: root.querySelector('#result'),
     mapBefore: root.querySelector('#map-before'),
@@ -40,9 +42,12 @@ export function createGame(root) {
     state: 'dry',           // dry | raining | paused | review
     tool: 'hand',
     runs: [],               // これまでの結果
-    ui: { hintDrain: null, wallGhost: null, crossFade: 0 },
+    ui: { hintDrain: null, wallGhost: null, digAt: null, crossFade: 0, ghost: null, badges: null },
     crossTimer: 0,
     autoplayTimer: 0,
+    autoStopped: false,
+    hintEl: null,
+    ghost: null,
     pullBackTimer: 0,
     acc: 0,
     last: 0,
@@ -60,6 +65,7 @@ export function createGame(root) {
 
   bindUi(g);
   bindPointer(g, canvas);
+  updateToolBadges(g);
 
   requestAnimationFrame((t) => { g.last = t; loop(g, t); });
   return g;
@@ -105,6 +111,9 @@ function loop(g, t) {
     g.ui.crossFade = Math.max(0, g.ui.crossFade - 0.06);
   }
 
+  g.ui.badges = g.sim.stats.watch;
+  g.ui.ghost = (g.state === 'raining' || g.state === 'paused') ? g.ghost : null;
+  g.cam.dpr = g.renderer.dpr;
   updateCamera(g.cam);
   g.renderer.draw(g.sim, g.cam, g.ui);
   updateHint(g);
@@ -141,6 +150,13 @@ function tickSim(g) {
     } else if (ev.t === 'overflow') {
       director(g, 'overflow', ev);
       audio.splash();
+      // はじめての1回だけ、水が入った所で自分で止まって「なおしてね」を見せる。
+      // ここが「23秒ただ見ているだけ」をなくす、いちばん効く仕掛け。
+      if (g.runs.length === 0 && !g.autoStopped) {
+        g.autoStopped = true;
+        clearTimeout(g.autoStopTimer);
+        g.autoStopTimer = setTimeout(() => { if (g.state === 'raining') pause(g); }, 2400);
+      }
     }
   }
 
@@ -193,8 +209,7 @@ function play(g) {
   g.state = 'raining';
   g.el.play.classList.add('is-playing');
   g.el.play.classList.remove('pulse');
-  hideHint(g);
-  g.ui.hintDrain = null;
+  hintFor(g);
   if (g.sim.tick < 5) lookWide(g.cam, 1, 60);
 }
 
@@ -233,12 +248,14 @@ function endRun(g) {
   const run = {
     maxd: Float32Array.from(sim.maxd),
     under: sim.stats.under,
-    shop: sim.stats.shop,
     plaza: sim.stats.plaza,
     drained: sim.stats.drained,
     wet: sim.stats.wet,
+    watch: { ...sim.stats.watch },
   };
   g.runs.push(run);
+  // つぎの回は、前回の水ぎわを重ねて見せる（違いがその場で分かる）
+  g.ghost = { maxd: run.maxd, key: g.runs.length };
   director(g, 'wide');
   showResult(g);
   g.audio.chime();
@@ -248,25 +265,39 @@ function endRun(g) {
 function tapWorld(g, gx, gy) {
   const { city, sim } = g;
 
-  // 排水口をさわる（大きめの当たり）
+  // 排水口をさわる（大きめの当たり）。開いていれば、ふたを閉められる＝何度でも試せる。
   let best = null, bestD = 1e9;
   for (const d of city.drains) {
-    if (d.state === 'open') continue;
+    if (d.id === 'north') continue;      // 見本の排水口はいじらない
     const dist = Math.hypot(d.x + 0.5 - gx, d.y + 0.5 - gy);
     if (dist < d.r + 5 && dist < bestD) { best = d; bestD = dist; }
   }
-  if (best) { activateDrain(g, best); return true; }
+  if (best) {
+    if (best.state === 'open') closeDrain(g, best);
+    else activateDrain(g, best);
+    return true;
+  }
 
   // 置いてある壁をさわると取れる
-  if (city.walls.length) {
-    const wl = city.walls[0];
-    if (Math.hypot(wl.x - gx, wl.y - gy) < 7) {
+  for (const wl of city.walls) {
+    if (Math.hypot(wl.x - gx, wl.y - gy) < 6) {
+      city.walls = city.walls.filter((w) => w !== wl);
       setWall(sim, null);
+      for (const w of city.walls) setWall(sim, w);
       g.audio.thud();
+      hintFor(g);
       return true;
     }
   }
   return false;
+}
+
+function closeDrain(g, d) {
+  d.state = 'closed';
+  d.flow = 0;
+  g.audio.thud();
+  g.renderer.addFx('ring', d.x + 0.5, d.y + 0.5, { life: 22, max: 4, color: 'rgba(190,200,210,.9)' });
+  hintFor(g);
 }
 
 function activateDrain(g, d) {
@@ -327,9 +358,10 @@ function makeGhost(g, gx, gy, from) {
 }
 
 // ---------- 入力 ----------
+// 道具は「トレイのボタンから地図へそのままドラッグ」できる。
+// タップして選んでから地図をなぞってもよい（どちらでも同じ）。
 function bindPointer(g, canvas) {
-  let dragging = false;
-  let dragFrom = null;
+  let drag = null;
 
   const toGrid = (e) => {
     const r = canvas.getBoundingClientRect();
@@ -337,49 +369,106 @@ function bindPointer(g, canvas) {
     return unproject(w.x, w.y);
   };
 
-  canvas.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    canvas.setPointerCapture(e.pointerId);
+  const start = (kind, e, fromTray) => {
     g.audio.unlock();
-    const p = toGrid(e);
-    if (g.tool === 'wall') {
-      dragging = true;
-      dragFrom = { x: p.x, y: p.y };
-      g.ui.wallGhost = makeGhost(g, p.x, p.y, null);
-    } else {
-      tapWorld(g, p.x, p.y);
-    }
-  });
+    drag = { kind, trail: [], moved: 0, sx: e.clientX, sy: e.clientY, fromTray, wasOn: g.tool === kind };
+    if (!fromTray) move(e);
+  };
 
-  canvas.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    e.preventDefault();
+  const move = (e) => {
+    if (!drag) return;
+    drag.moved = Math.max(drag.moved, Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy));
     const p = toGrid(e);
-    g.ui.wallGhost = makeGhost(g, p.x, p.y, dragFrom);
-  });
+    if (p.x < -4 || p.y < -4 || p.x > W + 4 || p.y > H + 4) return;
+    // 直近のなぞり跡だけを見て向きを決める。
+    // トレイから引っぱってきた場合、出発点はボタンの上なので使えない。
+    drag.trail.push({ x: p.x, y: p.y });
+    if (drag.trail.length > 10) drag.trail.shift();
+    if (drag.kind === 'wall') {
+      const from = drag.trail.length >= 4 ? drag.trail[0] : null;
+      g.ui.wallGhost = makeGhost(g, p.x, p.y, from);
+    } else if (drag.kind === 'dig') {
+      const ok = canDig(g.city, Math.round(p.x), Math.round(p.y)) && g.city.digLeft > 0;
+      g.ui.digAt = { x: p.x, y: p.y, r: DIG_R, ok };
+      if (ok) {
+        const n = digAt(g.city, p.x, p.y, DIG_R);
+        if (n) { updateToolBadges(g); if (!g.digSoundAt || g.renderer.time - g.digSoundAt > 8) { g.audio.dig(); g.digSoundAt = g.renderer.time; } }
+      }
+    }
+  };
 
   const end = () => {
-    if (!dragging) return;
-    dragging = false;
-    dragFrom = null;
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    g.ui.digAt = null;
     const gh = g.ui.wallGhost;
     g.ui.wallGhost = null;
-    if (gh && gh.ok) {
+    const tapped = d.moved < 8;
+
+    // トレイのボタンを「ただ押した」ときの意味:
+    //   えらばれていない道具 → えらぶだけ
+    //   すでにえらばれている道具 → 置いたもの/ほったみぞを全部もどして、手にもどる
+    if (d.fromTray && tapped) {
+      if (d.wasOn) {
+        if (d.kind === 'wall' && g.city.walls.length) { setWall(g.sim, null); g.audio.thud(); }
+        if (d.kind === 'dig' && g.city.digLeft < DIG_MAX) { clearDig(g.city); g.audio.thud(); }
+        updateToolBadges(g);
+        hintFor(g);
+        setTool(g, 'hand');
+      }
+      return;
+    }
+
+    if (d.kind === 'wall' && gh && gh.ok) {
       setWall(g.sim, { x: gh.x, y: gh.y, horizontal: gh.horizontal, len: WALL_LEN });
       g.audio.thud();
       g.renderer.addFx('ring', gh.x, gh.y, { life: 26, max: 7, color: 'rgba(255,220,120,.9)' });
-      setTool(g, 'hand');
-      hideHint(g);
+      updateToolBadges(g);
+      hintFor(g);
+      setTool(g, 'hand');   // 土のうは 1 つずつ置く
     }
+    // スコップは選ばれたまま。みぞは何回かに分けてなぞるものなので、
+    // ひと筆ごとに道具が外れると描けない。
   };
-  canvas.addEventListener('pointerup', end);
-  canvas.addEventListener('pointercancel', end);
+
+  canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (g.tool === 'hand') { g.audio.unlock(); const p = toGrid(e); tapWorld(g, p.x, p.y); return; }
+    start(g.tool, e, false);
+  });
+
+  // トレイのボタンを押したまま地図へ引っぱれる
+  for (const [elm, kind] of [[g.el.toolWall, 'wall'], [g.el.toolDig, 'dig']]) {
+    if (!elm) continue;
+    elm.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      start(kind, e, true);
+      setTool(g, kind);
+    });
+  }
+
+  window.addEventListener('pointermove', move, { passive: true });
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
 }
 
 function setTool(g, tool) {
   g.tool = tool;
   g.el.toolWall.classList.toggle('is-on', tool === 'wall');
+  if (g.el.toolDig) g.el.toolDig.classList.toggle('is-on', tool === 'dig');
   g.el.toolHand.classList.toggle('is-on', tool === 'hand');
+}
+
+// 道具の残り（土のうの数・スコップの残り）をボタンに出す
+function updateToolBadges(g) {
+  const { city } = g;
+  g.el.toolWall.style.setProperty('--fill', `${Math.round(((MAX_WALLS - city.walls.length) / MAX_WALLS) * 100)}%`);
+  g.el.toolWall.classList.toggle('is-empty', city.walls.length >= MAX_WALLS);
+  if (g.el.toolDig) {
+    g.el.toolDig.style.setProperty('--fill', `${Math.round((city.digLeft / DIG_MAX) * 100)}%`);
+    g.el.toolDig.classList.toggle('is-empty', city.digLeft <= 0);
+  }
 }
 
 function bindUi(g) {
@@ -390,8 +479,10 @@ function bindUi(g) {
   tap(g.el.play, () => play(g));
   tap(g.el.reset, () => resetCity(g));
   tap(g.el.again, () => resetCity(g));
-  tap(g.el.toolWall, () => setTool(g, g.tool === 'wall' ? 'hand' : 'wall'));
   tap(g.el.toolHand, () => setTool(g, 'hand'));
+  g.el.result.addEventListener('pointerdown', (e) => {
+    if (e.target === g.el.result) resetCity(g);
+  });
   tap(g.el.sound, () => {
     g.audio.setMuted(!g.audio.muted);
     g.el.sound.classList.toggle('is-muted', g.audio.muted);
@@ -402,31 +493,41 @@ function bindUi(g) {
 function hintFor(g) {
   const { city } = g;
   const clog = city.drains.find((d) => d.state === 'clogged');
-  const closed = city.drains.find((d) => d.state === 'closed');
-  if (g.runs.length === 0) {
-    g.ui.hintDrain = null;
-    g.el.play.classList.add('pulse');
-    return;
-  }
+  const closed = city.drains.find((d) => d.id !== 'north' && d.state === 'closed');
   const target = clog || closed;
   g.ui.hintDrain = target ? target.id : null;
-  g.el.play.classList.add('pulse');
+
+  // まだ一度も雨を見ていないうちは、まず PLAY を指さす。
+  const firstTime = g.runs.length === 0 && !g.autoStopped;
+  g.hintEl = (firstTime && g.state !== 'raining') ? g.el.play : null;
+  g.el.play.classList.toggle('pulse', g.state !== 'raining');
 }
 
 function hideHint(g) {
   g.el.hint.classList.add('hidden');
 }
 
-// さわってほしい所へ、ゆびのしるしを重ねる
+// さわってほしい所へ、ゆびのしるしを重ねる。
+// 雨がふっているあいだも出す（＝止めなくても直せる、と分かるように）。
 function updateHint(g) {
   const el = g.el.hint;
-  const d = g.ui.hintDrain && g.city.drains.find((x) => x.id === g.ui.hintDrain);
-  if (!d || g.state === 'raining' || g.tool === 'wall') { el.classList.add('hidden'); return; }
-  const p = worldToScreen(g.cam, isoX(d.x + 0.5, d.y + 0.5), isoY(d.x + 0.5, d.y + 0.5));
-  const m = 40;
-  if (p.x < m || p.y < m || p.x > g.cam.vw - m || p.y > g.cam.vh - m) { el.classList.add('hidden'); return; }
-  el.style.left = `${p.x}px`;
-  el.style.top = `${p.y}px`;
+  if (g.tool !== 'hand' || g.state === 'review') { el.classList.add('hidden'); return; }
+
+  let px, py;
+  if (g.hintEl) {
+    const r = g.hintEl.getBoundingClientRect();
+    px = r.left + r.width * 0.5;
+    py = r.top + r.height * 0.5;
+  } else {
+    const d = g.ui.hintDrain && g.city.drains.find((x) => x.id === g.ui.hintDrain);
+    if (!d) { el.classList.add('hidden'); return; }
+    const p = worldToScreen(g.cam, isoX(d.x + 0.5, d.y + 0.5), isoY(d.x + 0.5, d.y + 0.5));
+    const m = 34;
+    if (p.x < m || p.y < m || p.x > g.cam.vw - m || p.y > g.cam.vh - m) { el.classList.add('hidden'); return; }
+    px = p.x; py = p.y;
+  }
+  el.style.left = `${px}px`;
+  el.style.top = `${py}px`;
   el.classList.remove('hidden');
 }
 
@@ -441,18 +542,18 @@ function showResult(g) {
   g.el.result.classList.toggle('first-run', !prev);
 
   g.el.scores.innerHTML = '';
-  const gauges = [
-    { v: Math.min(1, cur.under / 120), icon: 'stairs' },
-    { v: Math.min(1, cur.shop / 0.24), icon: 'shop' },
-    { v: Math.min(1, cur.plaza / 0.28), icon: 'plaza' },
-  ];
-  for (const ga of gauges) {
+  for (const id of ['under', 'shop', 'play']) {
+    const v = cur.watch[id] || 0;
+    const was = prev ? (prev.watch[id] || 0) : null;
     const wrap = document.createElement('div');
-    wrap.className = 'score';
-    wrap.innerHTML = `<div class="glass"><div class="fill" style="height:0%"></div></div>${iconSvg(ga.icon)}`;
+    wrap.className = 'score' + (v < 0.08 ? ' is-safe' : v > 0.75 ? ' is-bad' : '');
+    // まえの回とくらべて増えた／減ったを、小さな矢印で見せる
+    const arrow = was === null || Math.abs(v - was) < 0.08 ? ''
+      : `<span class="delta ${v < was ? 'down' : 'up'}"></span>`;
+    wrap.innerHTML = `<div class="glass"><div class="fill" style="height:0%"></div>${arrow}</div>${iconSvg(id)}`;
     g.el.scores.appendChild(wrap);
     requestAnimationFrame(() => {
-      wrap.querySelector('.fill').style.height = Math.round(ga.v * 100) + '%';
+      wrap.querySelector('.fill').style.height = Math.round(v * 100) + '%';
     });
   }
 
@@ -467,13 +568,13 @@ function hideResult(g) {
 }
 
 function iconSvg(kind) {
-  if (kind === 'stairs') {
+  if (kind === 'play') {
+    return `<svg viewBox="0 0 48 48"><path class="ink" d="M10 40L24 8l14 32M24 8v26M15 34h18"/></svg>`;
+  }
+  if (kind === 'under') {
     return `<svg viewBox="0 0 48 48"><path class="ink" d="M8 40h10V30h10V20h12V10"/></svg>`;
   }
-  if (kind === 'shop') {
-    return `<svg viewBox="0 0 48 48"><path class="ink" d="M10 20v20h28V20M6 20l4-10h28l4 10z"/><path class="ink" d="M20 40V28h8v12"/></svg>`;
-  }
-  return `<svg viewBox="0 0 48 48"><path class="ink" d="M6 34h36M12 34V20h24v14"/><path class="ink" d="M18 34v-8h12v8"/></svg>`;
+  return `<svg viewBox="0 0 48 48"><path class="ink" d="M10 20v20h28V20M6 20l4-10h28l4 10z"/><path class="ink" d="M20 40V28h8v12"/></svg>`;
 }
 
 // ---------- テスト用フック ----------
@@ -515,8 +616,11 @@ export function attachTestHooks(g) {
         if (d.id === 'plaza') d.leaves = 9;
       }
       setWall(g.sim, null);
+      clearDig(g.city);
       resetWater(g.sim);
       g.renderer.fx.length = 0;
+      g.ghost = null;
+      updateToolBadges(g);
     },
     stats: () => stats(g),
     runs: () => g.runs.map((r) => ({ under: r.under, shop: r.shop, plaza: r.plaza, drained: r.drained, wet: r.wet })),
@@ -530,6 +634,18 @@ export function attachTestHooks(g) {
     ui: () => ({ hintDrain: g.ui.hintDrain, crossFade: g.ui.crossFade, tool: g.tool }),
     resultVisible: () => !g.el.result.classList.contains('hidden'),
     setTool: (t) => setTool(g, t),
+    dig: (x, y) => { const n = digAt(g.city, x, y, DIG_R); updateToolBadges(g); return n; },
+    digLine: (x0, y0, x1, y1) => {
+      const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2.2);
+      let t = 0;
+      for (let k = 0; k <= n; k++) t += digAt(g.city, x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n, DIG_R);
+      updateToolBadges(g);
+      return t;
+    },
+    clearDig: () => { clearDig(g.city); updateToolBadges(g); },
+    autoStopped: () => g.autoStopped,
+    hintTarget: () => (g.hintEl ? g.hintEl.id : g.ui.hintDrain),
+    hintVisible: () => !g.el.hint.classList.contains('hidden'),
     fps: () => 1000 / g.frameMs,
     profile: (frames = 90) => new Promise((res) => {
       g.renderer.prof = {};
@@ -556,5 +672,7 @@ function stats(g) {
     drops: g.sim.drops.length,
     drains: g.city.drains.map((d) => ({ id: d.id, state: d.state, flow: d.flow || 0 })),
     walls: g.city.walls.length,
+    dug: DIG_MAX - g.city.digLeft,
+    watch: { ...g.sim.stats.watch },
   };
 }
