@@ -49,7 +49,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
-await page.goto(BASE + '/?fast=1', { waitUntil: 'load' });
+await page.goto(BASE + (process.env.Q ? `/?q=${process.env.Q}` : '/?fast=1'), { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__game, null, { timeout: 10000 });
 await page.waitForTimeout(600);
 await page.screenshot({ path: `${OUT}/00-title.png` });

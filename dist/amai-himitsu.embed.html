@@ -1,4 +1,5 @@
 <title>あまいひみつ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f6d7b0'/%3E%3Cellipse cx='16' cy='20' rx='11' ry='6' fill='%23d9dee4'/%3E%3C/svg%3E">
 <style>
 :root {
   color-scheme: light;
@@ -29,11 +30,31 @@ body {
   inset: 0;
 }
 
-#stage {
+/* 3 枚重ね。入力は一番手前の #front だけが受ける。 */
+#back,
+#gl,
+#front {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   touch-action: none;
+}
+
+#back {
+  z-index: 0;
+  /* 被写界深度は JS から filter: blur() を差し込む */
+  will-change: filter;
+}
+
+#gl {
+  z-index: 1;
+  pointer-events: none;
+}
+
+#front {
+  z-index: 2;
 }
 
 /* セーフエリア量を JS から読むためだけの不可視要素（ノッチ / ホームバー対策） */
@@ -53,6 +74,7 @@ body {
 
 noscript {
   position: absolute;
+  z-index: 3;
   inset: 0;
   display: grid;
   place-items: center;
@@ -62,7 +84,9 @@ noscript {
 
 html, body { height: 100dvh; }
 </style>
-<canvas id="stage" aria-label="game"></canvas>
+<canvas id="back"></canvas>
+<canvas id="gl"></canvas>
+<canvas id="front" aria-label="game"></canvas>
 <div id="safe" aria-hidden="true"></div>
 <script type="module">
 
@@ -171,557 +195,1597 @@ class Spring {
 }
 
 
-// ================= src/view.js =================
+// ================= src/light.js =================
 
-// 固定エレベーション（正射影っぽい）カメラ。
-// k = sin(仰角): 0 = 真横, 1 = 真上。hf = cos(仰角) = 高さの圧縮率。
+// 画面全体で共有する 1 つのライトモデル。
+// 2D レイヤー（背景・小物）と WebGL レイヤー（Hero 素材）が同じ値を読むので、
+// ハイライトの向きと影の向きが物体間で必ず一致する。
+//
+// 座標系: X = 右, Y = 上, Z = 手前。カメラは仰角 θ（sinθ = view.k）の正射影。
 
-class View {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-    this.dpr = 1;
+// キーライト: 左手前の上、窓から差す暖かい光
+const KEY_DIR = normalize([-0.52, 0.74, 0.42]);
+const KEY_COLOR = [1.0, 0.93, 0.82];
+const KEY_INTENSITY = 3.6;
+
+// フィル: 右奥からの弱い冷たい反射
+const FILL_DIR = normalize([0.66, 0.28, -0.7]);
+const FILL_COLOR = [0.72, 0.8, 0.94];
+const FILL_INTENSITY = 0.62;
+
+// 台からの照り返し（下から）
+const BOUNCE_DIR = normalize([0.1, -1.0, 0.25]);
+const BOUNCE_COLOR = [1.0, 0.82, 0.62];
+const BOUNCE_INTENSITY = 0.40;
+
+// 露出。HDR で 1.0 を超えた値をブルームに溢れさせるための基準。
+const EXPOSURE = 1.0;
+
+// 環境マップに焼く輝度の上限（RGBA8 に格納するためのスケール）
+const ENV_SCALE = 9.0;
+
+function normalize(v) {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+// --- 2D レイヤー用のヘルパ ---------------------------------------------------
+// キーライトを画面に投影した向き（小物のハイライトと影をこれに合わせる）。
+// k は view.k（= sinθ）。
+function keyDirScreen(k) {
+  const hf = Math.sqrt(Math.max(0.05, 1 - k * k));
+  return {
+    x: KEY_DIR[0],
+    // 画面 y は下向き。高さ成分は hf、奥行き成分は k で潰れる。
+    y: -(KEY_DIR[1] * hf + KEY_DIR[2] * k),
+  };
+}
+
+// 接地影を落とす方向と長さ（キーライトの逆側）。
+function shadowOffset(k, height) {
+  const d = keyDirScreen(k);
+  const l = Math.hypot(d.x, d.y) || 1;
+  return { x: (-d.x / l) * height * 0.34, y: (-d.y / l) * height * 0.1 };
+}
+
+
+// ================= src/gl/mat.js =================
+
+// 最小限の 4x4 / 3x3 行列。すべて列優先（WebGL の既定）。
+function ident() {
+  return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+}
+
+function mul(out, a, b) {
+  const o = out === a || out === b ? new Float32Array(16) : out;
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      o[c * 4 + r] =
+        a[r] * b[c * 4] +
+        a[4 + r] * b[c * 4 + 1] +
+        a[8 + r] * b[c * 4 + 2] +
+        a[12 + r] * b[c * 4 + 3];
+    }
+  }
+  if (o !== out) out.set(o);
+  return out;
+}
+
+function translate(out, x, y, z) {
+  out.set(ident());
+  out[12] = x;
+  out[13] = y;
+  out[14] = z;
+  return out;
+}
+
+function scale(out, x, y, z) {
+  out.set(ident());
+  out[0] = x;
+  out[5] = y;
+  out[10] = z;
+  return out;
+}
+
+function rotateX(out, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  out.set(ident());
+  out[5] = c;
+  out[6] = s;
+  out[9] = -s;
+  out[10] = c;
+  return out;
+}
+
+function rotateY(out, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  out.set(ident());
+  out[0] = c;
+  out[2] = -s;
+  out[8] = s;
+  out[10] = c;
+  return out;
+}
+
+function rotateZ(out, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  out.set(ident());
+  out[0] = c;
+  out[1] = s;
+  out[4] = -s;
+  out[5] = c;
+  return out;
+}
+
+// 回転 + 一様スケールのみを想定した法線行列（上 3x3 をそのまま使う）
+function normalMat3(out, m) {
+  out[0] = m[0];
+  out[1] = m[1];
+  out[2] = m[2];
+  out[3] = m[4];
+  out[4] = m[5];
+  out[5] = m[6];
+  out[6] = m[8];
+  out[7] = m[9];
+  out[8] = m[10];
+  return out;
+}
+
+// 使い回し用の一時領域
+const t1 = ident();
+const t2 = ident();
+
+// 「原点に置いて、必要なら pivot まわりに X 軸回転」を 1 回で作る
+function place(out, x, y, z, rotX = 0, pivotY = 0, sx = 1) {
+  translate(out, x, y, z);
+  if (sx !== 1) {
+    scale(t1, sx, sx, sx);
+    mul(out, out, t1);
+  }
+  if (rotX !== 0) {
+    translate(t1, 0, pivotY, 0);
+    mul(out, out, t1);
+    rotateX(t2, rotX);
+    mul(out, out, t2);
+    translate(t1, 0, -pivotY, 0);
+    mul(out, out, t1);
+  }
+  return out;
+}
+
+
+// --- bundle: import * as M from './mat.js' の代替 ---
+const M = { ident, mul, translate, scale, rotateX, rotateY, rotateZ, normalMat3, place };
+
+
+// ================= src/gl/glx.js =================
+
+// WebGL2 の薄いラッパ。品質ティアの判定もここで持つ。
+// WebGL2 が無い端末では null を返し、呼び出し側は Canvas2D の従来経路にフォールバックする。
+
+const TIER = { LOW: 0, MID: 1, HIGH: 2 };
+
+function createGL(canvas) {
+  let gl = null;
+  try {
+    gl = canvas.getContext('webgl2', {
+      alpha: true,
+      antialias: true,
+      depth: true,
+      stencil: false,
+      premultipliedAlpha: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: false,
+      desynchronized: true,
+    });
+  } catch {
+    return null;
+  }
+  if (!gl) return null;
+  // 半精度浮動小数のレンダーターゲット（HDR とブルームに使う）
+  gl.floatRT =
+    !!gl.getExtension('EXT_color_buffer_float') ||
+    !!gl.getExtension('EXT_color_buffer_half_float');
+  gl.getExtension('OES_texture_float_linear');
+  return gl;
+}
+
+// 端末の素性から初期ティアを推定する。実測で毎秒調整するのでここは大まかでよい。
+function guessTier() {
+  const m = /[?&]q=([0-2])/.exec(location.search);
+  if (m) return +m[1];
+  const cores = navigator.hardwareConcurrency || 4;
+  const mem = navigator.deviceMemory || 4;
+  const px = window.innerWidth * window.innerHeight * Math.min(window.devicePixelRatio || 1, 2);
+  if (cores <= 4 && mem <= 3) return TIER.LOW;
+  if (px > 2200000 && cores <= 6) return TIER.MID;
+  return TIER.HIGH;
+}
+
+// 実測フレーム時間からティアを上下させる。
+class TierGovernor {
+  constructor(initial) {
+    this.tier = initial;
+    this.acc = 0;
+    this.n = 0;
+    this.cooldown = 1.5;
+    this.overBudget = 0;
+    this.underBudget = 0;
+    this.locked = /[?&]q=[0-2]/.test(location.search);
+  }
+  sample(dt) {
+    if (this.locked) return this.tier;
+    this.cooldown -= dt;
+    if (this.cooldown > 0) return this.tier;
+    this.acc += dt;
+    this.n++;
+    if (this.n < 45) return this.tier;
+    const avg = this.acc / this.n;
+    this.acc = 0;
+    this.n = 0;
+    if (avg > 0.0225) {
+      // 22ms 超が続いたら落とす
+      this.overBudget++;
+      this.underBudget = 0;
+      if (this.overBudget >= 2 && this.tier > TIER.LOW) {
+        this.tier--;
+        this.overBudget = 0;
+        this.cooldown = 3;
+      }
+    } else if (avg < 0.0138) {
+      // 余裕があれば戻す（一度だけ）
+      this.underBudget++;
+      this.overBudget = 0;
+      if (this.underBudget >= 6 && this.tier < TIER.HIGH) {
+        this.tier++;
+        this.underBudget = 0;
+        this.cooldown = 4;
+      }
+    }
+    return this.tier;
+  }
+}
+
+function compile(gl, type, src, name) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(sh);
+    console.error(`[gl] ${name} compile failed:\n${log}`);
+    const lines = src.split('\n');
+    const m = /ERROR: \d+:(\d+)/.exec(log || '');
+    if (m) console.error(lines.slice(Math.max(0, +m[1] - 4), +m[1] + 2).join('\n'));
+    gl.deleteShader(sh);
+    return null;
+  }
+  return sh;
+}
+
+function program(gl, vsSrc, fsSrc, name = 'program') {
+  const vs = compile(gl, gl.VERTEX_SHADER, vsSrc, name + '.vert');
+  const fs = compile(gl, gl.FRAGMENT_SHADER, fsSrc, name + '.frag');
+  if (!vs || !fs) return null;
+  const p = gl.createProgram();
+  gl.attachShader(p, vs);
+  gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  gl.deleteShader(vs);
+  gl.deleteShader(fs);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error(`[gl] ${name} link failed:\n${gl.getProgramInfoLog(p)}`);
+    return null;
+  }
+  // uniform / attribute の位置を一度だけ引いて持つ
+  p.u = {};
+  p.a = {};
+  const nu = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < nu; i++) {
+    const info = gl.getActiveUniform(p, i);
+    const nm = info.name.replace(/\[0\]$/, '');
+    p.u[nm] = gl.getUniformLocation(p, nm);
+  }
+  const na = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES);
+  for (let i = 0; i < na; i++) {
+    const info = gl.getActiveAttrib(p, i);
+    p.a[info.name] = gl.getAttribLocation(p, info.name);
+  }
+  return p;
+}
+
+function texture(gl, opts = {}) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, opts.min ?? gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, opts.mag ?? gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, opts.wrapS ?? gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, opts.wrapT ?? gl.CLAMP_TO_EDGE);
+  return t;
+}
+
+// 単純なオフスクリーン（色 1 枚 + 任意で深度）
+class Target {
+  constructor(gl, w, h, opts = {}) {
+    this.gl = gl;
     this.w = 0;
     this.h = 0;
-    this.portrait = true;
-    // カメラは「ワールド上のどの箱を必ず画面に収めるか」で指定する。
-    // こうすると iPhone / iPad の縦横どちらでも自動で最適な大きさになる。
-    // x,y = 箱の中心 / w,h = 箱の大きさ（ワールド単位） / k = 仰角 / anchor = 箱中心の画面上の縦位置
-    this.cam = { x: 0, y: 40, w: 280, h: 140, k: 0.42, anchor: 0.5 };
-    this.target = { ...this.cam };
-    this.shake = 0;
-    this._shx = 0;
-    this._shy = 0;
-    this.s = 1;
-    this.cx = 0;
-    this.cy = 0;
+    this.half = !!opts.half && gl.floatRT;
+    this.depth = !!opts.depth;
+    this.tex = texture(gl, opts);
+    this.fbo = gl.createFramebuffer();
+    if (this.depth) this.rb = gl.createRenderbuffer();
+    this.resize(w, h);
   }
-
-  resize(fastMode) {
-    const cap = fastMode ? 1 : 2;
-    const w = Math.max(1, Math.round(window.innerWidth));
-    const h = Math.max(1, Math.round(window.innerHeight));
-    let dpr = Math.min(window.devicePixelRatio || 1, cap);
-    // 大画面（iPad Pro など）で塗り面積が増えすぎないよう上限を掛ける。
-    const maxPixels = 2600000;
-    if (w * h * dpr * dpr > maxPixels) {
-      dpr = Math.max(1, Math.sqrt(maxPixels / (w * h)));
-    }
-    if (this.w === w && this.h === h && this.dpr === dpr) return false;
+  resize(w, h) {
+    w = Math.max(1, Math.round(w));
+    h = Math.max(1, Math.round(h));
+    if (this.w === w && this.h === h) return;
+    const gl = this.gl;
     this.w = w;
     this.h = h;
-    this.dpr = dpr;
-    this.canvas.width = Math.round(w * dpr);
-    this.canvas.height = Math.round(h * dpr);
-    this.canvas.style.width = w + 'px';
-    this.canvas.style.height = h + 'px';
-    this.portrait = h >= w;
-    return true;
-  }
-
-  setTarget(t) {
-    Object.assign(this.target, t);
-  }
-
-  snapToTarget() {
-    Object.assign(this.cam, this.target);
-  }
-
-  update(dt) {
-    const c = this.cam;
-    const t = this.target;
-    c.x = damp(c.x, t.x, 3.4, dt);
-    c.y = damp(c.y, t.y, 3.4, dt);
-    c.w = damp(c.w, t.w, 3.0, dt);
-    c.h = damp(c.h, t.h, 3.0, dt);
-    c.k = damp(c.k, t.k, 3.2, dt);
-    c.anchor = damp(c.anchor, t.anchor, 3.2, dt);
-    if (this.shake > 0) {
-      this.shake = Math.max(0, this.shake - dt * 2.6);
-      const a = this.shake * this.shake * 9;
-      this._shx = (Math.random() * 2 - 1) * a;
-      this._shy = (Math.random() * 2 - 1) * a;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    if (this.half) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
     } else {
-      this._shx = this._shy = 0;
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     }
-    this.recompute();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.tex, 0);
+    if (this.depth) {
+      gl.bindRenderbuffer(gl.RENDERBUFFER, this.rb);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+      gl.framebufferRenderbuffer(
+        gl.FRAMEBUFFER,
+        gl.DEPTH_ATTACHMENT,
+        gl.RENDERBUFFER,
+        this.rb
+      );
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
-
-  recompute() {
-    const c = this.cam;
-    this.k = clamp(c.k, 0.06, 0.95);
-    this.hf = Math.sqrt(Math.max(0.05, 1 - this.k * this.k));
-    // 指の置き場所（縦なら下、横なら右）を残して、残りに収める。
-    const hb = this.portrait ? 0.94 : 0.8;
-    const vb = this.portrait ? 0.64 : 0.74;
-    const sw = (this.w * hb) / Math.max(1, c.w);
-    const sh = (this.h * vb) / Math.max(1, c.h * this.hf);
-    this.s = Math.min(sw, sh);
-    this.cx = this.w / 2 + this._shx;
-    this.cy = this.h * c.anchor + this._shy;
-  }
-
-  // ワールド座標 -> 変換適用後のローカル座標
-  X(wx) {
-    return wx - this.cam.x;
-  }
-  Y(wy) {
-    return (this.cam.y - wy) * this.hf;
-  }
-  // ワールド -> 画面(CSS px)
-  toScreen(wx, wy) {
-    return { x: this.cx + this.X(wx) * this.s, y: this.cy + this.Y(wy) * this.s };
-  }
-  // 画面(CSS px) -> ワールド
-  toWorld(sx, sy) {
-    return {
-      x: (sx - this.cx) / this.s + this.cam.x,
-      y: this.cam.y - (sy - this.cy) / this.s / this.hf,
-    };
-  }
-
-  begin() {
-    const ctx = this.ctx;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    return ctx;
-  }
-
-  world() {
-    const ctx = this.ctx;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.translate(this.cx, this.cy);
-    ctx.scale(this.s, this.s);
-    return ctx;
+  bind() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.viewport(0, 0, this.w, this.h);
   }
 }
 
-
-// ================= src/input.js =================
-
-// 画面のどこを触っても操作できる、極めて寛容な入力層。
-// 4歳児向け: 位置精度を要求しない / 進捗は減らない / 手ぶれを吸収する。
-
-class Input {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.active = false;
-    this.x = 0;
-    this.y = 0;
-    this.px = 0;
-    this.py = 0;
-    this.dx = 0;
-    this.dy = 0;
-    this.startX = 0;
-    this.startY = 0;
-    this.downTime = 0;
-    this.idle = 0; // 最後に触ってからの秒数
-    this.tapped = false; // このフレームで指が離れた（短い接触）
-    this.everTouched = false;
-    this._pending = { dx: 0, dy: 0 };
-    this._id = null;
-
-    const opt = { passive: false };
-    canvas.addEventListener('pointerdown', this._down, opt);
-    canvas.addEventListener('pointermove', this._move, opt);
-    canvas.addEventListener('pointerup', this._up, opt);
-    canvas.addEventListener('pointercancel', this._up, opt);
-    canvas.addEventListener('pointerleave', this._up, opt);
-    // iOS Safari のスクロール/ズームを完全に止める。
-    canvas.addEventListener('touchstart', (e) => e.preventDefault(), opt);
-    canvas.addEventListener('touchmove', (e) => e.preventDefault(), opt);
-    canvas.addEventListener('gesturestart', (e) => e.preventDefault(), opt);
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault(), opt);
+// マルチサンプルのレンダーバッファ（アンチエイリアス用）。
+// 解決（resolve）は blitFramebuffer で行う。
+class MSTarget {
+  constructor(gl, w, h, samples, half) {
+    this.gl = gl;
+    this.samples = samples;
+    this.half = half && gl.floatRT;
+    this.w = 0;
+    this.h = 0;
+    this.fbo = gl.createFramebuffer();
+    this.rbColor = gl.createRenderbuffer();
+    this.rbDepth = gl.createRenderbuffer();
+    this.resize(w, h);
   }
-
-  _down = (e) => {
-    if (this._id !== null) return; // 最初の指だけを見る（手のひらが当たっても壊れない）
-    this._id = e.pointerId;
-    try {
-      this.canvas.setPointerCapture(e.pointerId);
-    } catch {
-      /* noop */
-    }
-    const p = this._pos(e);
-    this.active = true;
-    this.everTouched = true;
-    this.x = this.px = this.startX = p.x;
-    this.y = this.py = this.startY = p.y;
-    this._pending.dx = 0;
-    this._pending.dy = 0;
-    this.downTime = 0;
-    this.idle = 0;
-    this.travel = 0;
-    e.preventDefault();
-  };
-
-  _move = (e) => {
-    if (e.pointerId !== this._id) return;
-    const p = this._pos(e);
-    this._pending.dx += p.x - this.x;
-    this._pending.dy += p.y - this.y;
-    this.x = p.x;
-    this.y = p.y;
-    this.idle = 0;
-    e.preventDefault();
-  };
-
-  _up = (e) => {
-    if (e.pointerId !== this._id) return;
-    this._id = null;
-    this.active = false;
-    this.tapped = this.downTime < 0.35;
-    e.preventDefault();
-  };
-
-  _pos(e) {
-    const r = this.canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  resize(w, h) {
+    w = Math.max(1, Math.round(w));
+    h = Math.max(1, Math.round(h));
+    if (this.w === w && this.h === h) return;
+    const gl = this.gl;
+    this.w = w;
+    this.h = h;
+    const fmt = this.half ? gl.RGBA16F : gl.RGBA8;
+    const s = this.samples;
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.rbColor);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, s, fmt, w, h);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.rbDepth);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, s, gl.DEPTH_COMPONENT16, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, this.rbColor);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.rbDepth);
+    // ドライバによっては RGBA16F のマルチサンプルが通らない。使えるかここで確かめる。
+    this.complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
-
-  // 毎フレーム先頭で呼ぶ。
-  beginFrame(dt) {
-    this.dx = this._pending.dx;
-    this.dy = this._pending.dy;
-    this._pending.dx = 0;
-    this._pending.dy = 0;
-    this.px = this.x - this.dx;
-    this.py = this.y - this.dy;
-    if (this.active) {
-      this.downTime += dt;
-      this.idle = 0;
-      this.travel = (this.travel || 0) + Math.hypot(this.dx, this.dy);
-    } else {
-      this.idle += dt;
-    }
-  }
-
-  endFrame() {
-    this.tapped = false;
-  }
-
-  get moveLen() {
-    return Math.hypot(this.dx, this.dy);
+  bind() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.viewport(0, 0, this.w, this.h);
   }
 }
 
-// --- ジェスチャ認識器 ------------------------------------------------------
-// いずれも 0..1 の進捗を「増やすだけ」。逆方向の手ぶれで戻ることはない。
+// 画面いっぱいの三角形（フルスクリーンパス用）
+function fullscreenVAO(gl) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  return vao;
+}
 
-// 円運動（混ぜる）。中心からずれていても、ぐるぐるでも往復でも進む。
-class CircleGesture {
-  constructor(turns = 2.2) {
-    this.need = turns * TAU;
-    this.acc = 0;
-    this.angle = 0;
-    this.has = false;
-    this.spin = 0; // 見た目用の回転角
-    this.speed = 0;
-    this.ex = 0; // 回転中心の推定値（指の移動平均）
-    this.ey = 0;
+
+// ================= src/gl/env.js =================
+
+// 環境マップとディテールテクスチャを起動時に 1 度だけ焼く。
+// 金属の映り込み・ツヤのハイライトは、この環境マップが出どころ。
+
+
+const W = 128;
+const H = 64;
+
+// equirect: u = 方位 0..1, v = 仰角 0..1（1 が真上）
+function envColor(u, v) {
+  const phi = (u - 0.5) * Math.PI * 2;
+  const theta = (v - 0.5) * Math.PI;
+  const up = Math.sin(theta);
+
+  // 下半球: 暗い作業台。金属は「暗い所」があって初めて磨いて見える。
+  if (up < 0) {
+    const t = -up;
+    const f = 0.30 * (1 - t * 0.55) + 0.05;
+    return [f * 1.0, f * 0.88, f * 0.74];
   }
-  reset() {
-    this.acc = 0;
-    this.has = false;
-    this.spin = 0;
-    this.speed = 0;
+
+  // 上半球のベース: 地平線は暗く、天井に向かって明るくなる
+  const b = 0.10 + Math.pow(up, 0.75) * 0.42;
+  let r = b * 0.98;
+  let g = b * 1.0;
+  let bl = b * 1.06;
+
+  // 大きな窓（左手前・やや上）— ハイライトの主役。ここだけ極端に明るい。
+  const winPhi = -1.02;
+  const winTheta = 0.34;
+  const dp = angDelta(phi - winPhi);
+  const dt = theta - winTheta;
+  // 縦長の四角い窓。輪郭をはっきりさせると金属に「窓の形」が映る。
+  const wx = Math.abs(dp) / 0.30;
+  const wy = Math.abs(dt) / 0.52;
+  const win = 1 - smoothstep(0.74, 1.0, Math.max(wx, wy));
+  const halo = 1 - smoothstep(0.5, 2.6, Math.hypot(wx, wy));
+  const wi = win * 8.0 + halo * 0.9;
+  r += wi * 1.0;
+  g += wi * 0.985;
+  bl += wi * 0.95;
+
+  // 天井の面光源（横に長い）
+  const ct = 1 - smoothstep(0.55, 1.0, Math.abs(theta - 1.35) / 0.36);
+  r += ct * 1.35;
+  g += ct * 1.3;
+  bl += ct * 1.22;
+
+  // 右奥の小さな照明（リムの映り込み用）
+  const lp = angDelta(phi - 2.15);
+  const lt = theta - 0.42;
+  const lamp = 1 - smoothstep(0.5, 1.0, Math.hypot(lp / 0.14, lt / 0.11));
+  r += lamp * 2.6;
+  g += lamp * 2.1;
+  bl += lamp * 1.5;
+
+  // 地平線の暗い帯（ここが金属の「締まり」を作る）
+  const hz = 1 - smoothstep(0.0, 0.28, theta);
+  r *= 1 - hz * 0.55;
+  g *= 1 - hz * 0.58;
+  bl *= 1 - hz * 0.6;
+
+  return [r, g, bl];
+}
+
+const smoothstep = (a, b, x) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1e-6)));
+  return t * t * (3 - 2 * t);
+};
+function angDelta(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+// u 方向は巻き、v 方向は端を伸ばす分離可能ぼかし
+function blur(src, w, h, radius) {
+  const dst = new Float32Array(src.length);
+  const tmp = new Float32Array(src.length);
+  const rr = Math.max(1, radius | 0);
+  const wsum = [];
+  let tot = 0;
+  for (let i = -rr; i <= rr; i++) {
+    const g = Math.exp((-i * i) / (2 * (rr / 2) * (rr / 2) + 1e-6));
+    wsum.push(g);
+    tot += g;
   }
-  nudge(dt) {
-    this.acc += this.need * dt * 0.12;
-    this.spin += dt * 2.4;
-  }
-  // cx, cy は「まだ触っていないとき」の初期中心（ボウルの位置）。
-  // 触り始めたら指の移動平均を中心として使うので、画面のどこで回しても成立する。
-  update(input, cx, cy, dt) {
-    let gain = 0;
-    if (input.active) {
-      if (!this.has) {
-        this.ex = input.x;
-        this.ey = input.y;
-      } else {
-        const l = 1 - Math.exp(-2.6 * dt);
-        this.ex += (input.x - this.ex) * l;
-        this.ey += (input.y - this.ey) * l;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let a = 0;
+      let b = 0;
+      let c = 0;
+      for (let i = -rr; i <= rr; i++) {
+        const sx = (((x + i) % w) + w) % w;
+        const o = (y * w + sx) * 3;
+        const g = wsum[i + rr];
+        a += src[o] * g;
+        b += src[o + 1] * g;
+        c += src[o + 2] * g;
       }
-      const a = Math.atan2(input.y - this.ey, input.x - this.ex);
-      const r = Math.hypot(input.y - this.ey, input.x - this.ex);
-      if (this.has && r > 10) {
-        // 回転成分（半径が小さいと角度が暴れるので上限を掛ける）
-        gain += Math.min(Math.abs(angleDelta(a, this.angle)), 0.5);
+      const o = (y * w + x) * 3;
+      tmp[o] = a / tot;
+      tmp[o + 1] = b / tot;
+      tmp[o + 2] = c / tot;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let a = 0;
+      let b = 0;
+      let c = 0;
+      for (let i = -rr; i <= rr; i++) {
+        const sy = Math.max(0, Math.min(h - 1, y + i));
+        const o = (sy * w + x) * 3;
+        const g = wsum[i + rr];
+        a += tmp[o] * g;
+        b += tmp[o + 1] * g;
+        c += tmp[o + 2] * g;
       }
-      this.angle = a;
-      this.has = true;
-      // 直線的にゴシゴシ動かすだけでも進むよう、移動距離でも加点。
-      gain += input.moveLen / 750;
-      this.spin += Math.max(gain, input.moveLen / 600) * 2.6;
-    } else {
-      this.has = false;
+      const o = (y * w + x) * 3;
+      dst[o] = a / tot;
+      dst[o + 1] = b / tot;
+      dst[o + 2] = c / tot;
     }
-    this.speed = this.speed * Math.exp(-6 * dt) + gain * 10;
-    this.acc += gain;
-    return clamp(this.acc / this.need);
   }
+  return dst;
 }
 
-// 一方向ドラッグ（注ぐ / 持ち上げる / 蓋を下ろす）。
-// axis: 'x' | 'y', sign: +1 | -1。distance は CSS px。
-class DragGesture {
-  constructor(axis, sign, distance) {
-    this.axis = axis;
-    this.sign = sign;
-    this.dist = distance;
-    this.acc = 0;
-    this.rate = 0;
-  }
-  reset() {
-    this.acc = 0;
-    this.rate = 0;
-  }
-  nudge(dt) {
-    this.acc += this.dist * dt * 0.12;
-  }
-  update(input, dt) {
-    let d = 0;
-    if (input.active) {
-      const main = this.axis === 'x' ? input.dx : input.dy;
-      const cross = this.axis === 'x' ? input.dy : input.dx;
-      // 斜めでも通す。逆方向は無視（減らさない）。
-      d = Math.max(0, main * this.sign) + Math.abs(cross) * 0.12;
-    }
-    this.rate = this.rate * Math.exp(-8 * dt) + (d / Math.max(dt, 1e-3)) * 0.002;
-    this.acc += d;
-    return clamp(this.acc / this.dist);
-  }
-}
-
-// 大きな弧のスワイプ（ひっくり返す）。左右どちらでも成立する。
-class ArcGesture {
-  constructor(distance) {
-    this.dist = distance;
-    this.acc = 0;
-    this.dir = 0;
-    this.rate = 0;
-  }
-  reset() {
-    this.acc = 0;
-    this.dir = 0;
-    this.rate = 0;
-  }
-  nudge(dt) {
-    this.acc += this.dist * dt * 0.12;
-  }
-  update(input, dt) {
-    let d = 0;
-    if (input.active) {
-      if (this.dir === 0 && Math.abs(input.dx) > 2) this.dir = Math.sign(input.dx);
-      const h = this.dir === 0 ? Math.abs(input.dx) : input.dx * this.dir;
-      d = Math.max(0, h) + Math.max(0, -input.dy) * 0.35; // 上向きの弧も加点
-    }
-    this.rate = this.rate * Math.exp(-8 * dt) + (d / Math.max(dt, 1e-3)) * 0.002;
-    this.acc += d;
-    return clamp(this.acc / this.dist);
-  }
-}
-
-// 押さえ続ける / こする（加熱レバー）。触れていれば進む。
-class HoldGesture {
-  constructor(duration) {
-    this.dur = duration;
-    this.acc = 0;
-  }
-  reset() {
-    this.acc = 0;
-  }
-  nudge(dt) {
-    this.acc += this.dur * dt * 0.12;
-  }
-  update(input, dt) {
-    if (input.active) this.acc += dt * (1 + Math.min(input.moveLen, 30) / 60);
-    return clamp(this.acc / this.dur);
-  }
-}
-
-
-// ================= src/audio.js =================
-
-// WebAudio による効果音。外部アセットなし。最初のタップで初期化（iOS 対策）。
-let ctx = null;
-let master = null;
-let noiseBuf = null;
-let muted = false;
-
-function initAudio() {
-  if (ctx) {
-    if (ctx.state === 'suspended') ctx.resume();
-    return;
-  }
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try {
-    ctx = new AC();
-  } catch {
-    return;
-  }
-  master = ctx.createGain();
-  master.gain.value = 0.5;
-  master.connect(ctx.destination);
-  const len = Math.floor(ctx.sampleRate * 1.5);
-  noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = noiseBuf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-}
-
-function setMuted(v) {
-  muted = v;
-  if (master) master.gain.value = v ? 0 : 0.5;
-}
-function isMuted() {
-  return muted;
-}
-
-const now = () => (ctx ? ctx.currentTime : 0);
-
-function tone(freq, dur, type = 'sine', gain = 0.2, glideTo = null) {
-  if (!ctx || muted) return;
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, now());
-  if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, now() + dur);
-  g.gain.setValueAtTime(0.0001, now());
-  g.gain.exponentialRampToValueAtTime(gain, now() + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, now() + dur);
-  o.connect(g).connect(master);
-  o.start();
-  o.stop(now() + dur + 0.05);
-}
-
-function noise(dur, freq, q, gain = 0.2, sweepTo = null) {
-  if (!ctx || muted) return;
-  const s = ctx.createBufferSource();
-  s.buffer = noiseBuf;
-  s.loop = true;
-  const f = ctx.createBiquadFilter();
-  f.type = 'bandpass';
-  f.frequency.setValueAtTime(freq, now());
-  f.Q.value = q;
-  if (sweepTo) f.frequency.linearRampToValueAtTime(sweepTo, now() + dur);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, now());
-  g.gain.exponentialRampToValueAtTime(gain, now() + 0.03);
-  g.gain.exponentialRampToValueAtTime(0.0001, now() + dur);
-  s.connect(f).connect(g).connect(master);
-  s.start();
-  s.stop(now() + dur + 0.05);
-}
-
-// --- ループ音（注ぐ / 湯気 / 混ぜる） ---
-class Loop {
-  constructor(make) {
-    this.make = make;
-    this.node = null;
-    this.gain = null;
-  }
-  set(level) {
-    if (!ctx || muted) return;
-    level = Math.max(0, Math.min(1, level));
-    if (level > 0.02 && !this.node) {
-      const built = this.make(ctx);
-      this.node = built.src;
-      this.gain = built.gain;
-      this.gain.connect(master);
-      this.node.start();
-    }
-    if (this.gain) this.gain.gain.setTargetAtTime(level * 0.16, now(), 0.06);
-    if (level <= 0.02 && this.node) {
-      const n = this.node;
-      const g = this.gain;
-      this.node = null;
-      this.gain = null;
-      g.gain.setTargetAtTime(0.0001, now(), 0.05);
-      setTimeout(() => {
-        try {
-          n.stop();
-        } catch {
-          /* noop */
+function downsample(src, w, h) {
+  const nw = Math.max(1, w >> 1);
+  const nh = Math.max(1, h >> 1);
+  const dst = new Float32Array(nw * nh * 3);
+  for (let y = 0; y < nh; y++) {
+    for (let x = 0; x < nw; x++) {
+      let a = 0;
+      let b = 0;
+      let c = 0;
+      for (let j = 0; j < 2; j++) {
+        for (let i = 0; i < 2; i++) {
+          const sx = Math.min(w - 1, x * 2 + i);
+          const sy = Math.min(h - 1, y * 2 + j);
+          const o = (sy * w + sx) * 3;
+          a += src[o];
+          b += src[o + 1];
+          c += src[o + 2];
         }
-      }, 400);
+      }
+      const o = (y * nw + x) * 3;
+      dst[o] = a / 4;
+      dst[o + 1] = b / 4;
+      dst[o + 2] = c / 4;
     }
   }
-  stop() {
-    this.set(0);
-  }
+  return { data: dst, w: nw, h: nh };
 }
 
-const mkNoiseLoop = (freq, q) => (c) => {
-  const src = c.createBufferSource();
-  src.buffer = noiseBuf;
-  src.loop = true;
-  const f = c.createBiquadFilter();
-  f.type = 'bandpass';
-  f.frequency.value = freq;
-  f.Q.value = q;
-  const gain = c.createGain();
-  gain.gain.value = 0.0001;
-  src.connect(f).connect(gain);
-  return { src, gain };
+function toBytes(f, n) {
+  const out = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    out[i * 4] = Math.min(255, Math.round((f[i * 3] / ENV_SCALE) * 255));
+    out[i * 4 + 1] = Math.min(255, Math.round((f[i * 3 + 1] / ENV_SCALE) * 255));
+    out[i * 4 + 2] = Math.min(255, Math.round((f[i * 3 + 2] / ENV_SCALE) * 255));
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
+// ラフネス別にぼかしたミップ列を持つ環境マップを作る。
+function bakeEnv(gl) {
+  const base = new Float32Array(W * H * 3);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = envColor((x + 0.5) / W, (y + 0.5) / H);
+      const o = (y * W + x) * 3;
+      base[o] = c[0];
+      base[o + 1] = c[1];
+      base[o + 2] = c[2];
+    }
+  }
+  const tex = texture(gl, { min: gl.LINEAR_MIPMAP_LINEAR, wrapS: gl.REPEAT });
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+
+  let data = base;
+  let w = W;
+  let h = H;
+  let level = 0;
+  const levels = [];
+  while (true) {
+    // レベルが上がるほど強くぼかす = ラフネスが上がる
+    const blurred = level === 0 ? data : blur(data, w, h, 1 + level);
+    levels.push({ data: blurred, w, h });
+    gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, toBytes(blurred, w * h));
+    if (w === 1 && h === 1) break;
+    const d = downsample(blurred, w, h);
+    data = d.data;
+    w = d.w;
+    h = d.h;
+    level++;
+  }
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, level);
+  return { tex, maxLod: level };
+}
+
+// --- 微細ディテール ---------------------------------------------------------
+// R: 細い研磨傷 / G: 曇り（ラフネス変調） / B: 大きなうねり / A: プリンの「す」
+function bakeDetail(gl, size = 256) {
+  const px = new Uint8Array(size * size * 4);
+  const rnd = mulberry(9871);
+  // 値ノイズ 3 オクターブ
+  const grid = (n) => {
+    const g = new Float32Array(n * n);
+    for (let i = 0; i < n * n; i++) g[i] = rnd();
+    return g;
+  };
+  const g8 = grid(8);
+  const g16 = grid(16);
+  const g32 = grid(32);
+  const g64 = grid(64);
+  const smp = (g, n, x, y) => {
+    const fx = x * n;
+    const fy = y * n;
+    const x0 = Math.floor(fx) % n;
+    const y0 = Math.floor(fy) % n;
+    const x1 = (x0 + 1) % n;
+    const y1 = (y0 + 1) % n;
+    const tx = fx - Math.floor(fx);
+    const ty = fy - Math.floor(fy);
+    const sx = tx * tx * (3 - 2 * tx);
+    const sy = ty * ty * (3 - 2 * ty);
+    const a = g[y0 * n + x0];
+    const b = g[y0 * n + x1];
+    const c = g[y1 * n + x0];
+    const d = g[y1 * n + x1];
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  };
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      // 研磨傷: 横方向に強く引き伸ばしたノイズ
+      const scratch =
+        smp(g64, 64, u * 3.0, v * 48.0) * 0.6 + smp(g32, 32, u * 1.5, v * 22.0) * 0.4;
+      // 曇り・指紋
+      const smudge = smp(g16, 16, u * 2, v * 2) * 0.6 + smp(g32, 32, u * 4, v * 4) * 0.4;
+      // うねり
+      const dent = smp(g8, 8, u, v);
+      // プリンの気泡「す」: まばらな点
+      let bub = 0;
+      const b1 = smp(g64, 64, u * 6, v * 6);
+      if (b1 > 0.86) bub = (b1 - 0.86) / 0.14;
+      const o = (y * size + x) * 4;
+      px[o] = Math.round(scratch * 255);
+      px[o + 1] = Math.round(smudge * 255);
+      px[o + 2] = Math.round(dent * 255);
+      px[o + 3] = Math.round(Math.min(1, bub) * 255);
+    }
+  }
+  const tex = texture(gl, {
+    min: gl.LINEAR_MIPMAP_LINEAR,
+    wrapS: gl.REPEAT,
+    wrapT: gl.REPEAT,
+  });
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  return tex;
+}
+
+function mulberry(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a += 0x6d2b79f5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+
+// ================= src/gl/geom.js =================
+
+// 回転体（ラス）ベースのメッシュ生成。
+// 断面プロファイル（半径と高さの列）を Y 軸まわりに回すだけで、
+// 型・皿・プリン・液面のすべてを 1 つの仕組みで作れる。
+//
+// 出力属性:
+//   aPos   位置（静止形状）
+//   aNrm   法線（静止形状）
+//   aTanU  方位方向の接線（頂点シェーダで変形後の法線を出すのに使う）
+//   aTanV  プロファイル方向の接線
+//   aUv    x = 方位 0..1 / y = 高さ 0..1 / z = 天面での中心度 0..1
+
+function lathe(profile, segments = 48, opts = {}) {
+  const H = opts.height || 1;
+  const rows = profile.length;
+  const cols = segments + 1; // 継ぎ目を複製して uv を連続させる
+  const n = rows * cols;
+  const pos = new Float32Array(n * 3);
+  const nrm = new Float32Array(n * 3);
+  const tanU = new Float32Array(n * 3);
+  const tanV = new Float32Array(n * 3);
+  const uv = new Float32Array(n * 3);
+
+  // プロファイル上の法線（2D）を中央差分で求める
+  const pn = [];
+  for (let i = 0; i < rows; i++) {
+    const p0 = profile[Math.max(0, i - 1)];
+    const p1 = profile[Math.min(rows - 1, i + 1)];
+    let dr = p1.r - p0.r;
+    let dy = p1.y - p0.y;
+    const l = Math.hypot(dr, dy) || 1;
+    dr /= l;
+    dy /= l;
+    // 断面の接線 (dr, dy) を 90 度回して外向き法線 (dy, -dr)
+    pn.push([dy, -dr, l]);
+  }
+
+  let o = 0;
+  for (let i = 0; i < rows; i++) {
+    const p = profile[i];
+    const [nr, ny] = pn[i];
+    for (let j = 0; j < cols; j++) {
+      const a = (j / segments) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      pos[o * 3] = p.r * ca;
+      pos[o * 3 + 1] = p.y;
+      pos[o * 3 + 2] = p.r * sa;
+      nrm[o * 3] = nr * ca;
+      nrm[o * 3 + 1] = ny;
+      nrm[o * 3 + 2] = nr * sa;
+      // 方位接線
+      tanU[o * 3] = -sa;
+      tanU[o * 3 + 1] = 0;
+      tanU[o * 3 + 2] = ca;
+      // プロファイル接線
+      const p0 = profile[Math.max(0, i - 1)];
+      const p1 = profile[Math.min(rows - 1, i + 1)];
+      let dr = p1.r - p0.r;
+      let dy = p1.y - p0.y;
+      const l2 = Math.hypot(dr, dy) || 1;
+      dr /= l2;
+      dy /= l2;
+      tanV[o * 3] = dr * ca;
+      tanV[o * 3 + 1] = dy;
+      tanV[o * 3 + 2] = dr * sa;
+      uv[o * 3] = j / segments;
+      uv[o * 3 + 1] = p.y / H;
+      uv[o * 3 + 2] = p.cap ?? 0;
+      o++;
+    }
+  }
+
+  const idx = [];
+  for (let i = 0; i < rows - 1; i++) {
+    for (let j = 0; j < segments; j++) {
+      const a = i * cols + j;
+      const b = a + 1;
+      const c = a + cols;
+      const d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  return {
+    aPos: pos,
+    aNrm: nrm,
+    aTanU: tanU,
+    aTanV: tanV,
+    aUv: uv,
+    index: new Uint16Array(idx),
+    count: idx.length,
+  };
+}
+
+// --- 具体的な断面 -----------------------------------------------------------
+
+// プリン本体（下が広い円錐台 + 天面）。天面の縁はわずかに丸める。
+function puddingProfile(rb, rt, h, sideRows = 22) {
+  const p = [];
+  const fillet = 2.6;
+  // 底面（皿に接する側）— 少しだけ丸める
+  p.push({ r: 0, y: 0, cap: 1 });
+  p.push({ r: rb * 0.55, y: 0, cap: 0.45 });
+  p.push({ r: rb - 1.2, y: 0, cap: 0 });
+  p.push({ r: rb, y: 0.9 });
+  // 側面
+  for (let i = 1; i <= sideRows; i++) {
+    const t = i / sideRows;
+    const y = 0.9 + (h - fillet - 0.9) * t;
+    const r = rb + (rt - rb) * ((y - 0) / h);
+    p.push({ r, y });
+  }
+  // 天面の丸み
+  for (let i = 1; i <= 3; i++) {
+    const a = (i / 4) * (Math.PI / 2);
+    p.push({ r: rt - fillet * (1 - Math.cos(a)), y: h - fillet + fillet * Math.sin(a) });
+  }
+  // 天面
+  const rTop = rt - fillet;
+  for (let i = 1; i <= 6; i++) {
+    const t = i / 6;
+    p.push({ r: rTop * (1 - t), y: h, cap: t });
+  }
+  return p;
+}
+
+// プリン型（内側まで一続き）。upright=true なら開口が上。
+function moldProfile(rb, rt, h, wall) {
+  const p = [];
+  p.push({ r: 0, y: 0 });
+  p.push({ r: rb * 0.6, y: 0 });
+  p.push({ r: rb - 2, y: 0 });
+  p.push({ r: rb, y: 1.6 });
+  // 外側（横リブは法線マップで表現するのでここは素直な直線）
+  const rows = 14;
+  for (let i = 1; i <= rows; i++) {
+    const t = i / rows;
+    p.push({ r: rb + (rt - rb) * t, y: 1.6 + (h - 1.6) * t });
+  }
+  // 口のふち（外へ少し巻く）
+  p.push({ r: rt + 1.1, y: h + 0.7 });
+  p.push({ r: rt + 0.4, y: h + 1.5 });
+  p.push({ r: rt - wall + 0.6, y: h + 1.2 });
+  // 内壁
+  const irows = 10;
+  const irb = rb - wall;
+  const irt = rt - wall;
+  for (let i = 0; i <= irows; i++) {
+    const t = i / irows;
+    p.push({ r: irt + (irb - irt) * t, y: h - (h - 2.2) * t });
+  }
+  // 内底
+  p.push({ r: irb * 0.6, y: 2.0 });
+  p.push({ r: 0, y: 1.9 });
+  return p;
+}
+
+// 白い皿
+function plateProfile(R, h) {
+  return [
+    { r: 0, y: h, cap: 1 },
+    { r: R * 0.3, y: h, cap: 0.7 },
+    { r: R * 0.58, y: h - 0.15, cap: 0.4 },
+    { r: R * 0.7, y: h + 0.1, cap: 0.2 },
+    { r: R * 0.78, y: h + 0.7 },
+    { r: R * 0.9, y: h + 1.3 },
+    { r: R * 0.975, y: h + 1.5 },
+    { r: R, y: h + 1.0 },
+    { r: R, y: h - 1.2 },
+    { r: R * 0.965, y: h - 2.4 },
+    { r: R * 0.8, y: h - 4.4 },
+    { r: R * 0.62, y: 1.2 },
+    { r: R * 0.56, y: 0 },
+    { r: R * 0.5, y: 0 },
+    { r: R * 0.46, y: 1.6 },
+    { r: 0, y: 2.2 },
+  ];
+}
+
+// 鍋（片手鍋）。内側まで一続き。
+function potProfile(rb, rt, h, wall) {
+  const p = [];
+  p.push({ r: 0, y: 0 });
+  p.push({ r: rb * 0.7, y: 0 });
+  p.push({ r: rb - 2.5, y: 0 });
+  p.push({ r: rb, y: 2.2 });
+  const rows = 10;
+  for (let i = 1; i <= rows; i++) {
+    const t = i / rows;
+    p.push({ r: rb + (rt - rb) * t, y: 2.2 + (h - 2.2) * t });
+  }
+  p.push({ r: rt + 1.4, y: h + 0.8 });
+  p.push({ r: rt + 0.5, y: h + 1.7 });
+  p.push({ r: rt - wall + 0.7, y: h + 1.3 });
+  const irows = 8;
+  const irb = rb - wall;
+  const irt = rt - wall;
+  for (let i = 0; i <= irows; i++) {
+    const t = i / irows;
+    p.push({ r: irt + (irb - irt) * t, y: h - (h - 3.2) * t });
+  }
+  p.push({ r: irb * 0.65, y: 3.0 });
+  p.push({ r: 0, y: 2.9 });
+  return p;
+}
+
+// ボウル（丸い陶器）
+function bowlProfile(R, h, wall) {
+  const p = [];
+  const rows = 16;
+  p.push({ r: 0, y: 0 });
+  for (let i = 1; i <= rows; i++) {
+    const a = (i / rows) * (Math.PI / 2);
+    p.push({ r: R * Math.sin(a), y: h * (1 - Math.cos(a)) });
+  }
+  p.push({ r: R + 1.0, y: h + 0.6 });
+  p.push({ r: R - wall + 0.5, y: h + 0.4 });
+  for (let i = rows; i >= 1; i--) {
+    const a = (i / rows) * (Math.PI / 2);
+    p.push({ r: (R - wall) * Math.sin(a), y: h * (1 - Math.cos(a)) + wall * 0.8 });
+  }
+  p.push({ r: 0, y: wall * 0.8 });
+  return p;
+}
+
+// 液面（ふちが盛り上がるメニスカス付き）
+function liquidProfile(R) {
+  return [
+    { r: 0, y: 0, cap: 1 },
+    { r: R * 0.55, y: 0, cap: 0.5 },
+    { r: R * 0.86, y: 0.05, cap: 0.15 },
+    { r: R * 0.95, y: 0.35, cap: 0 },
+    { r: R * 0.985, y: 0.95 },
+    { r: R, y: 1.7 },
+  ];
+}
+
+// --- GPU へのアップロード ----------------------------------------------------
+function upload(gl, prog, mesh) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const bind = (name, arr, size) => {
+    const loc = prog.a[name];
+    if (loc == null || loc < 0) return;
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  };
+  bind('aPos', mesh.aPos, 3);
+  bind('aNrm', mesh.aNrm, 3);
+  bind('aTanU', mesh.aTanU, 3);
+  bind('aTanV', mesh.aTanV, 3);
+  bind('aUv', mesh.aUv, 3);
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.index, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, count: mesh.count };
+}
+
+
+// --- bundle: import * as G from './geom.js' の代替 ---
+const G = {
+  lathe, puddingProfile, moldProfile, plateProfile, potProfile, bowlProfile,
+  liquidProfile, upload,
 };
 
-const pourLoop = new Loop(mkNoiseLoop(700, 1.2));
-const steamLoop = new Loop(mkNoiseLoop(3200, 0.7));
-const whiskLoop = new Loop(mkNoiseLoop(1800, 2.2));
-const coldLoop = new Loop(mkNoiseLoop(420, 0.9));
 
-function stopAllLoops() {
-  pourLoop.stop();
-  steamLoop.stop();
-  whiskLoop.stop();
-  coldLoop.stop();
+// ================= src/gl/shaders.js =================
+
+// GLSL。3 つの Hero Material（カラメル・プリン・銀の型）と液体のシェーダ。
+//
+// 質感の柱:
+//   1. 環境マップ由来の鏡面反射（映り込みがあると素材は一気に本物になる）
+//   2. Beer-Lambert 吸収（厚みで色が変わる = カラメルの正体）
+//   3. 内部散乱と縁の透過（プリンが「詰まっている」のではなく「透けている」）
+//   4. 背後を屈折で拾う 2 パス（皿がプリン越しに歪む）
+
+const v3 = (a) => `vec3(${a[0].toFixed(5)}, ${a[1].toFixed(5)}, ${a[2].toFixed(5)})`;
+
+const PRELUDE = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+
+const float PI = 3.141592653589793;
+const float ENV_SCALE = ${ENV_SCALE.toFixed(3)};
+
+const vec3 L_KEY = ${v3(KEY_DIR)};
+const vec3 C_KEY = ${v3(KEY_COLOR)} * ${KEY_INTENSITY.toFixed(3)};
+const vec3 L_FILL = ${v3(FILL_DIR)};
+const vec3 C_FILL = ${v3(FILL_COLOR)} * ${FILL_INTENSITY.toFixed(3)};
+const vec3 L_BOUNCE = ${v3(BOUNCE_DIR)};
+const vec3 C_BOUNCE = ${v3(BOUNCE_COLOR)} * ${BOUNCE_INTENSITY.toFixed(3)};
+
+uniform sampler2D uEnv;
+uniform float uEnvMaxLod;
+uniform vec3 uV;
+
+vec3 envAt(vec3 d, float lod) {
+  float u = atan(d.x, d.z) / (2.0 * PI) + 0.5;
+  float v = asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
+  return textureLod(uEnv, vec2(u, v), lod).rgb * ENV_SCALE;
 }
 
-// --- 単発音 ---
-const sfx = {
-  tap: () => tone(660, 0.12, 'sine', 0.16, 880),
-  bubble: () => tone(300 + Math.random() * 250, 0.1, 'sine', 0.1, 160),
-  clack: () => {
-    noise(0.09, 2400, 1.5, 0.18);
-    tone(180, 0.16, 'sine', 0.12, 90);
-  },
-  place: () => {
-    tone(320, 0.18, 'triangle', 0.12, 220);
-    noise(0.06, 1200, 1, 0.1);
-  },
-  whoosh: () => noise(0.45, 500, 0.8, 0.2, 1800),
-  // ぷるん（型から外れる瞬間）: ピッチが下がり、軽く揺れる
-  purun: () => {
-    if (!ctx || muted) return;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    const lfo = ctx.createOscillator();
-    const lg = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(520, now());
-    o.frequency.exponentialRampToValueAtTime(200, now() + 0.42);
-    lfo.frequency.value = 11;
-    lg.gain.value = 42;
-    lfo.connect(lg).connect(o.frequency);
-    g.gain.setValueAtTime(0.0001, now());
-    g.gain.exponentialRampToValueAtTime(0.32, now() + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, now() + 0.55);
-    o.connect(g).connect(master);
-    o.start();
-    lfo.start();
-    o.stop(now() + 0.6);
-    lfo.stop(now() + 0.6);
-  },
-  drip: () => tone(880, 0.22, 'sine', 0.1, 420),
-  sparkle: () => {
-    [784, 988, 1175, 1568].forEach((f, i) =>
-      setTimeout(() => tone(f, 0.5, 'triangle', 0.12), i * 90)
-    );
-  },
-  chime: () => {
-    [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.6, 'sine', 0.13), i * 70));
-  },
+vec3 fSchlick(float c, vec3 F0) { return F0 + (1.0 - F0) * pow(1.0 - c, 5.0); }
+
+float dGGX(float NoH, float a) {
+  float a2 = a * a;
+  float d = NoH * NoH * (a2 - 1.0) + 1.0;
+  return a2 / (PI * d * d + 1e-7);
+}
+
+float vSmith(float NoV, float NoL, float a) {
+  float a2 = a * a;
+  float gv = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+  float gl2 = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+  return 0.5 / max(gv + gl2, 1e-5);
+}
+
+// Karis のモバイル向け近似（BRDF LUT を持たずに済ませる）
+vec3 envBRDF(vec3 F0, float rough, float NoV) {
+  const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+  const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+  vec4 r = rough * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+  vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+  return F0 * ab.x + ab.y;
+}
+
+// 1 灯ぶんの直接光
+vec3 oneLight(vec3 N, vec3 V, vec3 L, vec3 C, vec3 albedo, vec3 F0,
+              float rough, float metal, float wrap) {
+  float NoL = dot(N, L);
+  float diff = max(0.0, (NoL + wrap) / (1.0 + wrap));
+  diff *= diff; // 端をやわらかく
+  vec3 H = normalize(L + V);
+  float NoH = max(0.0, dot(N, H));
+  float NoV = max(1e-4, dot(N, V));
+  float a = max(0.015, rough * rough);
+  float spec = dGGX(NoH, a) * vSmith(NoV, max(NoL, 0.0), a) * max(NoL, 0.0);
+  vec3 F = fSchlick(max(0.0, dot(H, V)), F0);
+  return C * (albedo * (1.0 - metal) * diff / PI + F * spec);
+}
+
+vec3 shadeDirect(vec3 N, vec3 V, vec3 albedo, float rough, float metal, float wrap) {
+  vec3 F0 = mix(vec3(0.04), albedo, metal);
+  vec3 c = oneLight(N, V, L_KEY, C_KEY, albedo, F0, rough, metal, wrap);
+  c += oneLight(N, V, L_FILL, C_FILL, albedo, F0, rough, metal, wrap);
+  c += oneLight(N, V, L_BOUNCE, C_BOUNCE, albedo, F0, rough, metal, wrap);
+  return c;
+}
+
+vec3 shadeIBL(vec3 N, vec3 V, vec3 albedo, float rough, float metal, float occ) {
+  float NoV = max(1e-4, dot(N, V));
+  vec3 R = reflect(-V, N);
+  vec3 pre = envAt(R, rough * uEnvMaxLod);
+  vec3 irr = envAt(N, uEnvMaxLod * 0.8);
+  vec3 F0 = mix(vec3(0.04), albedo, metal);
+  return (albedo * (1.0 - metal) * irr * 0.30 + pre * envBRDF(F0, rough, NoV)) * occ;
+}
+`;
+
+// --- 共通の頂点シェーダ（変形あり／なしを uniform で切替） -------------------
+const VS_LATHE = `${PRELUDE}
+in vec3 aPos;
+in vec3 aNrm;
+in vec3 aTanU;
+in vec3 aTanV;
+in vec3 aUv;
+
+uniform mat4 uProj;
+uniform mat4 uModel;
+uniform mat3 uNormal;
+uniform float uHeight;
+uniform float uWobble;
+uniform float uPhase;
+uniform float uSquash;
+uniform float uStick;
+
+out vec3 vW;
+out vec3 vN;
+out vec3 vUv;
+out vec3 vTu;
+out vec3 vTv;
+out vec4 vClip;
+
+vec3 deform(vec3 p) {
+  float t = clamp(p.y / max(uHeight, 1e-3), 0.0, 1.0);
+  float hs = (1.0 - uSquash * 0.55) * (1.0 + uStick * 0.06);
+  float rs = 1.0 + uSquash * 0.34 * (1.0 - t * 0.45) - uStick * 0.035;
+  float sway = uWobble * sin(uPhase - t * 2.15) * pow(t, 1.25)
+             + uWobble * 0.30 * sin(uPhase * 2.0 + 1.1 - t * 3.4) * pow(t, 1.6);
+  return vec3(p.x * rs + sway, p.y * hs, p.z * rs);
+}
+
+void main() {
+  vec3 P = deform(aPos);
+  float e = 0.8;
+  vec3 du = deform(aPos + aTanU * e) - P;
+  vec3 dv = deform(aPos + aTanV * e) - P;
+  vec3 n = normalize(cross(du, dv) + 1e-6);
+  if (dot(n, aNrm) < 0.0) n = -n;
+
+  vW = (uModel * vec4(P, 1.0)).xyz;
+  vN = normalize(uNormal * n);
+  vTu = normalize(uNormal * normalize(du + 1e-6));
+  vTv = normalize(uNormal * normalize(dv + 1e-6));
+  vUv = aUv;
+  vClip = uProj * vec4(vW, 1.0);
+  gl_Position = vClip;
+}
+`;
+
+// --- プリン + カラメル -------------------------------------------------------
+const FS_PUDDING = `${PRELUDE}
+in vec3 vW;
+in vec3 vN;
+in vec3 vUv;
+in vec3 vTu;
+in vec3 vTv;
+in vec4 vClip;
+
+uniform sampler2D uField;    // カラメルの厚み場
+uniform sampler2D uDetail;   // 微細ディテール
+uniform sampler2D uScene;    // 背後（屈折用）
+uniform float uRefract;      // 0..1
+uniform float uCaramel;      // カラメルを乗せるか（0..1）
+uniform float uHeightW;      // 高さ（ワールド単位、AO 用）
+
+out vec4 outColor;
+
+// カスタードの吸収係数（青を強く吸うので厚いほど濃い黄金色になる）
+const vec3 SIG_CUSTARD = vec3(0.0072, 0.0182, 0.0520);
+// カラメルの吸収係数。1 ワールド単位 ≒ 0.75mm 相当で調整してある。
+// 薄い所は黄金色、厚い所は焦げ茶。真っ黒にはしない。
+const vec3 SIG_CARAMEL = vec3(0.40, 0.80, 1.42);
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uV);
+  float NoV = max(1e-3, dot(N, V));
+
+  // --- カラメル層の厚み ---
+  float ct = texture(uField, vUv.xy).r;
+  ct *= uCaramel;
+  float capMask = smoothstep(0.02, 0.30, vUv.z);
+  ct = max(ct, capMask * uCaramel);
+
+  // 厚みの勾配から法線を曲げる（垂れが盛り上がって見える）
+  vec2 px = vec2(1.5 / 512.0, 1.5 / 256.0);
+  float hx = texture(uField, vUv.xy + vec2(px.x, 0.0)).r
+           - texture(uField, vUv.xy - vec2(px.x, 0.0)).r;
+  float hy = texture(uField, vUv.xy + vec2(0.0, px.y)).r
+           - texture(uField, vUv.xy - vec2(0.0, px.y)).r;
+  hx = clamp(hx, -0.6, 0.6);
+  hy = clamp(hy, -0.6, 0.6);
+  vec3 Nc = normalize(N - (vTu * hx * 0.95 + vTv * hy * 0.55) * uCaramel);
+
+  // --- プリン本体 ---
+  // 気泡「す」。下ほど多い。
+  float bub = texture(uDetail, vUv.xy * vec2(4.0, 2.4)).a;
+  bub *= smoothstep(0.75, 0.1, vUv.y) * 0.8;
+  vec3 Np = normalize(N + (vTu * (bub - 0.4) + vTv * (bub - 0.4)) * 0.09);
+
+  // 視線方向の見かけの厚み。中心ほど厚く、シルエットで薄い。
+  float bodyT = 3.0 + 30.0 * pow(NoV, 0.62);
+  vec3 inner = exp(-SIG_CUSTARD * bodyT);
+
+  vec3 albedo = vec3(1.0, 0.87, 0.56) * inner;
+  float rough = 0.085 + bub * 0.08;
+
+  vec3 col = shadeDirect(Np, V, albedo, rough, 0.0, 0.55);
+  col += shadeIBL(Np, V, albedo, rough, 0.0, 1.0);
+
+  // 内部で散った光の「戻り」。プリンが詰まっていないで透けている感じの正体。
+  float back1 = max(0.0, dot(-Np, L_KEY)) * 0.5 + 0.5;
+  vec3 sss = exp(-SIG_CUSTARD * (5.0 + 22.0 * NoV)) * vec3(1.25, 0.86, 0.34);
+  col += sss * back1 * 0.55;
+
+  // 縁の透過（薄いところは光が抜けて明るく光る）
+  float edge = pow(1.0 - NoV, 2.0);
+  vec3 thin = exp(-SIG_CUSTARD * (1.6 + 5.0 * NoV));
+  col += thin * vec3(1.25, 0.92, 0.42) * edge * 2.3;
+
+  // 下ほど光が回らない（縦の階調がないと「板」に見える）
+  col *= mix(0.72, 1.06, smoothstep(0.0, 0.85, vUv.y));
+
+  // 背後の屈折（皿の白がプリン越しに滲む）
+  if (uRefract > 0.0) {
+    vec2 suv = vClip.xy / vClip.w * 0.5 + 0.5;
+    vec2 off = vec2(dot(N, vec3(1.0, 0.0, 0.0)), dot(N, vec3(0.0, 1.0, 0.0)));
+    suv += off * 0.055 * (1.0 - NoV) * uRefract;
+    vec3 back = texture(uScene, clamp(suv, vec2(0.001), vec2(0.999))).rgb;
+    col = mix(col, col * 0.55 + back * inner * 1.1, edge * 0.55 * uRefract);
+  }
+
+  // 接地の暗がり
+  float ao = mix(0.55, 1.0, smoothstep(0.0, 0.16, vUv.y));
+  col *= ao;
+
+  // --- カラメル層を上に乗せる ---
+  if (ct > 0.001) {
+    // 実寸の膜厚（頂上のたまりで 1.6 単位 ≒ 1.2mm）
+    float T = ct * 1.75;
+    float cNoV = clamp(dot(Nc, V), 0.40, 1.0);
+    float path = T / cNoV;
+    vec3 trans = exp(-SIG_CARAMEL * path);
+    // 下のプリンはカラメル越しに見える（これが色の主役）
+    col *= trans;
+    // カラメルはほぼ透明な媒体なので、散乱はごく控えめに足すだけ
+    vec3 scat = (1.0 - trans) * vec3(0.62, 0.27, 0.06) * 0.16;
+    col += scat;
+    // 濡れた表面の鏡面（ここが「照り」になる）
+    float crough = 0.075 + 0.06 * (1.0 - ct);
+    vec3 cs = shadeDirect(Nc, V, vec3(0.0), crough, 0.0, 0.0);
+    cs += envAt(reflect(-V, Nc), crough * uEnvMaxLod) *
+          envBRDF(vec3(0.048), crough, cNoV);
+    col = mix(col, col + cs * 0.9, smoothstep(0.02, 0.18, ct));
+  }
+
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// --- 金属（プリン型・鍋・ボウルの金属部） -----------------------------------
+const FS_METAL = `${PRELUDE}
+in vec3 vW;
+in vec3 vN;
+in vec3 vUv;
+in vec3 vTu;
+in vec3 vTv;
+in vec4 vClip;
+
+uniform sampler2D uDetail;
+uniform float uRibs;        // 横リブの強さ
+uniform float uFrost;       // 霜
+uniform vec3 uTint;
+
+out vec4 outColor;
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uV);
+
+  // 横リブ（プリン型の段）: 高さ方向の周期的な法線の起伏
+  float ribs = sin(vUv.y * 26.0) * 0.5 + 0.5;
+  ribs = pow(ribs, 3.0);
+  float ribD = cos(vUv.y * 26.0) * 26.0;
+  N = normalize(N + vTv * ribD * 0.0026 * uRibs);
+
+  // 研磨傷（周方向）と曇り
+  vec3 d = texture(uDetail, vec2(vUv.x * 1.0, vUv.y * 9.0)).rgb;
+  vec3 dl = texture(uDetail, vec2(vUv.x * 0.7, vUv.y * 0.7)).rgb;
+  // 周方向の細かい研磨傷 + ごく緩いうねり
+  N = normalize(N + vTv * (d.r - 0.5) * 0.010 + vTu * (dl.b - 0.5) * 0.006);
+  float rough = clamp(0.055 + d.r * 0.05 + dl.g * 0.035 + ribs * 0.015, 0.03, 0.35);
+
+  vec3 albedo = uTint;
+  vec3 col = shadeDirect(N, V, albedo, rough, 1.0, 0.0);
+  col += shadeIBL(N, V, albedo, rough, 1.0, 1.0);
+
+  // 接地の暗がり
+  col *= mix(0.45, 1.0, smoothstep(0.0, 0.12, vUv.y));
+
+  // 霜
+  if (uFrost > 0.001) {
+    float f = uFrost * (0.55 + d.g * 0.75);
+    vec3 fr = shadeDirect(N, V, vec3(0.95, 0.97, 1.0), 0.75, 0.0, 0.4)
+            + shadeIBL(N, V, vec3(0.95, 0.97, 1.0), 0.75, 0.0, 1.0);
+    col = mix(col, fr, clamp(f, 0.0, 0.92));
+  }
+
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// --- 白い陶器（皿） ---------------------------------------------------------
+const FS_CERAMIC = `${PRELUDE}
+in vec3 vW;
+in vec3 vN;
+in vec3 vUv;
+in vec3 vTu;
+in vec3 vTv;
+in vec4 vClip;
+
+uniform sampler2D uDetail;
+uniform vec3 uBouncePos;    // プリンからの色移りの中心
+uniform vec3 uBounceColor;
+uniform float uBounceAmt;
+uniform vec4 uOcc0;         // 接地影: xy = 位置, z = 半径, w = 強さ
+uniform vec4 uOcc1;
+
+out vec4 outColor;
+
+// 円盤の遮蔽による接地影。皿の上に「置いてある」感を出す最短の手段。
+float occlude(vec2 p, vec4 o) {
+  if (o.w <= 0.0) return 1.0;
+  float d = length(p - o.xy);
+  return 1.0 - o.w * (1.0 - smoothstep(o.z * 0.78, o.z * 1.45, d));
+}
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uV);
+  vec3 d = texture(uDetail, vUv.xy * vec2(2.0, 1.0)).rgb;
+  // 釉薬のわずかなうねり
+  N = normalize(N + vTu * (d.b - 0.5) * 0.02 + vTv * (d.b - 0.5) * 0.02);
+  float rough = 0.085 + d.g * 0.05;
+  vec3 albedo = vec3(0.90, 0.905, 0.92);
+
+  vec3 col = shadeDirect(N, V, albedo, rough, 0.0, 0.25);
+  col += shadeIBL(N, V, albedo, rough, 0.0, 1.0);
+
+  // プリンからの色移り（皿が黄色を拾う）
+  float dist = length(vW.xz - uBouncePos.xz);
+  float b = exp(-dist * dist / 3400.0) * uBounceAmt;
+  col += uBounceColor * b * max(0.0, N.y) * 0.9;
+
+  // 影になる内側の落ち込み
+  col *= mix(0.86, 1.0, smoothstep(0.0, 0.4, vUv.z));
+  // 接地影
+  col *= occlude(vW.xz, uOcc0) * occlude(vW.xz, uOcc1);
+
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// --- 液体（砂糖液・プリン液・カラメル） -------------------------------------
+const FS_LIQUID = `${PRELUDE}
+in vec3 vW;
+in vec3 vN;
+in vec3 vUv;
+in vec3 vTu;
+in vec3 vTv;
+in vec4 vClip;
+
+uniform sampler2D uScene;
+uniform sampler2D uDetail;
+uniform float uRefract;
+uniform vec3 uSigma;       // 吸収係数
+uniform float uDepth;      // 液体の深さ（ワールド単位）
+uniform float uRough;
+uniform float uBoil;       // 沸き具合 0..1
+uniform float uTime;
+
+out vec4 outColor;
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uV);
+
+  // 沸騰による表面のさざなみ
+  if (uBoil > 0.001) {
+    float r = vUv.z;
+    float w1 = sin(vUv.x * 44.0 + uTime * 5.1 + r * 9.0);
+    float w2 = sin(vUv.x * 27.0 - uTime * 3.4 + r * 15.0);
+    N = normalize(N + vTu * w1 * 0.05 * uBoil + vTv * w2 * 0.05 * uBoil);
+  }
+
+  float NoV = max(1e-3, dot(N, V));
+  float path = uDepth / clamp(NoV, 0.28, 1.0);
+  vec3 trans = exp(-uSigma * path);
+
+  // 背後を屈折で拾う（ずらし量は液面の傾きぶんだけ。大きすぎると別の物が映る）
+  vec3 back = vec3(0.35);
+  if (uRefract > 0.0) {
+    vec2 suv = vClip.xy / vClip.w * 0.5 + 0.5;
+    vec2 off = vec2(N.x, N.y * 0.5) * (1.0 - NoV);
+    suv += off * 0.045 * uRefract;
+    back = texture(uScene, clamp(suv, vec2(0.002), vec2(0.998))).rgb;
+  }
+
+  // 液体そのものの色 = 透過スペクトルの正規化（色ベクトルに normalize は使えない）
+  vec3 tint = exp(-uSigma * max(uDepth, 1.0) * 1.4);
+  tint /= max(1e-3, max(tint.r, max(tint.g, tint.b)));
+
+  float opac = 1.0 - dot(trans, vec3(0.3333));
+  vec3 col = back * trans;
+  // 内部で散った光。濃い液ほど「自分の色」で光る。
+  col += opac * tint * 0.42;
+
+  // 鏡面（濡れた液面）
+  vec3 spec = shadeDirect(N, V, vec3(0.0), uRough, 0.0, 0.0);
+  spec += envAt(reflect(-V, N), uRough * uEnvMaxLod) *
+          envBRDF(vec3(0.043), uRough, NoV);
+  col += spec;
+
+  // メニスカス（ふちが盛り上がって明るい線になる）
+  float men = smoothstep(0.35, 0.0, vUv.z) * smoothstep(0.0, 0.55, 1.0 - vUv.z);
+  col += vec3(1.0, 0.96, 0.9) * men * 0.16;
+
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// --- 注ぐ流れ（チューブ） ---------------------------------------------------
+const VS_TUBE = `${PRELUDE}
+in vec3 aPos;
+in vec3 aNrm;
+in vec3 aUv;
+uniform mat4 uProj;
+out vec3 vN;
+out vec3 vUv;
+out vec4 vClip;
+void main() {
+  vN = aNrm;
+  vUv = aUv;
+  vClip = uProj * vec4(aPos, 1.0);
+  gl_Position = vClip;
+}
+`;
+
+const FS_TUBE = `${PRELUDE}
+in vec3 vN;
+in vec3 vUv;
+in vec4 vClip;
+uniform sampler2D uScene;
+uniform float uRefract;
+uniform vec3 uSigma;
+uniform float uRadius;
+out vec4 outColor;
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uV);
+  float NoV = max(1e-3, dot(N, V));
+  float path = uRadius * 2.0 * pow(NoV, 0.5);
+  vec3 trans = exp(-uSigma * path);
+
+  vec3 back = vec3(0.4);
+  if (uRefract > 0.0) {
+    vec2 suv = vClip.xy / vClip.w * 0.5 + 0.5;
+    suv += vec2(N.x, N.y * 0.5) * 0.055 * uRefract;
+    back = texture(uScene, clamp(suv, vec2(0.002), vec2(0.998))).rgb;
+  }
+  vec3 tint = exp(-uSigma * uRadius * 2.2);
+  tint /= max(1e-3, max(tint.r, max(tint.g, tint.b)));
+  float opac = 1.0 - dot(trans, vec3(0.3333));
+  vec3 col = back * trans + opac * tint * 0.52;
+
+  float rough = 0.05;
+  col += shadeDirect(N, V, vec3(0.0), rough, 0.0, 0.0);
+  col += envAt(reflect(-V, N), rough * uEnvMaxLod) * envBRDF(vec3(0.045), rough, NoV);
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// --- フルスクリーンのパス群 --------------------------------------------------
+const VS_FULL = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 aP;
+out vec2 vUv;
+void main() {
+  vUv = aP * 0.5 + 0.5;
+  gl_Position = vec4(aP, 0.0, 1.0);
+}
+`;
+
+// 背景（2D レイヤーの縮小コピー）を屈折用に敷く。alpha=0 なので合成では見えない。
+const FS_BACKDROP = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+out vec4 outColor;
+void main() {
+  vec3 c = texture(uTex, vUv).rgb;
+  // sRGB -> linear（2D レイヤーは sRGB で描かれている）
+  c = pow(c, vec3(2.2));
+  outColor = vec4(c, 0.0);
+}
+`;
+
+const FS_THRESHOLD = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uThreshold;
+out vec4 outColor;
+void main() {
+  vec4 c = texture(uTex, vUv);
+  float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float k = max(0.0, l - uThreshold) / max(l, 1e-4);
+  outColor = vec4(c.rgb * k, c.a * k);
+}
+`;
+
+const FS_BLUR = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uDir;
+out vec4 outColor;
+void main() {
+  vec4 s = texture(uTex, vUv) * 0.227027;
+  s += (texture(uTex, vUv + uDir * 1.3846) + texture(uTex, vUv - uDir * 1.3846)) * 0.316216;
+  s += (texture(uTex, vUv + uDir * 3.2308) + texture(uTex, vUv - uDir * 3.2308)) * 0.070270;
+  outColor = s;
+}
+`;
+
+// トーンマップ + ブルーム合成 + わずかな粒状。プリマルチプライドで出力する。
+const FS_COMPOSITE = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform sampler2D uBloom;
+uniform float uBloomAmt;
+uniform float uExposure;
+uniform float uGrain;
+uniform float uTime;
+out vec4 outColor;
+
+vec3 aces(vec3 x) {
+  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void main() {
+  vec4 s = texture(uTex, vUv);
+  vec4 b = texture(uBloom, vUv);
+  vec3 c = s.rgb + b.rgb * uBloomAmt;
+  float a = clamp(s.a + b.a * uBloomAmt * 0.85, 0.0, 1.0);
+  c = aces(c * uExposure);
+  // linear -> sRGB
+  c = pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+  c += (hash(vUv * 1024.0 + uTime) - 0.5) * uGrain;
+  outColor = vec4(clamp(c, 0.0, 1.0) * a, a);
+}
+`;
+
+// カラメルの厚み場を焼くパス
+const FS_FIELD = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform float uFlow;
+out vec4 outColor;
+
+const int NDRIP = 7;
+
+float angD(float a, float b) { return abs(fract(a - b + 0.5) - 0.5); }
+
+void main() {
+  float u = vUv.x;
+  float v = vUv.y;
+
+  // 頂上のたまり（ふちに向かってわずかに薄い）
+  float th = smoothstep(0.958, 0.990, v) * 0.94;
+  // 上部を覆う薄い膜
+  th = max(th, smoothstep(0.87, 0.975, v) * 0.24);
+
+  vec4 drips[NDRIP];
+  drips[0] = vec4(0.10, 0.00, 0.72, 0.019);
+  drips[1] = vec4(0.33, 0.05, 0.86, 0.022);
+  drips[2] = vec4(0.55, 0.14, 0.58, 0.016);
+  drips[3] = vec4(0.72, 0.22, 0.44, 0.014);
+  drips[4] = vec4(0.87, 0.30, 0.50, 0.015);
+  drips[5] = vec4(0.02, 0.40, 0.34, 0.013);
+  drips[6] = vec4(0.46, 0.48, 0.26, 0.012);
+
+  for (int i = 0; i < NDRIP; i++) {
+    vec4 d = drips[i];
+    float g = clamp((uFlow - d.y) / max(1e-3, 1.0 - d.y), 0.0, 1.0);
+    g = g * g * (3.0 - 2.0 * g);
+    float reach = g * d.z;
+    if (reach < 1e-4) continue;
+    float tEnd = 1.0 - reach;
+    if (v < tEnd - 0.04) continue;
+    float s = clamp((1.0 - v) / max(reach, 1e-4), 0.0, 1.0);
+    float wander = sin(d.x * 57.0 + s * 4.6) * 0.008 * s;
+    float w = d.w * (0.82 + 0.42 * smoothstep(0.62, 1.0, s));
+    float dist = angD(u, d.x + wander);
+    // 断面は半円（液体のビード）。平らな帯にすると一気に嘘くさくなる。
+    float q = clamp(dist / max(w, 1e-4), 0.0, 1.0);
+    float lat = sqrt(max(0.0, 1.0 - q * q));
+    // 先端のしずかな膨らみ
+    float tip = exp(-pow((v - tEnd) / max(w * 0.9, 1e-3), 2.0));
+    float amt = lat * (0.50 + 0.34 * s) + lat * tip * 0.5;
+    th = max(th, amt);
+  }
+  outColor = vec4(clamp(th, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+`;
+
+
+// --- bundle: import * as S from './shaders.js' の代替 ---
+const S = {
+  PRELUDE, VS_LATHE, FS_PUDDING, FS_METAL, FS_CERAMIC, FS_LIQUID, VS_TUBE, FS_TUBE,
+  VS_FULL, FS_BACKDROP, FS_THRESHOLD, FS_BLUR, FS_COMPOSITE, FS_FIELD,
 };
 
 
@@ -819,18 +1883,18 @@ function bakeBackground(v, tint) {
   };
   const back = mk();
   const g = back.c2.createLinearGradient(0, 0, 0, v.h);
-  g.addColorStop(0, mixHex('#ffe7cd', '#d3ecfb', tint));
-  g.addColorStop(0.55, mixHex('#ffd9b2', '#b3ddf5', tint));
-  g.addColorStop(1, mixHex('#f3c294', '#95c9e8', tint));
+  g.addColorStop(0, mixHex('#e8c9a6', '#a9c9de', tint));
+  g.addColorStop(0.5, mixHex('#d9b189', '#8fb4cd', tint));
+  g.addColorStop(1, mixHex('#b98a5f', '#6d93ad', tint));
   back.c2.fillStyle = g;
   back.c2.fillRect(0, 0, v.w, v.h);
   const lx = v.w * 0.32;
   const ly = v.h * 0.18;
   const lr = Math.max(v.w, v.h) * 0.8;
   const gl = back.c2.createRadialGradient(lx, ly, 0, lx, ly, lr);
-  gl.addColorStop(0, 'rgba(255,250,235,0.75)');
-  gl.addColorStop(0.5, 'rgba(255,246,225,0.22)');
-  gl.addColorStop(1, 'rgba(255,240,215,0)');
+  gl.addColorStop(0, 'rgba(255,246,222,0.72)');
+  gl.addColorStop(0.42, 'rgba(255,238,206,0.20)');
+  gl.addColorStop(1, 'rgba(255,232,196,0)');
   back.c2.fillStyle = gl;
   back.c2.fillRect(0, 0, v.w, v.h);
 
@@ -843,8 +1907,9 @@ function bakeBackground(v, tint) {
     v.h * 0.5,
     Math.max(v.w, v.h) * 0.78
   );
-  vg.addColorStop(0, 'rgba(80,40,10,0)');
-  vg.addColorStop(1, 'rgba(80,40,10,0.28)');
+  vg.addColorStop(0, 'rgba(56,26,4,0)');
+  vg.addColorStop(0.55, 'rgba(56,26,4,0.14)');
+  vg.addColorStop(1, 'rgba(48,22,3,0.52)');
   front.c2.fillStyle = vg;
   front.c2.fillRect(0, 0, v.w, v.h);
 
@@ -877,10 +1942,10 @@ function background(ctx, v, tint = 0) {
     y0,
     R,
     [
-      [0, mixHex('#f7dcc0', '#dcf0fb', tint)],
-      [0.5, mixHex('#eecba6', '#c2e3f6', tint)],
-      [0.82, mixHexA('#e3b489', '#a9d5ee', tint, 0.9)],
-      [1, mixHexA('#e3b489', '#a9d5ee', tint, 0)],
+      [0, mixHex('#f0d3b2', '#cfe6f6', tint)],
+      [0.42, mixHex('#dcb289', '#aecfe6', tint)],
+      [0.8, mixHexA('#b8865c', '#7fa5be', tint, 0.92)],
+      [1, mixHexA('#a8764c', '#6f96b0', tint, 0)],
     ]
   );
   w.fillStyle = tg;
@@ -1455,8 +2520,8 @@ function steamPuffs(ctx, v, list, color = 'rgba(255,255,255,') {
     ctx.beginPath();
     ctx.arc(x, y, p.r, 0, TAU);
     const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1, p.r));
-    g.addColorStop(0, color + 0.9 * a + ')');
-    g.addColorStop(0.55, color + 0.45 * a + ')');
+    g.addColorStop(0, color + 0.42 * a + ')');
+    g.addColorStop(0.5, color + 0.20 * a + ')');
     g.addColorStop(1, color + '0)');
     ctx.fillStyle = g;
     ctx.fill();
@@ -1821,12 +2886,1262 @@ function sparkles(ctx, list) {
 }
 
 
-// --- bundle: `import * as A from './art.js'` の代替 ---
+// --- bundle: import * as A from './art.js' の代替 ---
 const A = {
   MOLD, PUD, PLATE, clearGradientCache, ellipse, ground, background,
   mold, moldPoolPoint, plate, pot, bowl, whisk, vesselSpout, stream, splash,
   steamPuffs, pudding, handIcon, guideArrow, sparkles,
 };
+
+
+// ================= src/view.js =================
+
+// 固定エレベーション（正射影）カメラ。
+// k = sin(仰角): 0 = 真横, 1 = 真上。hf = cos(仰角) = 高さの圧縮率。
+//
+// 画面は 3 枚重ね:
+//   #back  Canvas2D … 背景・Hero より奥の小物（被写界深度の CSS ぼかしを掛ける）
+//   #gl    WebGL2   … Hero 素材（プリン・カラメル・型・液体）
+//   #front Canvas2D … Hero より手前の小物と、文字なし UI
+
+
+class View {
+  constructor(back, glCanvas, front) {
+    this.canvas = back;
+    this.glCanvas = glCanvas;
+    this.frontCanvas = front;
+    this.ctx = back.getContext('2d', { alpha: false, desynchronized: true });
+    this.uctx = front.getContext('2d', { alpha: true, desynchronized: true });
+    this.dpr = 1;
+    this.w = 0;
+    this.h = 0;
+    this.portrait = true;
+    // カメラは「ワールド上のどの箱を必ず画面に収めるか」で指定する。
+    // こうすると iPhone / iPad の縦横どちらでも自動で最適な大きさになる。
+    // x,y = 箱の中心 / w,h = 箱の大きさ（ワールド単位） / k = 仰角 / anchor = 箱中心の画面上の縦位置
+    this.cam = { x: 0, y: 40, w: 280, h: 140, k: 0.42, anchor: 0.5 };
+    this.target = { ...this.cam };
+    this.shake = 0;
+    this._shx = 0;
+    this._shy = 0;
+    this.s = 1;
+    this.cx = 0;
+    this.cy = 0;
+    this.proj = ident();
+    this.blur = 0;
+    this.blurTarget = 0;
+    this._appliedBlur = -1;
+  }
+
+  resize(fastMode) {
+    const cap = fastMode ? 1 : 2;
+    const w = Math.max(1, Math.round(window.innerWidth));
+    const h = Math.max(1, Math.round(window.innerHeight));
+    let dpr = Math.min(window.devicePixelRatio || 1, cap);
+    // 大画面（iPad Pro など）で塗り面積が増えすぎないよう上限を掛ける。
+    const maxPixels = 2600000;
+    if (w * h * dpr * dpr > maxPixels) {
+      dpr = Math.max(1, Math.sqrt(maxPixels / (w * h)));
+    }
+    if (this.w === w && this.h === h && this.dpr === dpr) return false;
+    this.w = w;
+    this.h = h;
+    this.dpr = dpr;
+    for (const c of [this.canvas, this.glCanvas, this.frontCanvas]) {
+      if (!c) continue;
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+      c.style.width = w + 'px';
+      c.style.height = h + 'px';
+    }
+    this.portrait = h >= w;
+    return true;
+  }
+
+  setTarget(t) {
+    Object.assign(this.target, t);
+  }
+
+  snapToTarget() {
+    Object.assign(this.cam, this.target);
+  }
+
+  // 被写界深度（背景側の CSS ぼかし）。工程ごとに変える。
+  setBlur(px) {
+    this.blurTarget = px;
+  }
+
+  update(dt) {
+    const c = this.cam;
+    const t = this.target;
+    c.x = damp(c.x, t.x, 3.4, dt);
+    c.y = damp(c.y, t.y, 3.4, dt);
+    c.w = damp(c.w, t.w, 3.0, dt);
+    c.h = damp(c.h, t.h, 3.0, dt);
+    c.k = damp(c.k, t.k, 3.2, dt);
+    c.anchor = damp(c.anchor, t.anchor, 3.2, dt);
+    if (this.shake > 0) {
+      this.shake = Math.max(0, this.shake - dt * 2.6);
+      const a = this.shake * this.shake * 9;
+      this._shx = (Math.random() * 2 - 1) * a;
+      this._shy = (Math.random() * 2 - 1) * a;
+    } else {
+      this._shx = this._shy = 0;
+    }
+    this.blur = damp(this.blur, this.blurTarget, 4, dt);
+    const bp = Math.round(this.blur * 4) / 4;
+    if (bp !== this._appliedBlur) {
+      this._appliedBlur = bp;
+      this.canvas.style.filter = bp > 0.05 ? `blur(${bp}px)` : 'none';
+    }
+    this.recompute();
+  }
+
+  recompute() {
+    const c = this.cam;
+    this.k = clamp(c.k, 0.06, 0.95);
+    this.hf = Math.sqrt(Math.max(0.05, 1 - this.k * this.k));
+    // 指の置き場所（縦なら下、横なら右）を残して、残りに収める。
+    const hb = this.portrait ? 0.94 : 0.8;
+    const vb = this.portrait ? 0.64 : 0.74;
+    const sw = (this.w * hb) / Math.max(1, c.w);
+    const sh = (this.h * vb) / Math.max(1, c.h * this.hf);
+    this.s = Math.min(sw, sh);
+    this.cx = this.w / 2 + this._shx;
+    this.cy = this.h * c.anchor + this._shy;
+    this.updateProj();
+  }
+
+  // ワールド (X 右, Y 上, Z 手前) -> クリップ座標。
+  // 2D レイヤーの式とまったく同じ結果になるように作ってあるので、
+  // Canvas2D と WebGL の絵がピクセル単位で一致する。
+  updateProj() {
+    const m = this.proj;
+    const s = this.s;
+    const k = this.k;
+    const hf = this.hf;
+    const w = this.w;
+    const h = this.h;
+    const D = 600;
+    m[0] = (2 * s) / w;
+    m[1] = 0;
+    m[2] = 0;
+    m[3] = 0;
+    m[4] = 0;
+    m[5] = (2 * hf * s) / h;
+    m[6] = -k / D;
+    m[7] = 0;
+    m[8] = 0;
+    m[9] = (-2 * k * s) / h;
+    m[10] = -hf / D;
+    m[11] = 0;
+    m[12] = (2 * this.cx) / w - 1 - (2 * s * this.cam.x) / w;
+    m[13] = 1 - (2 * this.cy) / h - (2 * hf * s * this.cam.y) / h;
+    m[14] = (k * this.cam.y) / D;
+    m[15] = 1;
+  }
+
+  // 視線（物体から見て手前向き）
+  viewDir() {
+    return [0, this.k, this.hf];
+  }
+
+  // ワールド座標 -> 変換適用後のローカル座標
+  X(wx) {
+    return wx - this.cam.x;
+  }
+  Y(wy) {
+    return (this.cam.y - wy) * this.hf;
+  }
+  // ワールド -> 画面(CSS px)
+  toScreen(wx, wy) {
+    return { x: this.cx + this.X(wx) * this.s, y: this.cy + this.Y(wy) * this.s };
+  }
+  // 画面(CSS px) -> ワールド
+  toWorld(sx, sy) {
+    return {
+      x: (sx - this.cx) / this.s + this.cam.x,
+      y: this.cam.y - (sy - this.cy) / this.s / this.hf,
+    };
+  }
+
+  begin() {
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    return ctx;
+  }
+
+  world() {
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.translate(this.cx, this.cy);
+    ctx.scale(this.s, this.s);
+    return ctx;
+  }
+
+  // 手前レイヤー（毎フレーム透明にクリアする）
+  uiBegin(clear = true) {
+    const ctx = this.uctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (clear) ctx.clearRect(0, 0, this.w, this.h);
+    return ctx;
+  }
+
+  uiWorld() {
+    const ctx = this.uctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.translate(this.cx, this.cy);
+    ctx.scale(this.s, this.s);
+    return ctx;
+  }
+}
+
+
+// ================= src/input.js =================
+
+// 画面のどこを触っても操作できる、極めて寛容な入力層。
+// 4歳児向け: 位置精度を要求しない / 進捗は減らない / 手ぶれを吸収する。
+
+class Input {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.px = 0;
+    this.py = 0;
+    this.dx = 0;
+    this.dy = 0;
+    this.startX = 0;
+    this.startY = 0;
+    this.downTime = 0;
+    this.idle = 0; // 最後に触ってからの秒数
+    this.tapped = false; // このフレームで指が離れた（短い接触）
+    this.everTouched = false;
+    this._pending = { dx: 0, dy: 0 };
+    this._id = null;
+
+    const opt = { passive: false };
+    canvas.addEventListener('pointerdown', this._down, opt);
+    canvas.addEventListener('pointermove', this._move, opt);
+    canvas.addEventListener('pointerup', this._up, opt);
+    canvas.addEventListener('pointercancel', this._up, opt);
+    canvas.addEventListener('pointerleave', this._up, opt);
+    // iOS Safari のスクロール/ズームを完全に止める。
+    canvas.addEventListener('touchstart', (e) => e.preventDefault(), opt);
+    canvas.addEventListener('touchmove', (e) => e.preventDefault(), opt);
+    canvas.addEventListener('gesturestart', (e) => e.preventDefault(), opt);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault(), opt);
+  }
+
+  _down = (e) => {
+    if (this._id !== null) return; // 最初の指だけを見る（手のひらが当たっても壊れない）
+    this._id = e.pointerId;
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    const p = this._pos(e);
+    this.active = true;
+    this.everTouched = true;
+    this.x = this.px = this.startX = p.x;
+    this.y = this.py = this.startY = p.y;
+    this._pending.dx = 0;
+    this._pending.dy = 0;
+    this.downTime = 0;
+    this.idle = 0;
+    this.travel = 0;
+    e.preventDefault();
+  };
+
+  _move = (e) => {
+    if (e.pointerId !== this._id) return;
+    const p = this._pos(e);
+    this._pending.dx += p.x - this.x;
+    this._pending.dy += p.y - this.y;
+    this.x = p.x;
+    this.y = p.y;
+    this.idle = 0;
+    e.preventDefault();
+  };
+
+  _up = (e) => {
+    if (e.pointerId !== this._id) return;
+    this._id = null;
+    this.active = false;
+    this.tapped = this.downTime < 0.35;
+    e.preventDefault();
+  };
+
+  _pos(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  // 毎フレーム先頭で呼ぶ。
+  beginFrame(dt) {
+    this.dx = this._pending.dx;
+    this.dy = this._pending.dy;
+    this._pending.dx = 0;
+    this._pending.dy = 0;
+    this.px = this.x - this.dx;
+    this.py = this.y - this.dy;
+    if (this.active) {
+      this.downTime += dt;
+      this.idle = 0;
+      this.travel = (this.travel || 0) + Math.hypot(this.dx, this.dy);
+    } else {
+      this.idle += dt;
+    }
+  }
+
+  endFrame() {
+    this.tapped = false;
+  }
+
+  get moveLen() {
+    return Math.hypot(this.dx, this.dy);
+  }
+}
+
+// --- ジェスチャ認識器 ------------------------------------------------------
+// いずれも 0..1 の進捗を「増やすだけ」。逆方向の手ぶれで戻ることはない。
+
+// 円運動（混ぜる）。中心からずれていても、ぐるぐるでも往復でも進む。
+class CircleGesture {
+  constructor(turns = 2.2) {
+    this.need = turns * TAU;
+    this.acc = 0;
+    this.angle = 0;
+    this.has = false;
+    this.spin = 0; // 見た目用の回転角
+    this.speed = 0;
+    this.ex = 0; // 回転中心の推定値（指の移動平均）
+    this.ey = 0;
+  }
+  reset() {
+    this.acc = 0;
+    this.has = false;
+    this.spin = 0;
+    this.speed = 0;
+  }
+  nudge(dt) {
+    this.acc += this.need * dt * 0.12;
+    this.spin += dt * 2.4;
+  }
+  // cx, cy は「まだ触っていないとき」の初期中心（ボウルの位置）。
+  // 触り始めたら指の移動平均を中心として使うので、画面のどこで回しても成立する。
+  update(input, cx, cy, dt) {
+    let gain = 0;
+    if (input.active) {
+      if (!this.has) {
+        this.ex = input.x;
+        this.ey = input.y;
+      } else {
+        const l = 1 - Math.exp(-2.6 * dt);
+        this.ex += (input.x - this.ex) * l;
+        this.ey += (input.y - this.ey) * l;
+      }
+      const a = Math.atan2(input.y - this.ey, input.x - this.ex);
+      const r = Math.hypot(input.y - this.ey, input.x - this.ex);
+      if (this.has && r > 10) {
+        // 回転成分（半径が小さいと角度が暴れるので上限を掛ける）
+        gain += Math.min(Math.abs(angleDelta(a, this.angle)), 0.5);
+      }
+      this.angle = a;
+      this.has = true;
+      // 直線的にゴシゴシ動かすだけでも進むよう、移動距離でも加点。
+      gain += input.moveLen / 750;
+      this.spin += Math.max(gain, input.moveLen / 600) * 2.6;
+    } else {
+      this.has = false;
+    }
+    this.speed = this.speed * Math.exp(-6 * dt) + gain * 10;
+    this.acc += gain;
+    return clamp(this.acc / this.need);
+  }
+}
+
+// 一方向ドラッグ（注ぐ / 持ち上げる / 蓋を下ろす）。
+// axis: 'x' | 'y', sign: +1 | -1。distance は CSS px。
+class DragGesture {
+  constructor(axis, sign, distance) {
+    this.axis = axis;
+    this.sign = sign;
+    this.dist = distance;
+    this.acc = 0;
+    this.rate = 0;
+  }
+  reset() {
+    this.acc = 0;
+    this.rate = 0;
+  }
+  nudge(dt) {
+    this.acc += this.dist * dt * 0.12;
+  }
+  update(input, dt) {
+    let d = 0;
+    if (input.active) {
+      const main = this.axis === 'x' ? input.dx : input.dy;
+      const cross = this.axis === 'x' ? input.dy : input.dx;
+      // 斜めでも通す。逆方向は無視（減らさない）。
+      d = Math.max(0, main * this.sign) + Math.abs(cross) * 0.12;
+    }
+    this.rate = this.rate * Math.exp(-8 * dt) + (d / Math.max(dt, 1e-3)) * 0.002;
+    this.acc += d;
+    return clamp(this.acc / this.dist);
+  }
+}
+
+// 大きな弧のスワイプ（ひっくり返す）。左右どちらでも成立する。
+class ArcGesture {
+  constructor(distance) {
+    this.dist = distance;
+    this.acc = 0;
+    this.dir = 0;
+    this.rate = 0;
+  }
+  reset() {
+    this.acc = 0;
+    this.dir = 0;
+    this.rate = 0;
+  }
+  nudge(dt) {
+    this.acc += this.dist * dt * 0.12;
+  }
+  update(input, dt) {
+    let d = 0;
+    if (input.active) {
+      if (this.dir === 0 && Math.abs(input.dx) > 2) this.dir = Math.sign(input.dx);
+      const h = this.dir === 0 ? Math.abs(input.dx) : input.dx * this.dir;
+      d = Math.max(0, h) + Math.max(0, -input.dy) * 0.35; // 上向きの弧も加点
+    }
+    this.rate = this.rate * Math.exp(-8 * dt) + (d / Math.max(dt, 1e-3)) * 0.002;
+    this.acc += d;
+    return clamp(this.acc / this.dist);
+  }
+}
+
+// 押さえ続ける / こする（加熱レバー）。触れていれば進む。
+class HoldGesture {
+  constructor(duration) {
+    this.dur = duration;
+    this.acc = 0;
+  }
+  reset() {
+    this.acc = 0;
+  }
+  nudge(dt) {
+    this.acc += this.dur * dt * 0.12;
+  }
+  update(input, dt) {
+    if (input.active) this.acc += dt * (1 + Math.min(input.moveLen, 30) / 60);
+    return clamp(this.acc / this.dur);
+  }
+}
+
+
+// ================= src/audio.js =================
+
+// WebAudio による効果音。外部アセットなし。最初のタップで初期化（iOS 対策）。
+let ctx = null;
+let master = null;
+let noiseBuf = null;
+let muted = false;
+
+function initAudio() {
+  if (ctx) {
+    if (ctx.state === 'suspended') ctx.resume();
+    return;
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    ctx = new AC();
+  } catch {
+    return;
+  }
+  master = ctx.createGain();
+  master.gain.value = 0.5;
+  master.connect(ctx.destination);
+  const len = Math.floor(ctx.sampleRate * 1.5);
+  noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+}
+
+function setMuted(v) {
+  muted = v;
+  if (master) master.gain.value = v ? 0 : 0.5;
+}
+function isMuted() {
+  return muted;
+}
+
+const now = () => (ctx ? ctx.currentTime : 0);
+
+function tone(freq, dur, type = 'sine', gain = 0.2, glideTo = null) {
+  if (!ctx || muted) return;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, now());
+  if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, now() + dur);
+  g.gain.setValueAtTime(0.0001, now());
+  g.gain.exponentialRampToValueAtTime(gain, now() + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, now() + dur);
+  o.connect(g).connect(master);
+  o.start();
+  o.stop(now() + dur + 0.05);
+}
+
+function noise(dur, freq, q, gain = 0.2, sweepTo = null) {
+  if (!ctx || muted) return;
+  const s = ctx.createBufferSource();
+  s.buffer = noiseBuf;
+  s.loop = true;
+  const f = ctx.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(freq, now());
+  f.Q.value = q;
+  if (sweepTo) f.frequency.linearRampToValueAtTime(sweepTo, now() + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, now());
+  g.gain.exponentialRampToValueAtTime(gain, now() + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, now() + dur);
+  s.connect(f).connect(g).connect(master);
+  s.start();
+  s.stop(now() + dur + 0.05);
+}
+
+// --- ループ音（注ぐ / 湯気 / 混ぜる） ---
+class Loop {
+  constructor(make) {
+    this.make = make;
+    this.node = null;
+    this.gain = null;
+  }
+  set(level) {
+    if (!ctx || muted) return;
+    level = Math.max(0, Math.min(1, level));
+    if (level > 0.02 && !this.node) {
+      const built = this.make(ctx);
+      this.node = built.src;
+      this.gain = built.gain;
+      this.gain.connect(master);
+      this.node.start();
+    }
+    if (this.gain) this.gain.gain.setTargetAtTime(level * 0.16, now(), 0.06);
+    if (level <= 0.02 && this.node) {
+      const n = this.node;
+      const g = this.gain;
+      this.node = null;
+      this.gain = null;
+      g.gain.setTargetAtTime(0.0001, now(), 0.05);
+      setTimeout(() => {
+        try {
+          n.stop();
+        } catch {
+          /* noop */
+        }
+      }, 400);
+    }
+  }
+  stop() {
+    this.set(0);
+  }
+}
+
+const mkNoiseLoop = (freq, q) => (c) => {
+  const src = c.createBufferSource();
+  src.buffer = noiseBuf;
+  src.loop = true;
+  const f = c.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.value = freq;
+  f.Q.value = q;
+  const gain = c.createGain();
+  gain.gain.value = 0.0001;
+  src.connect(f).connect(gain);
+  return { src, gain };
+};
+
+const pourLoop = new Loop(mkNoiseLoop(700, 1.2));
+const steamLoop = new Loop(mkNoiseLoop(3200, 0.7));
+const whiskLoop = new Loop(mkNoiseLoop(1800, 2.2));
+const coldLoop = new Loop(mkNoiseLoop(420, 0.9));
+
+function stopAllLoops() {
+  pourLoop.stop();
+  steamLoop.stop();
+  whiskLoop.stop();
+  coldLoop.stop();
+}
+
+// --- 単発音 ---
+const sfx = {
+  tap: () => tone(660, 0.12, 'sine', 0.16, 880),
+  bubble: () => tone(300 + Math.random() * 250, 0.1, 'sine', 0.1, 160),
+  clack: () => {
+    noise(0.09, 2400, 1.5, 0.18);
+    tone(180, 0.16, 'sine', 0.12, 90);
+  },
+  place: () => {
+    tone(320, 0.18, 'triangle', 0.12, 220);
+    noise(0.06, 1200, 1, 0.1);
+  },
+  whoosh: () => noise(0.45, 500, 0.8, 0.2, 1800),
+  // ぷるん（型から外れる瞬間）: ピッチが下がり、軽く揺れる
+  purun: () => {
+    if (!ctx || muted) return;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(520, now());
+    o.frequency.exponentialRampToValueAtTime(200, now() + 0.42);
+    lfo.frequency.value = 11;
+    lg.gain.value = 42;
+    lfo.connect(lg).connect(o.frequency);
+    g.gain.setValueAtTime(0.0001, now());
+    g.gain.exponentialRampToValueAtTime(0.32, now() + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now() + 0.55);
+    o.connect(g).connect(master);
+    o.start();
+    lfo.start();
+    o.stop(now() + 0.6);
+    lfo.stop(now() + 0.6);
+  },
+  drip: () => tone(880, 0.22, 'sine', 0.1, 420),
+  sparkle: () => {
+    [784, 988, 1175, 1568].forEach((f, i) =>
+      setTimeout(() => tone(f, 0.5, 'triangle', 0.12), i * 90)
+    );
+  },
+  chime: () => {
+    [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.6, 'sine', 0.13), i * 70));
+  },
+};
+
+
+// ================= src/gl/hero.js =================
+
+// Hero 素材（プリン・カラメル・銀の型・皿・液体）を WebGL2 で描くレイヤー。
+// 描画順:
+//   1. 背景の縮小コピーを alpha=0 で敷く（屈折で拾うためだけの下地）
+//   2. 不透明（皿・型）を深度つきで描く
+//   3. ここまでをコピー（これが「背後」になる）
+//   4. 屈折する物（プリン・液体・注ぐ流れ）を描く
+//   5. しきい値抽出 → ぼかし → トーンマップして画面へ
+
+
+
+
+
+
+const RENDER_SCALE = [0.62, 0.85, 1.0];
+
+class Hero {
+  constructor(canvas) {
+    this.ok = false;
+    const gl = createGL(canvas);
+    if (!gl) return;
+    this.gl = gl;
+    this.canvas = canvas;
+    try {
+      this._init();
+      this.ok = true;
+    } catch (e) {
+      console.error('[hero] init failed', e);
+      this.ok = false;
+    }
+  }
+
+  _init() {
+    const gl = this.gl;
+    this.progPudding = program(gl, S.VS_LATHE, S.FS_PUDDING, 'pudding');
+    this.progMetal = program(gl, S.VS_LATHE, S.FS_METAL, 'metal');
+    this.progCeramic = program(gl, S.VS_LATHE, S.FS_CERAMIC, 'ceramic');
+    this.progLiquid = program(gl, S.VS_LATHE, S.FS_LIQUID, 'liquid');
+    this.progTube = program(gl, S.VS_TUBE, S.FS_TUBE, 'tube');
+    this.progBackdrop = program(gl, S.VS_FULL, S.FS_BACKDROP, 'backdrop');
+    this.progThreshold = program(gl, S.VS_FULL, S.FS_THRESHOLD, 'threshold');
+    this.progBlur = program(gl, S.VS_FULL, S.FS_BLUR, 'blur');
+    this.progComposite = program(gl, S.VS_FULL, S.FS_COMPOSITE, 'composite');
+    this.progField = program(gl, S.VS_FULL, S.FS_FIELD, 'field');
+    if (!this.progPudding || !this.progMetal || !this.progComposite) {
+      throw new Error('shader compilation failed');
+    }
+
+    const env = bakeEnv(gl);
+    this.envTex = env.tex;
+    this.envMaxLod = env.maxLod;
+    this.detailTex = bakeDetail(gl);
+
+    this.meshes = {
+      pudding: G.upload(gl, this.progPudding, G.lathe(G.puddingProfile(PUD.rb, PUD.rt, PUD.h), 56, { height: PUD.h })),
+      mold: G.upload(gl, this.progMetal, G.lathe(G.moldProfile(MOLD.rb, MOLD.rt, MOLD.h, MOLD.wall), 56, { height: MOLD.h })),
+      plate: G.upload(gl, this.progCeramic, G.lathe(G.plateProfile(PLATE.r, PLATE.h), 64, { height: PLATE.h + 2 })),
+      liquid: G.upload(gl, this.progLiquid, G.lathe(G.liquidProfile(1), 48, { height: 1.7 })),
+      pot: G.upload(gl, this.progMetal, G.lathe(G.potProfile(52, 62, 40, 3.2), 48, { height: 40 })),
+      bowl: G.upload(gl, this.progCeramic, G.lathe(G.bowlProfile(74, 46, 3.6), 48, { height: 46 })),
+    };
+
+    this.fsVao = fullscreenVAO(gl);
+    this.field = new Target(gl, 512, 256, {});
+    this.fieldFlow = -1;
+    this.main = null;
+    this.ms = null;
+    this.samples = 0;
+    this.scene = null;
+    this.bloomA = null;
+    this.bloomB = null;
+
+    // 屈折用に 2D レイヤーを縮小して取り込むための作業キャンバス
+    this.refCanvas = document.createElement('canvas');
+    this.refCtx = this.refCanvas.getContext('2d', { alpha: false });
+    this.refTex = texture(gl, {});
+
+    // 動的なチューブ（注ぐ流れ）
+    this.tube = this._makeTube(24, 10);
+
+    this.model = M.ident();
+    this.nrm = new Float32Array(9);
+    this.cmds = { opaque: [], refract: [] };
+    this.warmed = false;
+  }
+
+  _makeTube(segs, ring) {
+    const gl = this.gl;
+    const n = (segs + 1) * (ring + 1);
+    const pos = new Float32Array(n * 3);
+    const nrm = new Float32Array(n * 3);
+    const uv = new Float32Array(n * 3);
+    const idx = [];
+    for (let i = 0; i < segs; i++) {
+      for (let j = 0; j < ring; j++) {
+        const a = i * (ring + 1) + j;
+        idx.push(a, a + ring + 1, a + 1, a + 1, a + ring + 1, a + ring + 2);
+      }
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const mk = (name, arr, size) => {
+      const loc = this.progTube.a[name];
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
+      if (loc != null && loc >= 0) {
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+      }
+      return b;
+    };
+    const bPos = mk('aPos', pos, 3);
+    const bNrm = mk('aNrm', nrm, 3);
+    const bUv = mk('aUv', uv, 3);
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao, bPos, bNrm, bUv, pos, nrm, uv, count: idx.length, segs, ring };
+  }
+
+  resize(view, tier) {
+    const gl = this.gl;
+    const scale = RENDER_SCALE[tier] ?? 1;
+    const w = Math.max(2, Math.round(view.w * view.dpr * scale));
+    const h = Math.max(2, Math.round(view.h * view.dpr * scale));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      this.canvas.style.width = view.w + 'px';
+      this.canvas.style.height = view.h + 'px';
+    }
+    const half = { half: true };
+    // ジャギーは「安い 3D」に見える最大の原因なので、余裕がある層では MSAA を使う
+    const want = tier >= TIER.HIGH ? 4 : 0;
+    if (!this.main) {
+      this.main = new Target(gl, w, h, { ...half, depth: true });
+      this.scene = new Target(gl, w, h, half);
+      this.bloomA = new Target(gl, w >> 2, h >> 2, half);
+      this.bloomB = new Target(gl, w >> 2, h >> 2, half);
+    } else {
+      this.main.resize(w, h);
+      this.scene.resize(w, h);
+      this.bloomA.resize(Math.max(2, w >> 2), Math.max(2, h >> 2));
+      this.bloomB.resize(Math.max(2, w >> 2), Math.max(2, h >> 2));
+    }
+    if (want !== this.samples) {
+      this.samples = want;
+      this.ms = null;
+    }
+    if (this.samples > 0) {
+      const max = gl.getParameter(gl.MAX_SAMPLES) || 0;
+      const sm = Math.min(this.samples, max);
+      if (sm <= 0) {
+        this.samples = 0;
+        this.ms = null;
+      } else if (!this.ms) {
+        const t = new MSTarget(gl, w, h, sm, true);
+        this.ms = t.complete ? t : null;
+        if (!this.ms) this.samples = 0;
+      } else {
+        this.ms.resize(w, h);
+      }
+    }
+    const rw = Math.max(8, Math.round(view.w / 4));
+    const rh = Math.max(8, Math.round(view.h / 4));
+    if (this.refCanvas.width !== rw || this.refCanvas.height !== rh) {
+      this.refCanvas.width = rw;
+      this.refCanvas.height = rh;
+    }
+  }
+
+  // --- シーン記述 -----------------------------------------------------------
+  begin() {
+    this.cmds.opaque.length = 0;
+    this.cmds.refract.length = 0;
+  }
+  plate(o) {
+    this.cmds.opaque.push({ t: 'plate', o });
+  }
+  mold(o) {
+    this.cmds.opaque.push({ t: 'mold', o });
+  }
+  pot(o) {
+    this.cmds.opaque.push({ t: 'pot', o });
+  }
+  bowl(o) {
+    this.cmds.opaque.push({ t: 'bowl', o });
+  }
+  pudding(o) {
+    this.cmds.refract.push({ t: 'pudding', o });
+  }
+  liquid(o) {
+    this.cmds.refract.push({ t: 'liquid', o });
+  }
+  stream(o) {
+    this.cmds.refract.push({ t: 'stream', o });
+  }
+  get empty() {
+    return this.cmds.opaque.length === 0 && this.cmds.refract.length === 0;
+  }
+
+  // --- 描画 -----------------------------------------------------------------
+  render(view, backCanvas, tier, time) {
+    const gl = this.gl;
+    this.resize(view, tier);
+    const refract = tier >= TIER.MID ? 1 : 0;
+    const bloom = tier >= TIER.MID;
+
+    // カラメルの厚み場（flow が動いたときだけ焼き直す）
+    let flow = 0;
+    for (const c of this.cmds.refract) if (c.t === 'pudding') flow = Math.max(flow, c.o.caramelFlow || 0);
+    if (Math.abs(flow - this.fieldFlow) > 0.004) {
+      this.fieldFlow = flow;
+      this._bakeField(flow);
+    }
+
+    // 屈折用の背景取り込み
+    if (refract && backCanvas) {
+      this.refCtx.drawImage(backCanvas, 0, 0, this.refCanvas.width, this.refCanvas.height);
+      gl.bindTexture(gl.TEXTURE_2D, this.refTex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, this.refCanvas);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    }
+
+    const rt = this.ms || this.main;
+    rt.bind();
+    gl.clearColor(0, 0, 0, 0);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.frontFace(gl.CCW);
+    gl.disable(gl.BLEND);
+
+    // 1. 背景の下地（alpha=0 なので合成では見えないが、屈折では拾える）
+    if (refract && backCanvas) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.useProgram(this.progBackdrop);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.refTex);
+      gl.uniform1i(this.progBackdrop.u.uTex, 0);
+      gl.bindVertexArray(this.fsVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+
+    // 2. 不透明
+    for (const c of this.cmds.opaque) {
+      if (c.t === 'plate') this._drawPlate(view, c.o);
+      else if (c.t === 'mold') this._drawMold(view, c.o);
+      else if (c.t === 'pot') this._drawVessel(view, c.o, this.meshes.pot, 'metal', 40);
+      else if (c.t === 'bowl') this._drawVessel(view, c.o, this.meshes.bowl, 'ceramic', 46);
+    }
+
+    // 3. 背後をコピー（MSAA はここで解決される）
+    if (refract) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, rt.fbo);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.scene.fbo);
+      gl.blitFramebuffer(
+        0, 0, rt.w, rt.h,
+        0, 0, this.scene.w, this.scene.h,
+        gl.COLOR_BUFFER_BIT, gl.NEAREST
+      );
+      rt.bind();
+    }
+
+    // 4. 屈折する物
+    for (const c of this.cmds.refract) {
+      if (c.t === 'pudding') this._drawPudding(view, c.o, refract);
+      else if (c.t === 'liquid') this._drawLiquid(view, c.o, refract, time);
+      else if (c.t === 'stream') this._drawStream(view, c.o, refract);
+    }
+
+    // 5. MSAA を解決してからポストへ
+    if (this.ms) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.ms.fbo);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.main.fbo);
+      gl.blitFramebuffer(
+        0, 0, this.ms.w, this.ms.h,
+        0, 0, this.main.w, this.main.h,
+        gl.COLOR_BUFFER_BIT, gl.NEAREST
+      );
+    }
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(this.fsVao);
+    if (bloom) {
+      this.bloomA.bind();
+      gl.useProgram(this.progThreshold);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.main.tex);
+      gl.uniform1i(this.progThreshold.u.uTex, 0);
+      gl.uniform1f(this.progThreshold.u.uThreshold, 0.82);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      for (let pass = 0; pass < 2; pass++) {
+        const src = pass === 0 ? this.bloomA : this.bloomB;
+        const dst = pass === 0 ? this.bloomB : this.bloomA;
+        dst.bind();
+        gl.useProgram(this.progBlur);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, src.tex);
+        gl.uniform1i(this.progBlur.u.uTex, 0);
+        gl.uniform2f(
+          this.progBlur.u.uDir,
+          pass === 0 ? 1.4 / dst.w : 0,
+          pass === 0 ? 0 : 1.4 / dst.h
+        );
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.progComposite);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.main.tex);
+    gl.uniform1i(this.progComposite.u.uTex, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, bloom ? this.bloomA.tex : this.main.tex);
+    gl.uniform1i(this.progComposite.u.uBloom, 1);
+    gl.uniform1f(this.progComposite.u.uBloomAmt, bloom ? 1.05 : 0.0);
+    gl.uniform1f(this.progComposite.u.uExposure, 1.12);
+    gl.uniform1f(this.progComposite.u.uGrain, tier >= TIER.MID ? 0.012 : 0.0);
+    gl.uniform1f(this.progComposite.u.uTime, time);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+  }
+
+  _bakeField(flow) {
+    const gl = this.gl;
+    this.field.bind();
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.progField);
+    gl.uniform1f(this.progField.u.uFlow, flow);
+    gl.bindVertexArray(this.fsVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+  }
+
+  _common(prog, view) {
+    const gl = this.gl;
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(prog.u.uProj, false, view.proj);
+    const v = view.viewDir();
+    gl.uniform3f(prog.u.uV, v[0], v[1], v[2]);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.envTex);
+    gl.uniform1i(prog.u.uEnv, 0);
+    gl.uniform1f(prog.u.uEnvMaxLod, this.envMaxLod);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.detailTex);
+    if (prog.u.uDetail) gl.uniform1i(prog.u.uDetail, 1);
+  }
+
+  _setModel(prog, o, sxz = 1, sy = 1) {
+    const gl = this.gl;
+    const m = this.model;
+    M.translate(m, o.x || 0, o.base || 0, o.z || 0);
+    if (o.rotX || o.rotZ) {
+      const t = M.ident();
+      M.translate(t, 0, o.pivotY || 0, 0);
+      M.mul(m, m, t);
+      if (o.rotX) {
+        M.rotateX(t, o.rotX);
+        M.mul(m, m, t);
+      }
+      if (o.rotZ) {
+        M.rotateZ(t, o.rotZ);
+        M.mul(m, m, t);
+      }
+      M.translate(t, 0, -(o.pivotY || 0), 0);
+      M.mul(m, m, t);
+    }
+    if (o.localY) {
+      const t = M.translate(M.ident(), 0, o.localY, 0);
+      M.mul(m, m, t);
+    }
+    if (o.flip) {
+      const t = M.scale(M.ident(), 1, -1, 1);
+      M.mul(m, m, t);
+      const t2 = M.translate(M.ident(), 0, -(o.flipH || 0), 0);
+      M.mul(m, m, t2);
+    }
+    if (sxz !== 1 || sy !== 1) {
+      const t = M.scale(M.ident(), sxz, sy, sxz);
+      M.mul(m, m, t);
+    }
+    gl.uniformMatrix4fv(prog.u.uModel, false, m);
+    // 回転 + 対角スケールの法線行列
+    const n = this.nrm;
+    M.normalMat3(n, m);
+    const isx = 1 / (sxz || 1);
+    const isy = 1 / (sy || 1);
+    n[0] *= isx * isx;
+    n[1] *= isx * isx;
+    n[2] *= isx * isx;
+    n[3] *= isy * isy;
+    n[4] *= isy * isy;
+    n[5] *= isy * isy;
+    n[6] *= isx * isx;
+    n[7] *= isx * isx;
+    n[8] *= isx * isx;
+    gl.uniformMatrix3fv(prog.u.uNormal, false, n);
+    // 変形パラメータ（プリン以外は 0）
+    gl.uniform1f(prog.u.uHeight, o.height || 1);
+    gl.uniform1f(prog.u.uWobble, o.wobble || 0);
+    gl.uniform1f(prog.u.uPhase, o.phase || 0);
+    gl.uniform1f(prog.u.uSquash, o.squash || 0);
+    gl.uniform1f(prog.u.uStick, o.stick || 0);
+  }
+
+  _drawMesh(mesh) {
+    const gl = this.gl;
+    gl.bindVertexArray(mesh.vao);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(null);
+  }
+
+  _drawPlate(view, o) {
+    const gl = this.gl;
+    const p = this.progCeramic;
+    this._common(p, view);
+    this._setModel(p, { ...o, height: PLATE.h + 2 });
+    gl.uniform3f(p.u.uBouncePos, o.x || 0, o.base || 0, 0);
+    const bc = o.bounceColor || [0.55, 0.32, 0.08];
+    gl.uniform3f(p.u.uBounceColor, bc[0], bc[1], bc[2]);
+    gl.uniform1f(p.u.uBounceAmt, o.bounce ?? 0);
+    const o0 = o.occ0 || [0, 0, 1, 0];
+    const o1 = o.occ1 || [0, 0, 1, 0];
+    gl.uniform4f(p.u.uOcc0, o0[0], o0[1], o0[2], o0[3]);
+    gl.uniform4f(p.u.uOcc1, o1[0], o1[1], o1[2], o1[3]);
+    this._drawMesh(this.meshes.plate);
+  }
+
+  _drawMold(view, o) {
+    const gl = this.gl;
+    const p = this.progMetal;
+    this._common(p, view);
+    this._setModel(p, { ...o, height: MOLD.h, flipH: MOLD.h });
+    gl.uniform1f(p.u.uRibs, o.ribs ?? 1);
+    gl.uniform1f(p.u.uFrost, o.frost ?? 0);
+    const t = o.tint || [0.93, 0.94, 0.96];
+    gl.uniform3f(p.u.uTint, t[0], t[1], t[2]);
+    // 反転すると三角形の巻き方向が裏返るので front face を切り替える
+    gl.frontFace(o.flip ? gl.CW : gl.CCW);
+    this._drawMesh(this.meshes.mold);
+    gl.frontFace(gl.CCW);
+  }
+
+  _drawVessel(view, o, mesh, kind, height) {
+    const gl = this.gl;
+    const p = kind === 'metal' ? this.progMetal : this.progCeramic;
+    this._common(p, view);
+    this._setModel(p, { ...o, height });
+    if (kind === 'metal') {
+      gl.uniform1f(p.u.uRibs, o.ribs ?? 0);
+      gl.uniform1f(p.u.uFrost, o.frost ?? 0);
+      const t = o.tint || [0.93, 0.94, 0.96];
+      gl.uniform3f(p.u.uTint, t[0], t[1], t[2]);
+    } else {
+      gl.uniform3f(p.u.uBouncePos, o.x || 0, o.base || 0, 0);
+      const bc = o.bounceColor || [0.5, 0.35, 0.1];
+      gl.uniform3f(p.u.uBounceColor, bc[0], bc[1], bc[2]);
+      gl.uniform1f(p.u.uBounceAmt, o.bounce ?? 0);
+      gl.uniform4f(p.u.uOcc0, 0, 0, 1, 0);
+      gl.uniform4f(p.u.uOcc1, 0, 0, 1, 0);
+    }
+    this._drawMesh(mesh);
+  }
+
+  _drawPudding(view, o, refract) {
+    const gl = this.gl;
+    const p = this.progPudding;
+    this._common(p, view);
+    this._setModel(p, { ...o, height: PUD.h });
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.field.tex);
+    gl.uniform1i(p.u.uField, 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
+    gl.uniform1i(p.u.uScene, 3);
+    gl.uniform1f(p.u.uRefract, refract);
+    gl.uniform1f(p.u.uCaramel, o.caramel ?? 1);
+    gl.uniform1f(p.u.uHeightW, PUD.h);
+    this._drawMesh(this.meshes.pudding);
+  }
+
+  _drawLiquid(view, o, refract, time) {
+    const gl = this.gl;
+    const p = this.progLiquid;
+    this._common(p, view);
+    this._setModel(p, { ...o, height: 1.7 }, o.r || 1, 1);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
+    gl.uniform1i(p.u.uScene, 3);
+    gl.uniform1f(p.u.uRefract, refract);
+    const s = o.sigma || [0.01, 0.02, 0.05];
+    gl.uniform3f(p.u.uSigma, s[0], s[1], s[2]);
+    gl.uniform1f(p.u.uDepth, o.depth ?? 6);
+    gl.uniform1f(p.u.uRough, o.rough ?? 0.05);
+    gl.uniform1f(p.u.uBoil, o.boil ?? 0);
+    gl.uniform1f(p.u.uTime, time);
+    gl.disable(gl.CULL_FACE);
+    this._drawMesh(this.meshes.liquid);
+    gl.enable(gl.CULL_FACE);
+  }
+
+  _drawStream(view, o, refract) {
+    const gl = this.gl;
+    const t = this.tube;
+    const pts = o.points;
+    const segs = t.segs;
+    const ring = t.ring;
+    let w = 0;
+    for (let i = 0; i <= segs; i++) {
+      const u = i / segs;
+      const fi = u * (pts.length - 1);
+      const i0 = Math.min(pts.length - 1, Math.floor(fi));
+      const i1 = Math.min(pts.length - 1, i0 + 1);
+      const f = fi - i0;
+      const px = pts[i0][0] + (pts[i1][0] - pts[i0][0]) * f;
+      const py = pts[i0][1] + (pts[i1][1] - pts[i0][1]) * f;
+      const r = (pts[i0][2] + (pts[i1][2] - pts[i0][2]) * f) || 1;
+      // 進行方向（XY 平面内）
+      const j0 = Math.max(0, i0 - 1);
+      const j1 = Math.min(pts.length - 1, i0 + 1);
+      let tx = pts[j1][0] - pts[j0][0];
+      let ty = pts[j1][1] - pts[j0][1];
+      const tl = Math.hypot(tx, ty) || 1;
+      tx /= tl;
+      ty /= tl;
+      const e1x = -ty;
+      const e1y = tx;
+      for (let j = 0; j <= ring; j++) {
+        const a = (j / ring) * Math.PI * 2;
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        const nx = e1x * ca;
+        const ny = e1y * ca;
+        const nz = sa;
+        t.pos[w * 3] = px + nx * r;
+        t.pos[w * 3 + 1] = py + ny * r;
+        t.pos[w * 3 + 2] = nz * r;
+        t.nrm[w * 3] = nx;
+        t.nrm[w * 3 + 1] = ny;
+        t.nrm[w * 3 + 2] = nz;
+        t.uv[w * 3] = j / ring;
+        t.uv[w * 3 + 1] = u;
+        t.uv[w * 3 + 2] = 0;
+        w++;
+      }
+    }
+    const p = this.progTube;
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(p.u.uProj, false, view.proj);
+    const v = view.viewDir();
+    gl.uniform3f(p.u.uV, v[0], v[1], v[2]);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.envTex);
+    gl.uniform1i(p.u.uEnv, 0);
+    gl.uniform1f(p.u.uEnvMaxLod, this.envMaxLod);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
+    gl.uniform1i(p.u.uScene, 3);
+    gl.uniform1f(p.u.uRefract, refract);
+    const s = o.sigma || [0.06, 0.16, 0.42];
+    gl.uniform3f(p.u.uSigma, s[0], s[1], s[2]);
+    gl.uniform1f(p.u.uRadius, o.radius ?? 5);
+    gl.bindVertexArray(t.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, t.bPos);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, t.pos);
+    gl.bindBuffer(gl.ARRAY_BUFFER, t.bNrm);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, t.nrm);
+    gl.bindBuffer(gl.ARRAY_BUFFER, t.bUv);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, t.uv);
+    gl.disable(gl.CULL_FACE);
+    gl.drawElements(gl.TRIANGLES, t.count, gl.UNSIGNED_SHORT, 0);
+    gl.enable(gl.CULL_FACE);
+    gl.bindVertexArray(null);
+  }
+
+  // 工程 9 で初めてシェーダを走らせるとカクつくので、前半のうちに一度だけ
+  // 全プログラムを小さく走らせて温めておく（大穴 N の実用版）。
+  warmup(view) {
+    if (this.warmed || !this.ok) return;
+    this.warmed = true;
+    this.begin();
+    this.plate({ x: 0, base: -10000 });
+    this.mold({ x: 0, base: -10000 });
+    this.pot({ x: 0, base: -10000 });
+    this.bowl({ x: 0, base: -10000 });
+    this.pudding({ x: 0, base: -10000, caramelFlow: 0.5, wobble: 1, phase: 1 });
+    this.liquid({ x: 0, base: -10000, r: 10, depth: 4 });
+    this.stream({
+      points: [
+        [0, -10000, 3],
+        [0, -10010, 3],
+      ],
+      radius: 3,
+    });
+    this.render(view, null, TIER.MID, 0);
+    this.begin();
+  }
+}
 
 
 // ================= src/stages.js =================
@@ -1875,6 +4190,115 @@ function sugarColor(t) {
     : mixHex('#f0d17a', '#a85c14', (t - 0.5) * 2);
 }
 
+
+// --- GL Hero レイヤーに渡す材質と寸法 ---------------------------------------
+// Beer-Lambert の吸収係数（1 ワールド単位あたり）。厚みで色が変わるのが本物らしさの核。
+// 深さ数 mm〜数 cm の液だまりで「濃いけれど色が残る」ように調整してある。
+// 係数を上げすぎると緑が先に落ちて赤紫になるので、比率も含めて実測寄りに。
+const SIG = {
+  syrupClear: [0.0010, 0.0016, 0.0032], // 透明な砂糖液
+  syrupAmber: [0.034, 0.059, 0.097], // 煮詰まったカラメル
+  caramel: [0.075, 0.127, 0.200],
+  custardRaw: [0.0165, 0.0300, 0.0620],
+  custardSet: [0.0200, 0.0370, 0.0760],
+};
+const mixSig = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+
+// 型の内側の半径（高さ y における）
+const moldInnerR = (y) => {
+  const irb = MOLD.rb - MOLD.wall;
+  const irt = MOLD.rt - MOLD.wall;
+  return irb + (irt - irb) * clamp((y - 2.2) / (MOLD.h - 2.2));
+};
+// 型の中の液面の高さ（0..1 を高さに）
+const moldLevel = (f) => 2.6 + (MOLD.h - 7.0) * clamp(f);
+
+// 鍋（rb52 / rt62 / h40 / wall3.2）の内側
+const potLocalY = (L) => 3.2 + (40 - 3.2) * clamp(L);
+const potLocalR = (y) => (52 + 10 * clamp((y - 2.2) / (40 - 2.2))) - 3.6;
+
+// ボウル（R74 / h46 / wall3.6）の内側
+const bowlLocalY = (L) => 2.9 + (46 - 2.9) * clamp(L);
+const bowlLocalR = (y) => {
+  const t = clamp(1 - y / 46);
+  return 74 * Math.sqrt(Math.max(0, 1 - t * t)) - 4.0;
+};
+
+// 傾けた容器の注ぎ口（ワールド座標）。rotZ = -tilt で画面上は時計回りに倒れる。
+function spout3(x, base, tilt, R, H, pivotY) {
+  const th = -tilt;
+  const rx = R;
+  const ry = H - pivotY;
+  const c = Math.cos(th);
+  const sn = Math.sin(th);
+  return { x: x + (c * rx - sn * ry), y: base + pivotY + (sn * rx + c * ry) };
+}
+
+// 注ぐ流れの経路（下ほど速く落ち、細くなる）
+function streamPath(sx, sy, tx, ty, w0, w1, time) {
+  const pts = [];
+  const n = 9;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    const x = sx + (tx - sx) * (u * 0.42 + u * u * 0.58);
+    const y = sy + (ty - sy) * (u * u * 0.7 + u * 0.3);
+    const wob = Math.sin(time * 5.5 + u * 4.2) * 0.9 * (1 - u * 0.55);
+    pts.push([x + wob, y, lerp(w0, w1, u)]);
+  }
+  return pts;
+}
+
+// 鍋の取っ手だけは 2D（背面レイヤー）で描く
+function potHandle(ctx, v, x, base, tilt) {
+  ctx.save();
+  ctx.translate(v.X(x), v.Y(base));
+  ctx.rotate(tilt || 0);
+  const y = -26 * v.hf;
+  ctx.beginPath();
+  ctx.moveTo(-52, y);
+  ctx.lineTo(-134, y - 4);
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3f4954';
+  ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 混ぜ残しの白い筋（GL の液面の上に 2D で重ねる）
+function swirlOverlay(ctx, v, wy, r, unmixed, angle) {
+  if (unmixed <= 0.01) return;
+  const cx = v.X(0);
+  const cy = v.Y(wy);
+  const k = v.k;
+  ctx.save();
+  ctx.beginPath();
+  A.ellipse(ctx, cx, cy, r * 0.97, r * 0.97 * k);
+  ctx.clip();
+  ctx.globalAlpha = clamp(unmixed) * 0.8;
+  ctx.globalCompositeOperation = 'soft-light';
+  for (let i = 0; i < 5; i++) {
+    const a = angle + (i / 5) * TAU;
+    ctx.beginPath();
+    for (let j = 0; j <= 22; j++) {
+      const u = j / 22;
+      const ang = a + u * 2.7;
+      const rad = r * (0.12 + u * 0.8);
+      const px = cx + Math.cos(ang) * rad;
+      const py = cy + Math.sin(ang) * rad * k;
+      if (j === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.lineWidth = 7 - i * 0.7;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = i % 2 ? 'rgba(255,255,250,0.95)' : 'rgba(255,205,90,0.75)';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // --- 小物の描画 -------------------------------------------------------------
 function stove(ctx, v, x) {
   const cx = v.X(x);
@@ -1905,22 +4329,22 @@ function flames(ctx, v, x, base, flame, front) {
   const y = v.Y(base);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * TAU;
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * TAU;
     if (front === true && Math.sin(a) < 0) continue;
     if (front === false && Math.sin(a) >= 0) continue;
     const fx = cx + Math.cos(a) * 60;
     const fy = y + Math.sin(a) * 60 * v.k;
     const hgt = (26 + Math.sin(v.time * 12 + i * 2.1) * 9) * flame;
     ctx.beginPath();
-    ctx.moveTo(fx - 13, fy);
-    ctx.quadraticCurveTo(fx, fy - hgt * 2.1, fx + 13, fy);
+    ctx.moveTo(fx - 16, fy);
+    ctx.quadraticCurveTo(fx, fy - hgt * 2.4, fx + 16, fy);
     ctx.closePath();
     const g = ctx.createLinearGradient(fx, fy, fx, fy - hgt * 2.1);
-    g.addColorStop(0, 'rgba(90,150,255,0.55)');
-    g.addColorStop(0.28, 'rgba(255,140,30,0.85)');
-    g.addColorStop(0.7, 'rgba(255,196,80,0.6)');
-    g.addColorStop(1, 'rgba(255,240,180,0)');
+    g.addColorStop(0, 'rgba(255,120,20,0.34)');
+    g.addColorStop(0.35, 'rgba(255,168,50,0.34)');
+    g.addColorStop(0.75, 'rgba(255,214,120,0.16)');
+    g.addColorStop(1, 'rgba(255,240,190,0)');
     ctx.fillStyle = g;
     ctx.fill();
   }
@@ -1953,8 +4377,11 @@ function lever(ctx, v, x, angle, glow) {
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, -52);
-  ctx.lineWidth = 13;
-  ctx.strokeStyle = '#d8dee6';
+  ctx.lineWidth = 17;
+  ctx.strokeStyle = '#7d8894';
+  ctx.stroke();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
   ctx.stroke();
   ctx.beginPath();
   ctx.arc(0, -56, 19, 0, TAU);
@@ -1998,8 +4425,8 @@ function tray(ctx, v, x) {
   ctx.beginPath();
   A.ellipse(ctx, cx, yt + 1, 142, 142 * v.k);
   const wg = ctx.createRadialGradient(cx, yt, 4, cx, yt, 142);
-  wg.addColorStop(0, 'rgba(214,238,250,0.95)');
-  wg.addColorStop(1, 'rgba(150,200,226,0.95)');
+  wg.addColorStop(0, 'rgba(206,224,232,0.95)');
+  wg.addColorStop(1, 'rgba(158,186,200,0.95)');
   ctx.fillStyle = wg;
   ctx.fill();
   ctx.restore();
@@ -2150,10 +4577,10 @@ function coldPanel(ctx, v, cover, time) {
 // 各 stage: { id, verb, cam(v), enter(g), update(g,dt,input,v)->0..1,
 //             draw(ctx,v,g), hint(v,g), hold(秒) }
 
-const S = [];
+const SDEF = [];
 
 // 1. あたためる: 透明な砂糖液がゆっくり琥珀色になる
-S.push({
+SDEF.push({
   id: 'caramelize',
   cam: () => ({ x: 18, y: 62, w: 275, h: 130, k: 0.5, anchor: 0.5 }),
   enter(g, v) {
@@ -2176,6 +4603,32 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    stove(ctx, v, -45);
+    A.ground(ctx, v, -45, 0, 74, 0.35);
+    flames(ctx, v, -45, 12, g.flame || 0, false);
+    potHandle(ctx, v, -45, 14, 0);
+  },
+  gl(h, v, g) {
+    h.pot({ x: -45, base: 14 });
+    const L = 0.56;
+    const ly = potLocalY(L);
+    h.liquid({
+      x: -45,
+      base: 14,
+      localY: ly,
+      r: potLocalR(ly),
+      depth: 4 + 16 * L,
+      sigma: mixSig(SIG.syrupClear, SIG.syrupAmber, Math.pow(clamp(g.amber), 1.2)),
+      rough: 0.06,
+      boil: 0.16 + clamp(g.flame || 0) * (0.25 + 0.6 * clamp(g.amber)),
+    });
+  },
+  front(ctx, v, g) {
+    flames(ctx, v, -45, 12, g.flame || 0, true);
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(255,252,244,');
+    lever(ctx, v, 118, g.leverAngle, g.pulse);
+  },
+  fallback(ctx, v, g) {
     stove(ctx, v, -45);
     A.ground(ctx, v, -45, 0, 74, 0.35);
     flames(ctx, v, -45, 12, g.flame || 0, false);
@@ -2205,7 +4658,7 @@ S.push({
 });
 
 // 2. そそぐ: とろみのあるカラメルを型の底へ
-S.push({
+SDEF.push({
   id: 'pour-caramel',
   cam: () => ({ x: -52, y: 62, w: 236, h: 132, k: 0.52, anchor: 0.5 }),
   enter(g, v) {
@@ -2226,6 +4679,52 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 62, 0.4);
+    potHandle(ctx, v, -104 + g.potTilt * 16, 84, g.potTilt);
+  },
+  gl(h, v, g) {
+    const cara = clamp(g.caramelInMold);
+    h.mold({ x: 0, base: 0, ribs: 1 });
+    if (cara > 0.01) {
+      const y = moldLevel(cara * 0.22);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 1.5 + cara * 7.5,
+        sigma: SIG.caramel,
+        rough: 0.04,
+      });
+    }
+    const potX = -104 + g.potTilt * 16;
+    const rem = 0.56 * (1 - cara * 0.6);
+    h.pot({ x: potX, base: 84, rotZ: -g.potTilt, pivotY: 18 });
+    if (rem > 0.04) {
+      const ly = potLocalY(rem);
+      h.liquid({
+        x: potX,
+        base: 84,
+        rotZ: -g.potTilt,
+        pivotY: 18,
+        localY: ly,
+        r: potLocalR(ly) * (1 - g.potTilt * 0.16),
+        depth: 3 + 14 * rem,
+        sigma: SIG.syrupAmber,
+        rough: 0.04,
+        boil: 0.1,
+      });
+    }
+    if (g.pouring) {
+      const sp = spout3(potX, 84, g.potTilt, 58, 41, 18);
+      const ty = moldLevel(cara * 0.22) + 1.5;
+      h.stream({
+        points: streamPath(sp.x, sp.y, 0, ty, 7.6, 5.0, v.time),
+        radius: 6.2,
+        sigma: SIG.caramel,
+      });
+    }
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 62, 0.4);
     A.mold(ctx, v, { x: 0, base: 0, open: true, caramel: g.caramelInMold });
     const potX = -104 + g.potTilt * 16;
@@ -2273,7 +4772,7 @@ S.push({
 });
 
 // 3. まぜる: 別容器で黄色い液を混ぜる（円運動）
-S.push({
+SDEF.push({
   id: 'mix',
   cam: () => ({ x: 0, y: 52, w: 202, h: 122, k: 0.62, anchor: 0.5 }),
   enter(g, v) {
@@ -2290,6 +4789,28 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 78, 0.4);
+  },
+  gl(h, v, g) {
+    h.bowl({ x: 0, base: 0, bounce: 0.16, bounceColor: [0.55, 0.42, 0.12] });
+    const ly = bowlLocalY(0.72);
+    h.liquid({
+      x: 0,
+      base: 0,
+      localY: ly,
+      r: bowlLocalR(ly),
+      depth: 20,
+      sigma: mixSig(SIG.custardRaw, SIG.custardSet, 0.35),
+      rough: 0.045,
+      boil: clamp((g.gesture.speed || 0) * 0.22),
+    });
+  },
+  front(ctx, v, g) {
+    const ly = bowlLocalY(0.72);
+    swirlOverlay(ctx, v, ly, bowlLocalR(ly), 1 - g.mixed, g.swirl);
+    A.whisk(ctx, v, { x: 0, base: ly + 2, rot: g.swirl, orbit: 30 });
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 78, 0.4);
     A.bowl(ctx, v, {
       x: 0,
@@ -2316,7 +4837,7 @@ S.push({
 });
 
 // 4. そそぐ: 型へ黄色い液。底の茶色と上の黄色が二層になる
-S.push({
+SDEF.push({
   id: 'pour-custard',
   cam: () => ({ x: -66, y: 66, w: 262, h: 144, k: 0.58, anchor: 0.5 }),
   enter(g, v) {
@@ -2333,6 +4854,62 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 62, 0.4);
+  },
+  gl(h, v, g) {
+    const cara = clamp(g.caramelInMold);
+    const cust = clamp(g.custardInMold);
+    h.mold({ x: 0, base: 0, ribs: 1 });
+    if (cara > 0.01) {
+      const y = moldLevel(cara * 0.22);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 1.5 + cara * 7.5,
+        sigma: SIG.caramel,
+        rough: 0.04,
+      });
+    }
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardRaw,
+        rough: 0.045,
+      });
+    }
+    const bx = -116 + g.bowlTilt * 14;
+    const rem = 0.72 * (1 - cust * 0.62);
+    h.bowl({ x: bx, base: 88, rotZ: -g.bowlTilt, pivotY: 20 });
+    if (rem > 0.04) {
+      const ly = bowlLocalY(rem);
+      h.liquid({
+        x: bx,
+        base: 88,
+        rotZ: -g.bowlTilt,
+        pivotY: 20,
+        localY: ly,
+        r: bowlLocalR(ly) * (1 - g.bowlTilt * 0.18),
+        depth: 4 + 16 * rem,
+        sigma: SIG.custardRaw,
+        rough: 0.045,
+      });
+    }
+    if (g.pouring) {
+      const sp = spout3(bx, 88, g.bowlTilt, 70, 47, 20);
+      const ty = moldLevel(0.22 + 0.74 * cust) + 1.5;
+      h.stream({
+        points: streamPath(sp.x, sp.y, 0, ty, 8.4, 5.6, v.time),
+        radius: 6.8,
+        sigma: SIG.custardRaw,
+      });
+    }
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 62, 0.4);
     A.mold(ctx, v, {
       x: 0,
@@ -2385,7 +4962,7 @@ S.push({
 });
 
 // 5. あたためる（湯気）: 蓋を下ろす。液面が固まる
-S.push({
+SDEF.push({
   id: 'steam',
   cam: () => ({ x: 0, y: 78, w: 322, h: 186, k: 0.44, anchor: 0.5 }),
   enter(g, v) {
@@ -2409,6 +4986,34 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    tray(ctx, v, 0);
+    A.ground(ctx, v, 0, 11, 58, 0.35);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 8, ribs: 1 });
+    const cara = clamp(g.caramelInMold);
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = 8 + moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y - 8) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: mixSig(SIG.custardRaw, SIG.custardSet, clamp(g.cooked)),
+        rough: lerp(0.045, 0.16, clamp(g.cooked)),
+        boil: (1 - clamp(g.cooked)) * 0.25,
+      });
+    } else if (cara > 0.01) {
+      const y = 8 + moldLevel(cara * 0.22);
+      h.liquid({ x: 0, base: y, r: moldInnerR(y - 8) - 0.6, depth: 6, sigma: SIG.caramel, rough: 0.04 });
+    }
+  },
+  front(ctx, v, g) {
+    lid(ctx, v, 0, g.lidBase, 1, g.pulse || 0);
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(255,253,248,');
+  },
+  fallback(ctx, v, g) {
     tray(ctx, v, 0);
     A.ground(ctx, v, 0, 11, 58, 0.35);
     A.mold(ctx, v, {
@@ -2441,7 +5046,7 @@ S.push({
 });
 
 // 6. ひやす: 冷たい扉をかぶせる。青くなって霜がつく
-S.push({
+SDEF.push({
   id: 'chill',
   cam: () => ({ x: 0, y: 58, w: 236, h: 136, k: 0.44, anchor: 0.5 }),
   enter(g, v) {
@@ -2462,6 +5067,28 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 58, 0.35);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 0, ribs: 1, frost: g.frost });
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardSet,
+        rough: 0.16 + g.frost * 0.3,
+      });
+    }
+  },
+  front(ctx, v, g) {
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(214,240,255,');
+    coldPanel(ctx, v, g.cover, v.time);
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 58, 0.35);
     A.mold(ctx, v, {
       x: 0,
@@ -2488,7 +5115,7 @@ S.push({
 });
 
 // 7. かぶせる: 白い皿を型の上へ（「なんで皿をかぶせるの？」）
-S.push({
+SDEF.push({
   id: 'plate-on',
   cam: () => ({ x: 0, y: 64, w: 264, h: 152, k: 0.36, anchor: 0.5 }),
   enter(g, v) {
@@ -2508,6 +5135,27 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 58, 0.35);
+    const t = clamp((120 - g.plateBase) / 56);
+    A.ground(ctx, v, 0, MOLD.h + 1, lerp(70, PLATE.r * 0.8, t), 0.25 * t);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 0, ribs: 1, frost: g.frost * 0.5 });
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardSet,
+        rough: 0.17,
+      });
+    }
+    h.plate({ x: 0, base: g.plateBase, occ0: [0, 0, MOLD.rt * 1.2, 0.3] });
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 58, 0.35);
     A.mold(ctx, v, {
       x: 0,
@@ -2536,7 +5184,7 @@ S.push({
 });
 
 // 8. ひっくりかえす: 大きな弧のスワイプで皿と型を一緒に 180 度
-S.push({
+SDEF.push({
   id: 'flip',
   cam: () => ({ x: 0, y: 46, w: 276, h: 180, k: 0.2, anchor: 0.5 }),
   enter(g, v) {
@@ -2563,6 +5211,16 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, lerp(58, PLATE.r * 0.86, g.flip), 0.4 - Math.sin(g.flip * Math.PI) * 0.2);
+  },
+  gl(h, v, g) {
+    const ang = g.flip * Math.PI;
+    const hop = Math.sin(g.flip * Math.PI) * 30;
+    const pw = (MOLD.h + PLATE.h) / 2;
+    h.mold({ x: 0, base: hop, rotX: ang, pivotY: pw, ribs: 1, frost: g.frost * 0.35 });
+    h.plate({ x: 0, base: MOLD.h + hop, rotX: ang, pivotY: pw - MOLD.h });
+  },
+  fallback(ctx, v, g) {
     const ang = g.flip * Math.PI;
     const hop = Math.sin(g.flip * Math.PI) * 30;
     const pivotY = (MOLD.h + PLATE.h) / 2;
@@ -2599,7 +5257,7 @@ S.push({
 });
 
 // 9-11. かたをぬく → ぷるん → カラメルが流れる（最大のリプレイ磁石）
-S.push({
+SDEF.push({
   id: 'demold',
   cam: () => ({ x: 0, y: 58, w: 168, h: 152, k: 0.34, anchor: 0.52 }),
   enter(g, v) {
@@ -2685,6 +5343,32 @@ S.push({
     return 0;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, PLATE.r * 0.92, 0.42);
+  },
+  gl(h, v, g) {
+    const flow = clamp(g.caramelFlow);
+    h.plate({
+      x: 0,
+      base: 0,
+      bounce: 0.30 * clamp(g.moldRise / 30) + flow * 0.18,
+      bounceColor: [0.62, 0.34, 0.07],
+      // 接地影: プリンの底と、まだ低い位置にある型
+      occ0: [0, 0, PUD.rb * 1.15, 0.62],
+      occ1: [0, 0, MOLD.rt * 1.3, 0.5 * clamp(1 - g.moldRise / 42)],
+    });
+    h.pudding({
+      x: 0,
+      base: PLATE.h,
+      wobble: g.wobble,
+      phase: g.phase,
+      squash: g.squash + (g.stick ? -g.stick * 0.05 : 0),
+      stick: g.stick || 0,
+      caramelFlow: flow,
+      caramel: 1,
+    });
+    h.mold({ x: 0, base: PLATE.h + g.moldRise, flip: true, ribs: 1 });
+  },
+  fallback(ctx, v, g) {
     A.plate(ctx, v, { x: 0, base: 0 });
     const hEffScale = 1 + (g.stick || 0) * 0.05;
     // まだ完全に型の中なら描かない（影が型の外へはみ出して正体を匂わせないように）
@@ -2719,7 +5403,7 @@ S.push({
 });
 
 // 12. できあがり: カメラを少し引いて、初めて全体を見せる
-S.push({
+SDEF.push({
   id: 'reveal',
   // 少し引いて全体を見せる。横画面では右下のボタンを避けて被写体を左へ寄せる。
   cam: (v) => ({
@@ -2764,6 +5448,27 @@ S.push({
     return 0; // ここで待機（リプレイ待ち）
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, PLATE.r * 0.95, 0.42);
+  },
+  gl(h, v, g) {
+    h.plate({
+      x: 0,
+      base: 0,
+      bounce: 0.46,
+      bounceColor: [0.62, 0.34, 0.07],
+      occ0: [0, 0, PUD.rb * 1.15, 0.62],
+    });
+    h.pudding({
+      x: 0,
+      base: PLATE.h,
+      wobble: g.wobble,
+      phase: g.phase,
+      squash: 0,
+      caramelFlow: clamp(g.caramelFlow),
+      caramel: 1,
+    });
+  },
+  fallback(ctx, v, g) {
     A.plate(ctx, v, { x: 0, base: 0 });
     A.pudding(ctx, v, {
       x: 0,
@@ -2777,8 +5482,8 @@ S.push({
   hold: 0,
 });
 
-const STAGES = S;
-const STAGE_INDEX = Object.fromEntries(S.map((s, i) => [s.id, i]));
+const STAGES = SDEF;
+const STAGE_INDEX = Object.fromEntries(SDEF.map((s, i) => [s.id, i]));
 
 
 // ================= src/main.js =================
@@ -2791,11 +5496,20 @@ const STAGE_INDEX = Object.fromEntries(S.map((s, i) => [s.id, i]));
 
 
 
+
+
 const FAST = /[?&]fast=1/.test(location.search) || window.__E2E_FAST === true;
 
-const canvas = document.getElementById('stage');
-const view = new View(canvas);
-const input = new Input(canvas);
+const backCanvas = document.getElementById('back');
+const glCanvas = document.getElementById('gl');
+const frontCanvas = document.getElementById('front');
+const view = new View(backCanvas, glCanvas, frontCanvas);
+const input = new Input(frontCanvas);
+
+// WebGL2 が使えれば Hero 素材はシェーダで、無ければ従来の Canvas2D で描く。
+const hero = new Hero(glCanvas);
+const gov = new TierGovernor(FAST ? TIER.LOW : guessTier());
+if (!hero.ok) glCanvas.style.display = 'none';
 
 // --- ゲーム状態 -------------------------------------------------------------
 const g = {
@@ -2946,6 +5660,7 @@ function frame(now) {
 
   if (view.resize(FAST)) {
     A.clearGradientCache();
+    if (hero.ok) hero.resize(view, gov.tier);
     if (app.mode === 'play') applyCamera(true);
   }
 
@@ -2962,19 +5677,50 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// 工程ごとの被写界深度（背景側の CSS ぼかし量、px）。
+// 接写ほど背景を溶かすと、食品写真のレンズらしさが出る。
+const BLUR = {
+  caramelize: 1.6,
+  'pour-caramel': 3.2,
+  mix: 2.4,
+  'pour-custard': 3.2,
+  steam: 1.4,
+  chill: 1.4,
+  'plate-on': 1.8,
+  flip: 1.2,
+  demold: 3.6,
+  reveal: 2.6,
+};
+
 function updateTitle(dt) {
   app.buttons.length = 0;
   view.setTarget({ x: 0, y: 46, w: 420, h: 160, k: 0.42, anchor: view.portrait ? 0.46 : 0.44 });
   view.update(dt);
+  view.setBlur(1.2);
   A.background(view.ctx, view, 0);
   const ctx = view.world();
   A.ground(ctx, view, 0, 0, 62, 0.4);
-  A.mold(ctx, view, { x: 0, base: 0, open: true });
-  A.pot(ctx, view, { x: -128, base: 8, liquid: 0.4, color: '#f2efe4', time: app.time });
-  A.bowl(ctx, view, { x: 130, base: 0, liquid: 0.5, mixed: 1 });
+  A.ground(ctx, view, -128, 8, 62, 0.3);
+  A.ground(ctx, view, 130, 0, 70, 0.3);
+  if (hero.ok) {
+    hero.begin();
+    hero.mold({ x: 0, base: 0, ribs: 1 });
+    hero.pot({ x: -128, base: 8 });
+    hero.bowl({ x: 130, base: 0 });
+    const ly = 3.2 + 36.8 * 0.42;
+    hero.liquid({ x: -128, base: 8, localY: ly, r: 48, depth: 12,
+      sigma: [0.0016, 0.0024, 0.0055], rough: 0.035, boil: 0 });
+    hero.liquid({ x: 130, base: 0, localY: 26, r: 60, depth: 16,
+      sigma: [0.0105, 0.025, 0.076], rough: 0.045, boil: 0 });
+    hero.render(view, backCanvas, gov.tier, app.time);
+  } else {
+    A.mold(ctx, view, { x: 0, base: 0, open: true });
+    A.pot(ctx, view, { x: -128, base: 8, liquid: 0.4, color: '#f2efe4', time: app.time });
+    A.bowl(ctx, view, { x: 130, base: 0, liquid: 0.5, mixed: 1 });
+  }
 
   // ふわっと光る「触ってね」の手（型を隠さない位置に置く）
-  const c = view.begin();
+  const c = view.uiBegin();
   const pulse = 0.5 + 0.5 * Math.sin(app.time * 2.4);
   const p = view.toScreen(0, 0);
   const hy = Math.min(view.h - 90, p.y + view.h * 0.16);
@@ -2990,6 +5736,7 @@ function updateTitle(dt) {
 
 function updatePlay(dt) {
   const st = STAGES[app.stage];
+  const tier = gov.sample(dt);
 
   // 停滞したときの自動アシスト（詰まらせない）
   const assistAfter = st.id === 'demold' ? 26 : 16;
@@ -3027,15 +5774,31 @@ function updatePlay(dt) {
   }
   applyCamera(false);
   view.update(dt);
+  view.setBlur(hero.ok ? (BLUR[st.id] ?? 1.4) : 0);
 
-  // 背景（冷却時は青みがかる）
+  // --- 奥レイヤー: 背景と Hero より奥の小物 ---
   if (st.id !== 'chill') g.cold = damp(g.cold, 0, 0.9, dt);
   A.background(view.ctx, view, clamp(g.cold * 0.75));
-
   const ctx = view.world();
   st.draw(ctx, view, g);
+  if (!hero.ok && st.fallback) st.fallback(ctx, view, g);
 
-  const c = view.begin();
+  // --- Hero レイヤー（WebGL2） ---
+  if (hero.ok) {
+    // 工程 9 で初めてシェーダが走るとカクつくので、前半のうちに温めておく
+    if (!hero.warmed && app.time > 1.2) hero.warmup(view);
+    hero.begin();
+    if (st.gl) st.gl(hero, view, g);
+    hero.render(view, backCanvas, tier, app.time);
+  }
+
+  // --- 手前レイヤー: Hero より手前の小物と UI ---
+  const c = view.uiBegin();
+  if (st.front) {
+    const fw = view.uiWorld();
+    st.front(fw, view, g);
+    view.uiBegin(false);
+  }
   app.buttons.length = 0;
   if (g.sparks && g.sparks.length) A.sparkles(c, g.sparks);
   drawHint(c, st);
@@ -3260,6 +6023,8 @@ window.__game = {
   g,
   view,
   input,
+  hero,
+  gov,
   STAGES,
   STAGE_INDEX,
   start() {

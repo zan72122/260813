@@ -43,6 +43,115 @@ function sugarColor(t) {
     : mixHex('#f0d17a', '#a85c14', (t - 0.5) * 2);
 }
 
+
+// --- GL Hero レイヤーに渡す材質と寸法 ---------------------------------------
+// Beer-Lambert の吸収係数（1 ワールド単位あたり）。厚みで色が変わるのが本物らしさの核。
+// 深さ数 mm〜数 cm の液だまりで「濃いけれど色が残る」ように調整してある。
+// 係数を上げすぎると緑が先に落ちて赤紫になるので、比率も含めて実測寄りに。
+const SIG = {
+  syrupClear: [0.0010, 0.0016, 0.0032], // 透明な砂糖液
+  syrupAmber: [0.034, 0.059, 0.097], // 煮詰まったカラメル
+  caramel: [0.075, 0.127, 0.200],
+  custardRaw: [0.0165, 0.0300, 0.0620],
+  custardSet: [0.0200, 0.0370, 0.0760],
+};
+const mixSig = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+
+// 型の内側の半径（高さ y における）
+const moldInnerR = (y) => {
+  const irb = MOLD.rb - MOLD.wall;
+  const irt = MOLD.rt - MOLD.wall;
+  return irb + (irt - irb) * clamp((y - 2.2) / (MOLD.h - 2.2));
+};
+// 型の中の液面の高さ（0..1 を高さに）
+const moldLevel = (f) => 2.6 + (MOLD.h - 7.0) * clamp(f);
+
+// 鍋（rb52 / rt62 / h40 / wall3.2）の内側
+const potLocalY = (L) => 3.2 + (40 - 3.2) * clamp(L);
+const potLocalR = (y) => (52 + 10 * clamp((y - 2.2) / (40 - 2.2))) - 3.6;
+
+// ボウル（R74 / h46 / wall3.6）の内側
+const bowlLocalY = (L) => 2.9 + (46 - 2.9) * clamp(L);
+const bowlLocalR = (y) => {
+  const t = clamp(1 - y / 46);
+  return 74 * Math.sqrt(Math.max(0, 1 - t * t)) - 4.0;
+};
+
+// 傾けた容器の注ぎ口（ワールド座標）。rotZ = -tilt で画面上は時計回りに倒れる。
+function spout3(x, base, tilt, R, H, pivotY) {
+  const th = -tilt;
+  const rx = R;
+  const ry = H - pivotY;
+  const c = Math.cos(th);
+  const sn = Math.sin(th);
+  return { x: x + (c * rx - sn * ry), y: base + pivotY + (sn * rx + c * ry) };
+}
+
+// 注ぐ流れの経路（下ほど速く落ち、細くなる）
+function streamPath(sx, sy, tx, ty, w0, w1, time) {
+  const pts = [];
+  const n = 9;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    const x = sx + (tx - sx) * (u * 0.42 + u * u * 0.58);
+    const y = sy + (ty - sy) * (u * u * 0.7 + u * 0.3);
+    const wob = Math.sin(time * 5.5 + u * 4.2) * 0.9 * (1 - u * 0.55);
+    pts.push([x + wob, y, lerp(w0, w1, u)]);
+  }
+  return pts;
+}
+
+// 鍋の取っ手だけは 2D（背面レイヤー）で描く
+function potHandle(ctx, v, x, base, tilt) {
+  ctx.save();
+  ctx.translate(v.X(x), v.Y(base));
+  ctx.rotate(tilt || 0);
+  const y = -26 * v.hf;
+  ctx.beginPath();
+  ctx.moveTo(-52, y);
+  ctx.lineTo(-134, y - 4);
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3f4954';
+  ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 混ぜ残しの白い筋（GL の液面の上に 2D で重ねる）
+function swirlOverlay(ctx, v, wy, r, unmixed, angle) {
+  if (unmixed <= 0.01) return;
+  const cx = v.X(0);
+  const cy = v.Y(wy);
+  const k = v.k;
+  ctx.save();
+  ctx.beginPath();
+  A.ellipse(ctx, cx, cy, r * 0.97, r * 0.97 * k);
+  ctx.clip();
+  ctx.globalAlpha = clamp(unmixed) * 0.8;
+  ctx.globalCompositeOperation = 'soft-light';
+  for (let i = 0; i < 5; i++) {
+    const a = angle + (i / 5) * TAU;
+    ctx.beginPath();
+    for (let j = 0; j <= 22; j++) {
+      const u = j / 22;
+      const ang = a + u * 2.7;
+      const rad = r * (0.12 + u * 0.8);
+      const px = cx + Math.cos(ang) * rad;
+      const py = cy + Math.sin(ang) * rad * k;
+      if (j === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.lineWidth = 7 - i * 0.7;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = i % 2 ? 'rgba(255,255,250,0.95)' : 'rgba(255,205,90,0.75)';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // --- 小物の描画 -------------------------------------------------------------
 function stove(ctx, v, x) {
   const cx = v.X(x);
@@ -73,22 +182,22 @@ function flames(ctx, v, x, base, flame, front) {
   const y = v.Y(base);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * TAU;
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * TAU;
     if (front === true && Math.sin(a) < 0) continue;
     if (front === false && Math.sin(a) >= 0) continue;
     const fx = cx + Math.cos(a) * 60;
     const fy = y + Math.sin(a) * 60 * v.k;
     const hgt = (26 + Math.sin(v.time * 12 + i * 2.1) * 9) * flame;
     ctx.beginPath();
-    ctx.moveTo(fx - 13, fy);
-    ctx.quadraticCurveTo(fx, fy - hgt * 2.1, fx + 13, fy);
+    ctx.moveTo(fx - 16, fy);
+    ctx.quadraticCurveTo(fx, fy - hgt * 2.4, fx + 16, fy);
     ctx.closePath();
     const g = ctx.createLinearGradient(fx, fy, fx, fy - hgt * 2.1);
-    g.addColorStop(0, 'rgba(90,150,255,0.55)');
-    g.addColorStop(0.28, 'rgba(255,140,30,0.85)');
-    g.addColorStop(0.7, 'rgba(255,196,80,0.6)');
-    g.addColorStop(1, 'rgba(255,240,180,0)');
+    g.addColorStop(0, 'rgba(255,120,20,0.34)');
+    g.addColorStop(0.35, 'rgba(255,168,50,0.34)');
+    g.addColorStop(0.75, 'rgba(255,214,120,0.16)');
+    g.addColorStop(1, 'rgba(255,240,190,0)');
     ctx.fillStyle = g;
     ctx.fill();
   }
@@ -121,8 +230,11 @@ function lever(ctx, v, x, angle, glow) {
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, -52);
-  ctx.lineWidth = 13;
-  ctx.strokeStyle = '#d8dee6';
+  ctx.lineWidth = 17;
+  ctx.strokeStyle = '#7d8894';
+  ctx.stroke();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
   ctx.stroke();
   ctx.beginPath();
   ctx.arc(0, -56, 19, 0, TAU);
@@ -166,8 +278,8 @@ function tray(ctx, v, x) {
   ctx.beginPath();
   A.ellipse(ctx, cx, yt + 1, 142, 142 * v.k);
   const wg = ctx.createRadialGradient(cx, yt, 4, cx, yt, 142);
-  wg.addColorStop(0, 'rgba(214,238,250,0.95)');
-  wg.addColorStop(1, 'rgba(150,200,226,0.95)');
+  wg.addColorStop(0, 'rgba(206,224,232,0.95)');
+  wg.addColorStop(1, 'rgba(158,186,200,0.95)');
   ctx.fillStyle = wg;
   ctx.fill();
   ctx.restore();
@@ -318,10 +430,10 @@ function coldPanel(ctx, v, cover, time) {
 // 各 stage: { id, verb, cam(v), enter(g), update(g,dt,input,v)->0..1,
 //             draw(ctx,v,g), hint(v,g), hold(秒) }
 
-const S = [];
+const SDEF = [];
 
 // 1. あたためる: 透明な砂糖液がゆっくり琥珀色になる
-S.push({
+SDEF.push({
   id: 'caramelize',
   cam: () => ({ x: 18, y: 62, w: 275, h: 130, k: 0.5, anchor: 0.5 }),
   enter(g, v) {
@@ -344,6 +456,32 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    stove(ctx, v, -45);
+    A.ground(ctx, v, -45, 0, 74, 0.35);
+    flames(ctx, v, -45, 12, g.flame || 0, false);
+    potHandle(ctx, v, -45, 14, 0);
+  },
+  gl(h, v, g) {
+    h.pot({ x: -45, base: 14 });
+    const L = 0.56;
+    const ly = potLocalY(L);
+    h.liquid({
+      x: -45,
+      base: 14,
+      localY: ly,
+      r: potLocalR(ly),
+      depth: 4 + 16 * L,
+      sigma: mixSig(SIG.syrupClear, SIG.syrupAmber, Math.pow(clamp(g.amber), 1.2)),
+      rough: 0.06,
+      boil: 0.16 + clamp(g.flame || 0) * (0.25 + 0.6 * clamp(g.amber)),
+    });
+  },
+  front(ctx, v, g) {
+    flames(ctx, v, -45, 12, g.flame || 0, true);
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(255,252,244,');
+    lever(ctx, v, 118, g.leverAngle, g.pulse);
+  },
+  fallback(ctx, v, g) {
     stove(ctx, v, -45);
     A.ground(ctx, v, -45, 0, 74, 0.35);
     flames(ctx, v, -45, 12, g.flame || 0, false);
@@ -373,7 +511,7 @@ S.push({
 });
 
 // 2. そそぐ: とろみのあるカラメルを型の底へ
-S.push({
+SDEF.push({
   id: 'pour-caramel',
   cam: () => ({ x: -52, y: 62, w: 236, h: 132, k: 0.52, anchor: 0.5 }),
   enter(g, v) {
@@ -394,6 +532,52 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 62, 0.4);
+    potHandle(ctx, v, -104 + g.potTilt * 16, 84, g.potTilt);
+  },
+  gl(h, v, g) {
+    const cara = clamp(g.caramelInMold);
+    h.mold({ x: 0, base: 0, ribs: 1 });
+    if (cara > 0.01) {
+      const y = moldLevel(cara * 0.22);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 1.5 + cara * 7.5,
+        sigma: SIG.caramel,
+        rough: 0.04,
+      });
+    }
+    const potX = -104 + g.potTilt * 16;
+    const rem = 0.56 * (1 - cara * 0.6);
+    h.pot({ x: potX, base: 84, rotZ: -g.potTilt, pivotY: 18 });
+    if (rem > 0.04) {
+      const ly = potLocalY(rem);
+      h.liquid({
+        x: potX,
+        base: 84,
+        rotZ: -g.potTilt,
+        pivotY: 18,
+        localY: ly,
+        r: potLocalR(ly) * (1 - g.potTilt * 0.16),
+        depth: 3 + 14 * rem,
+        sigma: SIG.syrupAmber,
+        rough: 0.04,
+        boil: 0.1,
+      });
+    }
+    if (g.pouring) {
+      const sp = spout3(potX, 84, g.potTilt, 58, 41, 18);
+      const ty = moldLevel(cara * 0.22) + 1.5;
+      h.stream({
+        points: streamPath(sp.x, sp.y, 0, ty, 7.6, 5.0, v.time),
+        radius: 6.2,
+        sigma: SIG.caramel,
+      });
+    }
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 62, 0.4);
     A.mold(ctx, v, { x: 0, base: 0, open: true, caramel: g.caramelInMold });
     const potX = -104 + g.potTilt * 16;
@@ -441,7 +625,7 @@ S.push({
 });
 
 // 3. まぜる: 別容器で黄色い液を混ぜる（円運動）
-S.push({
+SDEF.push({
   id: 'mix',
   cam: () => ({ x: 0, y: 52, w: 202, h: 122, k: 0.62, anchor: 0.5 }),
   enter(g, v) {
@@ -458,6 +642,28 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 78, 0.4);
+  },
+  gl(h, v, g) {
+    h.bowl({ x: 0, base: 0, bounce: 0.16, bounceColor: [0.55, 0.42, 0.12] });
+    const ly = bowlLocalY(0.72);
+    h.liquid({
+      x: 0,
+      base: 0,
+      localY: ly,
+      r: bowlLocalR(ly),
+      depth: 20,
+      sigma: mixSig(SIG.custardRaw, SIG.custardSet, 0.35),
+      rough: 0.045,
+      boil: clamp((g.gesture.speed || 0) * 0.22),
+    });
+  },
+  front(ctx, v, g) {
+    const ly = bowlLocalY(0.72);
+    swirlOverlay(ctx, v, ly, bowlLocalR(ly), 1 - g.mixed, g.swirl);
+    A.whisk(ctx, v, { x: 0, base: ly + 2, rot: g.swirl, orbit: 30 });
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 78, 0.4);
     A.bowl(ctx, v, {
       x: 0,
@@ -484,7 +690,7 @@ S.push({
 });
 
 // 4. そそぐ: 型へ黄色い液。底の茶色と上の黄色が二層になる
-S.push({
+SDEF.push({
   id: 'pour-custard',
   cam: () => ({ x: -66, y: 66, w: 262, h: 144, k: 0.58, anchor: 0.5 }),
   enter(g, v) {
@@ -501,6 +707,62 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 62, 0.4);
+  },
+  gl(h, v, g) {
+    const cara = clamp(g.caramelInMold);
+    const cust = clamp(g.custardInMold);
+    h.mold({ x: 0, base: 0, ribs: 1 });
+    if (cara > 0.01) {
+      const y = moldLevel(cara * 0.22);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 1.5 + cara * 7.5,
+        sigma: SIG.caramel,
+        rough: 0.04,
+      });
+    }
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardRaw,
+        rough: 0.045,
+      });
+    }
+    const bx = -116 + g.bowlTilt * 14;
+    const rem = 0.72 * (1 - cust * 0.62);
+    h.bowl({ x: bx, base: 88, rotZ: -g.bowlTilt, pivotY: 20 });
+    if (rem > 0.04) {
+      const ly = bowlLocalY(rem);
+      h.liquid({
+        x: bx,
+        base: 88,
+        rotZ: -g.bowlTilt,
+        pivotY: 20,
+        localY: ly,
+        r: bowlLocalR(ly) * (1 - g.bowlTilt * 0.18),
+        depth: 4 + 16 * rem,
+        sigma: SIG.custardRaw,
+        rough: 0.045,
+      });
+    }
+    if (g.pouring) {
+      const sp = spout3(bx, 88, g.bowlTilt, 70, 47, 20);
+      const ty = moldLevel(0.22 + 0.74 * cust) + 1.5;
+      h.stream({
+        points: streamPath(sp.x, sp.y, 0, ty, 8.4, 5.6, v.time),
+        radius: 6.8,
+        sigma: SIG.custardRaw,
+      });
+    }
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 62, 0.4);
     A.mold(ctx, v, {
       x: 0,
@@ -553,7 +815,7 @@ S.push({
 });
 
 // 5. あたためる（湯気）: 蓋を下ろす。液面が固まる
-S.push({
+SDEF.push({
   id: 'steam',
   cam: () => ({ x: 0, y: 78, w: 322, h: 186, k: 0.44, anchor: 0.5 }),
   enter(g, v) {
@@ -577,6 +839,34 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    tray(ctx, v, 0);
+    A.ground(ctx, v, 0, 11, 58, 0.35);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 8, ribs: 1 });
+    const cara = clamp(g.caramelInMold);
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = 8 + moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y - 8) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: mixSig(SIG.custardRaw, SIG.custardSet, clamp(g.cooked)),
+        rough: lerp(0.045, 0.16, clamp(g.cooked)),
+        boil: (1 - clamp(g.cooked)) * 0.25,
+      });
+    } else if (cara > 0.01) {
+      const y = 8 + moldLevel(cara * 0.22);
+      h.liquid({ x: 0, base: y, r: moldInnerR(y - 8) - 0.6, depth: 6, sigma: SIG.caramel, rough: 0.04 });
+    }
+  },
+  front(ctx, v, g) {
+    lid(ctx, v, 0, g.lidBase, 1, g.pulse || 0);
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(255,253,248,');
+  },
+  fallback(ctx, v, g) {
     tray(ctx, v, 0);
     A.ground(ctx, v, 0, 11, 58, 0.35);
     A.mold(ctx, v, {
@@ -609,7 +899,7 @@ S.push({
 });
 
 // 6. ひやす: 冷たい扉をかぶせる。青くなって霜がつく
-S.push({
+SDEF.push({
   id: 'chill',
   cam: () => ({ x: 0, y: 58, w: 236, h: 136, k: 0.44, anchor: 0.5 }),
   enter(g, v) {
@@ -630,6 +920,28 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 58, 0.35);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 0, ribs: 1, frost: g.frost });
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardSet,
+        rough: 0.16 + g.frost * 0.3,
+      });
+    }
+  },
+  front(ctx, v, g) {
+    A.steamPuffs(ctx, v, g.puffs, 'rgba(214,240,255,');
+    coldPanel(ctx, v, g.cover, v.time);
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 58, 0.35);
     A.mold(ctx, v, {
       x: 0,
@@ -656,7 +968,7 @@ S.push({
 });
 
 // 7. かぶせる: 白い皿を型の上へ（「なんで皿をかぶせるの？」）
-S.push({
+SDEF.push({
   id: 'plate-on',
   cam: () => ({ x: 0, y: 64, w: 264, h: 152, k: 0.36, anchor: 0.5 }),
   enter(g, v) {
@@ -676,6 +988,27 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, 58, 0.35);
+    const t = clamp((120 - g.plateBase) / 56);
+    A.ground(ctx, v, 0, MOLD.h + 1, lerp(70, PLATE.r * 0.8, t), 0.25 * t);
+  },
+  gl(h, v, g) {
+    h.mold({ x: 0, base: 0, ribs: 1, frost: g.frost * 0.5 });
+    const cust = clamp(g.custardInMold);
+    if (cust > 0.01) {
+      const y = moldLevel(0.22 + 0.74 * cust);
+      h.liquid({
+        x: 0,
+        base: y,
+        r: moldInnerR(y) - 0.6,
+        depth: 2 + 30 * cust,
+        sigma: SIG.custardSet,
+        rough: 0.17,
+      });
+    }
+    h.plate({ x: 0, base: g.plateBase, occ0: [0, 0, MOLD.rt * 1.2, 0.3] });
+  },
+  fallback(ctx, v, g) {
     A.ground(ctx, v, 0, 0, 58, 0.35);
     A.mold(ctx, v, {
       x: 0,
@@ -704,7 +1037,7 @@ S.push({
 });
 
 // 8. ひっくりかえす: 大きな弧のスワイプで皿と型を一緒に 180 度
-S.push({
+SDEF.push({
   id: 'flip',
   cam: () => ({ x: 0, y: 46, w: 276, h: 180, k: 0.2, anchor: 0.5 }),
   enter(g, v) {
@@ -731,6 +1064,16 @@ S.push({
     return p;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, lerp(58, PLATE.r * 0.86, g.flip), 0.4 - Math.sin(g.flip * Math.PI) * 0.2);
+  },
+  gl(h, v, g) {
+    const ang = g.flip * Math.PI;
+    const hop = Math.sin(g.flip * Math.PI) * 30;
+    const pw = (MOLD.h + PLATE.h) / 2;
+    h.mold({ x: 0, base: hop, rotX: ang, pivotY: pw, ribs: 1, frost: g.frost * 0.35 });
+    h.plate({ x: 0, base: MOLD.h + hop, rotX: ang, pivotY: pw - MOLD.h });
+  },
+  fallback(ctx, v, g) {
     const ang = g.flip * Math.PI;
     const hop = Math.sin(g.flip * Math.PI) * 30;
     const pivotY = (MOLD.h + PLATE.h) / 2;
@@ -767,7 +1110,7 @@ S.push({
 });
 
 // 9-11. かたをぬく → ぷるん → カラメルが流れる（最大のリプレイ磁石）
-S.push({
+SDEF.push({
   id: 'demold',
   cam: () => ({ x: 0, y: 58, w: 168, h: 152, k: 0.34, anchor: 0.52 }),
   enter(g, v) {
@@ -853,6 +1196,32 @@ S.push({
     return 0;
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, PLATE.r * 0.92, 0.42);
+  },
+  gl(h, v, g) {
+    const flow = clamp(g.caramelFlow);
+    h.plate({
+      x: 0,
+      base: 0,
+      bounce: 0.30 * clamp(g.moldRise / 30) + flow * 0.18,
+      bounceColor: [0.62, 0.34, 0.07],
+      // 接地影: プリンの底と、まだ低い位置にある型
+      occ0: [0, 0, PUD.rb * 1.15, 0.62],
+      occ1: [0, 0, MOLD.rt * 1.3, 0.5 * clamp(1 - g.moldRise / 42)],
+    });
+    h.pudding({
+      x: 0,
+      base: PLATE.h,
+      wobble: g.wobble,
+      phase: g.phase,
+      squash: g.squash + (g.stick ? -g.stick * 0.05 : 0),
+      stick: g.stick || 0,
+      caramelFlow: flow,
+      caramel: 1,
+    });
+    h.mold({ x: 0, base: PLATE.h + g.moldRise, flip: true, ribs: 1 });
+  },
+  fallback(ctx, v, g) {
     A.plate(ctx, v, { x: 0, base: 0 });
     const hEffScale = 1 + (g.stick || 0) * 0.05;
     // まだ完全に型の中なら描かない（影が型の外へはみ出して正体を匂わせないように）
@@ -887,7 +1256,7 @@ S.push({
 });
 
 // 12. できあがり: カメラを少し引いて、初めて全体を見せる
-S.push({
+SDEF.push({
   id: 'reveal',
   // 少し引いて全体を見せる。横画面では右下のボタンを避けて被写体を左へ寄せる。
   cam: (v) => ({
@@ -932,6 +1301,27 @@ S.push({
     return 0; // ここで待機（リプレイ待ち）
   },
   draw(ctx, v, g) {
+    A.ground(ctx, v, 0, 0, PLATE.r * 0.95, 0.42);
+  },
+  gl(h, v, g) {
+    h.plate({
+      x: 0,
+      base: 0,
+      bounce: 0.46,
+      bounceColor: [0.62, 0.34, 0.07],
+      occ0: [0, 0, PUD.rb * 1.15, 0.62],
+    });
+    h.pudding({
+      x: 0,
+      base: PLATE.h,
+      wobble: g.wobble,
+      phase: g.phase,
+      squash: 0,
+      caramelFlow: clamp(g.caramelFlow),
+      caramel: 1,
+    });
+  },
+  fallback(ctx, v, g) {
     A.plate(ctx, v, { x: 0, base: 0 });
     A.pudding(ctx, v, {
       x: 0,
@@ -945,5 +1335,5 @@ S.push({
   hold: 0,
 });
 
-export const STAGES = S;
-export const STAGE_INDEX = Object.fromEntries(S.map((s, i) => [s.id, i]));
+export const STAGES = SDEF;
+export const STAGE_INDEX = Object.fromEntries(SDEF.map((s, i) => [s.id, i]));

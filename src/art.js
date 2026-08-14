@@ -90,18 +90,18 @@ function bakeBackground(v, tint) {
   };
   const back = mk();
   const g = back.c2.createLinearGradient(0, 0, 0, v.h);
-  g.addColorStop(0, mixHex('#ffe7cd', '#d3ecfb', tint));
-  g.addColorStop(0.55, mixHex('#ffd9b2', '#b3ddf5', tint));
-  g.addColorStop(1, mixHex('#f3c294', '#95c9e8', tint));
+  g.addColorStop(0, mixHex('#e8c9a6', '#a9c9de', tint));
+  g.addColorStop(0.5, mixHex('#d9b189', '#8fb4cd', tint));
+  g.addColorStop(1, mixHex('#b98a5f', '#6d93ad', tint));
   back.c2.fillStyle = g;
   back.c2.fillRect(0, 0, v.w, v.h);
   const lx = v.w * 0.32;
   const ly = v.h * 0.18;
   const lr = Math.max(v.w, v.h) * 0.8;
   const gl = back.c2.createRadialGradient(lx, ly, 0, lx, ly, lr);
-  gl.addColorStop(0, 'rgba(255,250,235,0.75)');
-  gl.addColorStop(0.5, 'rgba(255,246,225,0.22)');
-  gl.addColorStop(1, 'rgba(255,240,215,0)');
+  gl.addColorStop(0, 'rgba(255,246,222,0.72)');
+  gl.addColorStop(0.42, 'rgba(255,238,206,0.20)');
+  gl.addColorStop(1, 'rgba(255,232,196,0)');
   back.c2.fillStyle = gl;
   back.c2.fillRect(0, 0, v.w, v.h);
 
@@ -114,8 +114,9 @@ function bakeBackground(v, tint) {
     v.h * 0.5,
     Math.max(v.w, v.h) * 0.78
   );
-  vg.addColorStop(0, 'rgba(80,40,10,0)');
-  vg.addColorStop(1, 'rgba(80,40,10,0.28)');
+  vg.addColorStop(0, 'rgba(56,26,4,0)');
+  vg.addColorStop(0.55, 'rgba(56,26,4,0.14)');
+  vg.addColorStop(1, 'rgba(48,22,3,0.52)');
   front.c2.fillStyle = vg;
   front.c2.fillRect(0, 0, v.w, v.h);
 
@@ -148,10 +149,10 @@ export function background(ctx, v, tint = 0) {
     y0,
     R,
     [
-      [0, mixHex('#f7dcc0', '#dcf0fb', tint)],
-      [0.5, mixHex('#eecba6', '#c2e3f6', tint)],
-      [0.82, mixHexA('#e3b489', '#a9d5ee', tint, 0.9)],
-      [1, mixHexA('#e3b489', '#a9d5ee', tint, 0)],
+      [0, mixHex('#f0d3b2', '#cfe6f6', tint)],
+      [0.42, mixHex('#dcb289', '#aecfe6', tint)],
+      [0.8, mixHexA('#b8865c', '#7fa5be', tint, 0.92)],
+      [1, mixHexA('#a8764c', '#6f96b0', tint, 0)],
     ]
   );
   w.fillStyle = tg;
@@ -726,8 +727,8 @@ export function steamPuffs(ctx, v, list, color = 'rgba(255,255,255,') {
     ctx.beginPath();
     ctx.arc(x, y, p.r, 0, TAU);
     const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1, p.r));
-    g.addColorStop(0, color + 0.9 * a + ')');
-    g.addColorStop(0.55, color + 0.45 * a + ')');
+    g.addColorStop(0, color + 0.42 * a + ')');
+    g.addColorStop(0.5, color + 0.20 * a + ')');
     g.addColorStop(1, color + '0)');
     ctx.fillStyle = g;
     ctx.fill();

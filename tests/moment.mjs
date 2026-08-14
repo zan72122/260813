@@ -23,7 +23,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(BASE + '/?fast=1', { waitUntil: 'load' });
+await page.goto(BASE + (process.env.Q ? `/?q=${process.env.Q}` : '/?fast=1'), { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__game);
 await page.evaluate(() => window.__game.jump('demold'));
 await page.waitForTimeout(400);

@@ -1,11 +1,20 @@
-// 固定エレベーション（正射影っぽい）カメラ。
+// 固定エレベーション（正射影）カメラ。
 // k = sin(仰角): 0 = 真横, 1 = 真上。hf = cos(仰角) = 高さの圧縮率。
+//
+// 画面は 3 枚重ね:
+//   #back  Canvas2D … 背景・Hero より奥の小物（被写界深度の CSS ぼかしを掛ける）
+//   #gl    WebGL2   … Hero 素材（プリン・カラメル・型・液体）
+//   #front Canvas2D … Hero より手前の小物と、文字なし UI
 import { clamp, damp } from './util.js';
+import { ident } from './gl/mat.js';
 
 export class View {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  constructor(back, glCanvas, front) {
+    this.canvas = back;
+    this.glCanvas = glCanvas;
+    this.frontCanvas = front;
+    this.ctx = back.getContext('2d', { alpha: false, desynchronized: true });
+    this.uctx = front.getContext('2d', { alpha: true, desynchronized: true });
     this.dpr = 1;
     this.w = 0;
     this.h = 0;
@@ -21,6 +30,10 @@ export class View {
     this.s = 1;
     this.cx = 0;
     this.cy = 0;
+    this.proj = ident();
+    this.blur = 0;
+    this.blurTarget = 0;
+    this._appliedBlur = -1;
   }
 
   resize(fastMode) {
@@ -37,10 +50,13 @@ export class View {
     this.w = w;
     this.h = h;
     this.dpr = dpr;
-    this.canvas.width = Math.round(w * dpr);
-    this.canvas.height = Math.round(h * dpr);
-    this.canvas.style.width = w + 'px';
-    this.canvas.style.height = h + 'px';
+    for (const c of [this.canvas, this.glCanvas, this.frontCanvas]) {
+      if (!c) continue;
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+      c.style.width = w + 'px';
+      c.style.height = h + 'px';
+    }
     this.portrait = h >= w;
     return true;
   }
@@ -51,6 +67,11 @@ export class View {
 
   snapToTarget() {
     Object.assign(this.cam, this.target);
+  }
+
+  // 被写界深度（背景側の CSS ぼかし）。工程ごとに変える。
+  setBlur(px) {
+    this.blurTarget = px;
   }
 
   update(dt) {
@@ -70,6 +91,12 @@ export class View {
     } else {
       this._shx = this._shy = 0;
     }
+    this.blur = damp(this.blur, this.blurTarget, 4, dt);
+    const bp = Math.round(this.blur * 4) / 4;
+    if (bp !== this._appliedBlur) {
+      this._appliedBlur = bp;
+      this.canvas.style.filter = bp > 0.05 ? `blur(${bp}px)` : 'none';
+    }
     this.recompute();
   }
 
@@ -85,6 +112,41 @@ export class View {
     this.s = Math.min(sw, sh);
     this.cx = this.w / 2 + this._shx;
     this.cy = this.h * c.anchor + this._shy;
+    this.updateProj();
+  }
+
+  // ワールド (X 右, Y 上, Z 手前) -> クリップ座標。
+  // 2D レイヤーの式とまったく同じ結果になるように作ってあるので、
+  // Canvas2D と WebGL の絵がピクセル単位で一致する。
+  updateProj() {
+    const m = this.proj;
+    const s = this.s;
+    const k = this.k;
+    const hf = this.hf;
+    const w = this.w;
+    const h = this.h;
+    const D = 600;
+    m[0] = (2 * s) / w;
+    m[1] = 0;
+    m[2] = 0;
+    m[3] = 0;
+    m[4] = 0;
+    m[5] = (2 * hf * s) / h;
+    m[6] = -k / D;
+    m[7] = 0;
+    m[8] = 0;
+    m[9] = (-2 * k * s) / h;
+    m[10] = -hf / D;
+    m[11] = 0;
+    m[12] = (2 * this.cx) / w - 1 - (2 * s * this.cam.x) / w;
+    m[13] = 1 - (2 * this.cy) / h - (2 * hf * s * this.cam.y) / h;
+    m[14] = (k * this.cam.y) / D;
+    m[15] = 1;
+  }
+
+  // 視線（物体から見て手前向き）
+  viewDir() {
+    return [0, this.k, this.hf];
   }
 
   // ワールド座標 -> 変換適用後のローカル座標
@@ -114,6 +176,22 @@ export class View {
 
   world() {
     const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.translate(this.cx, this.cy);
+    ctx.scale(this.s, this.s);
+    return ctx;
+  }
+
+  // 手前レイヤー（毎フレーム透明にクリアする）
+  uiBegin(clear = true) {
+    const ctx = this.uctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (clear) ctx.clearRect(0, 0, this.w, this.h);
+    return ctx;
+  }
+
+  uiWorld() {
+    const ctx = this.uctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.translate(this.cx, this.cy);
     ctx.scale(this.s, this.s);

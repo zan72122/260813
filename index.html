@@ -12,7 +12,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f6d7b0'/%3E%3Cellipse cx='16' cy='20' rx='11' ry='6' fill='%23d9dee4'/%3E%3C/svg%3E">
 </head>
 <body>
-  <canvas id="stage" aria-label="game"></canvas>
+  <!-- 奥: 背景と小物（被写界深度の CSS ぼかしが掛かる） -->
+  <canvas id="back"></canvas>
+  <!-- 中: Hero 素材（WebGL2） -->
+  <canvas id="gl"></canvas>
+  <!-- 手前: Hero より前の小物と、文字なし UI。入力もここで受ける -->
+  <canvas id="front" aria-label="game"></canvas>
   <div id="safe" aria-hidden="true"></div>
   <noscript>JavaScript</noscript>
   <script type="module" src="./src/main.js"></script>

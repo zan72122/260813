@@ -6,12 +6,21 @@ import { Input } from './input.js';
 import * as A from './art.js';
 import { STAGES, STAGE_INDEX } from './stages.js';
 import { initAudio, sfx, stopAllLoops, setMuted, isMuted } from './audio.js';
+import { Hero } from './gl/hero.js';
+import { guessTier, TierGovernor, TIER } from './gl/glx.js';
 
 const FAST = /[?&]fast=1/.test(location.search) || window.__E2E_FAST === true;
 
-const canvas = document.getElementById('stage');
-const view = new View(canvas);
-const input = new Input(canvas);
+const backCanvas = document.getElementById('back');
+const glCanvas = document.getElementById('gl');
+const frontCanvas = document.getElementById('front');
+const view = new View(backCanvas, glCanvas, frontCanvas);
+const input = new Input(frontCanvas);
+
+// WebGL2 が使えれば Hero 素材はシェーダで、無ければ従来の Canvas2D で描く。
+const hero = new Hero(glCanvas);
+const gov = new TierGovernor(FAST ? TIER.LOW : guessTier());
+if (!hero.ok) glCanvas.style.display = 'none';
 
 // --- ゲーム状態 -------------------------------------------------------------
 const g = {
@@ -162,6 +171,7 @@ function frame(now) {
 
   if (view.resize(FAST)) {
     A.clearGradientCache();
+    if (hero.ok) hero.resize(view, gov.tier);
     if (app.mode === 'play') applyCamera(true);
   }
 
@@ -178,19 +188,50 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// 工程ごとの被写界深度（背景側の CSS ぼかし量、px）。
+// 接写ほど背景を溶かすと、食品写真のレンズらしさが出る。
+const BLUR = {
+  caramelize: 1.6,
+  'pour-caramel': 3.2,
+  mix: 2.4,
+  'pour-custard': 3.2,
+  steam: 1.4,
+  chill: 1.4,
+  'plate-on': 1.8,
+  flip: 1.2,
+  demold: 3.6,
+  reveal: 2.6,
+};
+
 function updateTitle(dt) {
   app.buttons.length = 0;
   view.setTarget({ x: 0, y: 46, w: 420, h: 160, k: 0.42, anchor: view.portrait ? 0.46 : 0.44 });
   view.update(dt);
+  view.setBlur(1.2);
   A.background(view.ctx, view, 0);
   const ctx = view.world();
   A.ground(ctx, view, 0, 0, 62, 0.4);
-  A.mold(ctx, view, { x: 0, base: 0, open: true });
-  A.pot(ctx, view, { x: -128, base: 8, liquid: 0.4, color: '#f2efe4', time: app.time });
-  A.bowl(ctx, view, { x: 130, base: 0, liquid: 0.5, mixed: 1 });
+  A.ground(ctx, view, -128, 8, 62, 0.3);
+  A.ground(ctx, view, 130, 0, 70, 0.3);
+  if (hero.ok) {
+    hero.begin();
+    hero.mold({ x: 0, base: 0, ribs: 1 });
+    hero.pot({ x: -128, base: 8 });
+    hero.bowl({ x: 130, base: 0 });
+    const ly = 3.2 + 36.8 * 0.42;
+    hero.liquid({ x: -128, base: 8, localY: ly, r: 48, depth: 12,
+      sigma: [0.0016, 0.0024, 0.0055], rough: 0.035, boil: 0 });
+    hero.liquid({ x: 130, base: 0, localY: 26, r: 60, depth: 16,
+      sigma: [0.0105, 0.025, 0.076], rough: 0.045, boil: 0 });
+    hero.render(view, backCanvas, gov.tier, app.time);
+  } else {
+    A.mold(ctx, view, { x: 0, base: 0, open: true });
+    A.pot(ctx, view, { x: -128, base: 8, liquid: 0.4, color: '#f2efe4', time: app.time });
+    A.bowl(ctx, view, { x: 130, base: 0, liquid: 0.5, mixed: 1 });
+  }
 
   // ふわっと光る「触ってね」の手（型を隠さない位置に置く）
-  const c = view.begin();
+  const c = view.uiBegin();
   const pulse = 0.5 + 0.5 * Math.sin(app.time * 2.4);
   const p = view.toScreen(0, 0);
   const hy = Math.min(view.h - 90, p.y + view.h * 0.16);
@@ -206,6 +247,7 @@ function updateTitle(dt) {
 
 function updatePlay(dt) {
   const st = STAGES[app.stage];
+  const tier = gov.sample(dt);
 
   // 停滞したときの自動アシスト（詰まらせない）
   const assistAfter = st.id === 'demold' ? 26 : 16;
@@ -243,15 +285,31 @@ function updatePlay(dt) {
   }
   applyCamera(false);
   view.update(dt);
+  view.setBlur(hero.ok ? (BLUR[st.id] ?? 1.4) : 0);
 
-  // 背景（冷却時は青みがかる）
+  // --- 奥レイヤー: 背景と Hero より奥の小物 ---
   if (st.id !== 'chill') g.cold = damp(g.cold, 0, 0.9, dt);
   A.background(view.ctx, view, clamp(g.cold * 0.75));
-
   const ctx = view.world();
   st.draw(ctx, view, g);
+  if (!hero.ok && st.fallback) st.fallback(ctx, view, g);
 
-  const c = view.begin();
+  // --- Hero レイヤー（WebGL2） ---
+  if (hero.ok) {
+    // 工程 9 で初めてシェーダが走るとカクつくので、前半のうちに温めておく
+    if (!hero.warmed && app.time > 1.2) hero.warmup(view);
+    hero.begin();
+    if (st.gl) st.gl(hero, view, g);
+    hero.render(view, backCanvas, tier, app.time);
+  }
+
+  // --- 手前レイヤー: Hero より手前の小物と UI ---
+  const c = view.uiBegin();
+  if (st.front) {
+    const fw = view.uiWorld();
+    st.front(fw, view, g);
+    view.uiBegin(false);
+  }
   app.buttons.length = 0;
   if (g.sparks && g.sparks.length) A.sparkles(c, g.sparks);
   drawHint(c, st);
@@ -476,6 +534,8 @@ window.__game = {
   g,
   view,
   input,
+  hero,
+  gov,
   STAGES,
   STAGE_INDEX,
   start() {
