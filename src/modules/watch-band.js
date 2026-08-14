@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Module } from './base.js';
 import { CameraRig } from '../core/camera-rig.js';
-import { L, headX } from '../world/layout.js';
+import { L } from '../world/layout.js';
 import { Ease } from '../core/util.js';
 
 /**
@@ -23,16 +23,16 @@ export class WatchBand extends Module {
 
     rig.cut(
       CameraRig.shot({
-        look: [L.rollX + 2.2, 0.45, 0],
-        dir: [0.28, 0.58, 0.77],
-        fitW: 4.2,
-        fitH: 3.2,
+        look: [L.rollX + 2.3, 0.85, 0],
+        dir: [0.22, 0.82, 0.53],
+        fitW: 5.4,
+        fitH: 4.2,
       }),
     );
     rig.move(
       CameraRig.shot({
-        look: [L.printX - 1.6, 0.42, 0],
-        dir: [0.26, 0.56, 0.79],
+        look: [L.printX - 1.6, 0.68, 0],
+        dir: [0.2, 0.8, 0.57],
         fitW: 3.8,
         fitH: 3.0,
       }),
@@ -74,5 +74,3 @@ export class WatchBand extends Module {
     this.ctx.world.setBand(0, 0);
   }
 }
-
-export { headX };

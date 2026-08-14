@@ -151,6 +151,18 @@ export class World {
       rivet.position.set(x, 3.1, -4.3);
       panel.add(rivet);
     }
+    // abstract wall decor — shapes only: a picture of the product up here would
+    // give the whole game away in the first ten seconds
+    const decor = [0xffc9d8, 0xffd98a, 0xa8e6d0, 0xc9d9ff];
+    for (let i = 0; i < 10; i++) {
+      const disc = cyl(0.62, 0.62, 0.12, 18, decor[i % decor.length]);
+      disc.rotation.x = Math.PI / 2;
+      disc.position.set(-17 + i * 4.6, 4.3 + (i % 2) * 0.9, -4.3);
+      panel.add(disc);
+      const bar = box(1.9, 0.22, 0.1, 0xe7dccb);
+      bar.position.set(-15 + i * 4.6, 5.4 - (i % 2) * 0.7, -4.3);
+      panel.add(bar);
+    }
     this.scene.add(panel);
 
     // Overhead plumbing. A phone in portrait shows a tall, narrow slice of the
@@ -188,7 +200,7 @@ export class World {
       const w = 1.5 + this.rnd() * 0.5;
       const hgt = 1.0 + this.rnd() * 0.4;
       const crate = box(w, hgt, 1.4, colors[i % colors.length], { shininess: 14 });
-      crate.position.set(-15 + i * 5.2 + this.rnd(), -2.2 + hgt / 2, 2.9 + this.rnd() * 0.5);
+      crate.position.set(-15 + i * 4.6 + this.rnd(), -2.2 + hgt / 2, 3.3 + this.rnd() * 0.5);
       crate.rotation.y = (this.rnd() - 0.5) * 0.5;
       crates.add(crate);
       const lid = box(w * 0.9, 0.16, 1.25, 0xffffff, { shininess: 20 });
@@ -223,24 +235,42 @@ export class World {
       leg2.position.z = 0.55;
       g.add(leg2);
     }
-    // dough supply roll at the far left
+    // dough supply roll at the far left — it unwinds as the band feeds out
+    this.supplyRoll = new THREE.Group();
+    this.supplyRoll.position.set(L.rollX, 1.1, 0);
     const roll = cyl(1.7, 1.7, 1.3, 24, 0xefd9a9);
     roll.rotation.x = Math.PI / 2;
-    roll.rotation.z = Math.PI / 2;
-    roll.position.set(L.rollX, 1.1, 0);
-    this.supplyRoll = roll;
-    g.add(roll);
+    this.supplyRoll.add(roll);
     for (const s of [-1, 1]) {
       const cap = cyl(1.85, 1.85, 0.16, 24, 0xff9f4a);
       cap.rotation.x = Math.PI / 2;
-      cap.rotation.z = Math.PI / 2;
-      cap.position.set(L.rollX, 1.1, s * 0.72);
-      g.add(cap);
+      cap.position.set(0, 0, s * 0.72);
+      this.supplyRoll.add(cap);
+      for (let i = 0; i < 4; i++) {
+        const spoke = box(0.16, 3.0, 0.1, 0xffc247);
+        spoke.rotation.z = (i / 4) * Math.PI;
+        spoke.position.z = s * 0.82;
+        this.supplyRoll.add(spoke);
+      }
     }
-    // a long table so the belt is standing on something
-    const table = box(44, 0.5, 3.6, 0x8fd0e8, { shininess: 30 });
-    table.position.set(5, -1.15, 0);
+    g.add(this.supplyRoll);
+    // A full cabinet under the belt rather than thin legs: on a tall phone the
+    // area below the line would otherwise be a dead band of floor.
+    const table = box(44, 2.1, 3.4, 0x7cc2dd, { shininess: 26 });
+    table.position.set(5, -1.35, 0);
     g.add(table);
+    const lip = box(44, 0.26, 3.7, 0xeaf7fb, { shininess: 40 });
+    lip.position.set(5, -0.34, 0);
+    g.add(lip);
+    for (let x = -15; x <= 24; x += 3.9) {
+      const doorPanel = box(3.0, 1.2, 0.12, 0x9fd8ee, { shininess: 30 });
+      doorPanel.position.set(x, -1.45, 1.72);
+      g.add(doorPanel);
+      const knob = cyl(0.09, 0.09, 0.14, 8, 0xffc247);
+      knob.rotation.x = Math.PI / 2;
+      knob.position.set(x + 1.2, -1.45, 1.8);
+      g.add(knob);
+    }
     this.scene.add(g);
   }
 
@@ -258,7 +288,6 @@ export class World {
     for (const s of [-1, 1]) {
       const cap = cyl(L.printR + 0.08, L.printR + 0.08, 0.14, 24, 0xffb43a);
       cap.rotation.x = Math.PI / 2;
-      cap.rotation.z = Math.PI / 2;
       cap.position.z = s * 0.74;
       drum.add(cap);
       // chunky grip knobs so it reads as "something you turn"
@@ -266,7 +295,6 @@ export class World {
         const a = (i / 6) * Math.PI * 2;
         const knob = cyl(0.12, 0.12, 0.16, 10, 0xff8b2e);
         knob.rotation.x = Math.PI / 2;
-        knob.rotation.z = Math.PI / 2;
         knob.position.set(Math.cos(a) * 0.52, Math.sin(a) * 0.52, s * 0.84);
         drum.add(knob);
       }
@@ -321,14 +349,12 @@ export class World {
     for (const s of [-1, 1]) {
       const cap = cyl(L.cutR + 0.1, L.cutR + 0.1, 0.14, 20, 0x64d2c0);
       cap.rotation.x = Math.PI / 2;
-      cap.rotation.z = Math.PI / 2;
       cap.position.z = s * 0.72;
       drum.add(cap);
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
         const knob = cyl(0.1, 0.1, 0.16, 8, 0x2fb6a0);
         knob.rotation.x = Math.PI / 2;
-        knob.rotation.z = Math.PI / 2;
         knob.position.set(Math.cos(a) * 0.38, Math.sin(a) * 0.38, s * 0.82);
         drum.add(knob);
       }
@@ -437,6 +463,7 @@ export class World {
     const len = Math.max(0, head - tail);
     const frac = clamp01(len / L.stripLen);
     this.band.visible = len > 0.02;
+    this.supplyRoll.rotation.z = -headX(advance) / 1.7;
     this.band.scale.x = len / L.stripLen;
     this.band.position.x = (tail + head) / 2;
     const uv = this.band.geometry.attributes.uv;
@@ -630,7 +657,15 @@ export class World {
     this.fan.visible = false;
     this.scene.add(this.fan);
 
+    // dark backing plate: the cutaway biscuit is translucent, and it needs
+    // something to be translucent *against*
+    const backing = box(3.4, 3.0, 0.3, 0x2f6f74, { shininess: 20 });
+    backing.position.set(L.heroX, L.heroY + 0.15, -1.5);
+    const backingTrim = box(3.7, 0.24, 0.34, 0x64d2c0, { shininess: 40 });
+    backingTrim.position.set(L.heroX, L.heroY + 1.72, -1.5);
+
     const gantry = new THREE.Group();
+    gantry.add(backing, backingTrim);
     const beam = box(2.9, 0.34, 0.55, 0xffb03a);
     beam.position.set(L.heroX, L.heroY + 2.35, -0.95);
     gantry.add(beam);
@@ -646,32 +681,26 @@ export class World {
     this.gantry = gantry;
     this.scene.add(gantry);
 
+    // The chocolate tank sits in frame during the macro shots: the child has to
+    // see where the brown stuff is coming from.
     const tank = new THREE.Group();
-    const jar = cyl(0.62, 0.5, 1.15, 18, 0x7a4a2c, { shininess: 70 });
-    const lid = cyl(0.68, 0.68, 0.16, 18, 0xffd35a);
-    lid.position.y = 0.62;
-    const drip = cyl(0.16, 0.16, 0.5, 10, 0x4a2410);
-    drip.position.y = -0.7;
-    tank.add(jar, lid, drip);
-    tank.position.set(L.heroX + 1.55, L.heroY - 2.35, -0.5);
+    const jar = cyl(0.42, 0.36, 0.8, 16, 0x4a2410, { shininess: 90 });
+    const glass = cyl(0.45, 0.4, 0.86, 16, 0xffffff, {
+      shininess: 100,
+      transparent: true,
+      opacity: 0.25,
+    });
+    const lid = cyl(0.5, 0.5, 0.14, 16, 0xffd35a);
+    lid.position.y = 0.46;
+    const spout = cyl(0.1, 0.1, 0.7, 10, 0xffc247);
+    spout.position.set(0.28, 0.5, 0);
+    spout.rotation.z = -0.6;
+    tank.add(jar, glass, lid, spout);
+    tank.position.set(L.heroX - 1.05, L.heroY - 1.5, 0.5);
     tank.visible = false;
     this.tank = tank;
     this.scene.add(tank);
 
-    // soft contact shadow used under whichever hero object is on screen
-    this.heroShadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.4, 2.4),
-      new THREE.MeshBasicMaterial({
-        map: this.blobTex,
-        transparent: true,
-        opacity: 0.28,
-        color: 0x6b3f1c,
-        depthWrite: false,
-      }),
-    );
-    this.heroShadow.rotation.x = -Math.PI / 2;
-    this.heroShadow.visible = false;
-    this.scene.add(this.heroShadow);
   }
 
   /** World position of the injection hole's docking point, tilt included. */
@@ -919,10 +948,8 @@ export class World {
     this.holder.visible = false;
     this.gantry.visible = false;
     this.fan.visible = false;
-    this.fanSpin = 0;
     this.line.visible = true;
     this.choco.userData.fill.uFlow.value = 1;
-    this.heroShadow.visible = false;
     this.choco.setFill(0);
     this.heroMats.setCutaway(0);
     this.setBroken(false);

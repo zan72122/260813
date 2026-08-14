@@ -97,6 +97,13 @@ export class Game {
       this.restart();
     });
 
+    // a backgrounded tab on iOS can lose the GL context; ask for it back
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.sound.stopAllLoops();
+    });
+    canvas.addEventListener('webglcontextrestored', () => this.resize());
+
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 260));
     document.addEventListener('visibilitychange', () => {
@@ -116,7 +123,9 @@ export class Game {
     this.last = performance.now();
     const loop = (now) => {
       this.raf = requestAnimationFrame(loop);
-      const dt = clamp((now - this.last) / 1000, 0, 1 / 20);
+      // cap the step so a hitch cannot teleport anything, but not so tightly
+      // that a slow phone runs the whole game in slow motion
+      const dt = clamp((now - this.last) / 1000, 0, 1 / 12);
       this.last = now;
       this.frame(dt);
     };

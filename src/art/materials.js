@@ -145,15 +145,15 @@ export function makeBiscuitMaterials({
 /** Glossy chocolate that spreads outward from the injection hole. */
 export function makeChocoMaterial({ key = 'choco' } = {}) {
   const mat = new THREE.MeshPhongMaterial({
-    color: 0x51280f,
-    specular: 0xf0c48c,
-    shininess: 150,
+    color: 0x45210b,
+    specular: 0xc08a52,
+    shininess: 120,
     side: THREE.DoubleSide,
   });
   const u = {
     uFillR: { value: 0 },
     uHole: { value: new THREE.Vector2(0, 0) },
-    uFront: { value: new THREE.Color(0x9c5620) },
+    uFront: { value: new THREE.Color(0x7d3f13) },
     uFlow: { value: 1 },
   };
   mat.userData.fill = u;

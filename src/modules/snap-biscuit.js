@@ -22,10 +22,10 @@ export class SnapBiscuit extends Module {
     this.pull = 0;
     this.broken = false;
     this.trayShot = CameraRig.shot({
-      look: [L.trayX, 0.4, 0],
-      dir: [0.1, 0.6, 0.79],
-      fitW: 5.8,
-      fitH: 4.8,
+      look: [L.trayX, 0.45, 0],
+      dir: [0.08, 0.72, 0.69],
+      fitW: 5.2,
+      fitH: 4.4,
     });
     this.closeUp = CameraRig.shot({
       look: [L.trayX, 2.6, 1.7],
@@ -89,7 +89,6 @@ export class SnapBiscuit extends Module {
     world.hero.scale.setScalar(1);
     world.heroPivot.rotation.set(0, 0, 0);
     world.setBroken(false);
-    world.heroShadow.visible = false;
 
     const to = new THREE.Vector3(L.trayX, 2.6, 1.7);
     rig.move(this.closeUp, 1.3, Ease.inOut);

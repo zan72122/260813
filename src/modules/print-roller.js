@@ -28,7 +28,7 @@ export class PrintRoller extends Module {
     rig.move(
       CameraRig.shot({
         look: [L.printX + 0.55, 0.5, 0],
-        dir: [0.11, 0.5, 0.86],
+        dir: [0.11, 0.58, 0.81],
         fitW: 3.9,
         fitH: 3.2,
       }),

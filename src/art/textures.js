@@ -3,7 +3,6 @@ import { drawAnimal, ANIMAL_IDS } from './animals.js';
 import { makeRandom } from '../core/util.js';
 
 export const DOUGH = '#efd9a9';
-export const DOUGH_DARK = '#e0c48c';
 export const INK = '#4b2a12';
 
 function canvas(w, h) {
@@ -188,9 +187,9 @@ export function makeDrumTexture(cells = 8, cellPx = 192) {
   const c = canvas(cells * cellPx, cellPx);
   const ctx = c.getContext('2d');
   const grad = ctx.createLinearGradient(0, 0, 0, cellPx);
-  grad.addColorStop(0, '#dfe9f2');
+  grad.addColorStop(0, '#e9f1f7');
   grad.addColorStop(0.45, '#ffffff');
-  grad.addColorStop(1, '#c3d3e0');
+  grad.addColorStop(1, '#cfdde8');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, c.width, c.height);
   for (let i = 0; i < cells; i++) {
@@ -202,9 +201,9 @@ export function makeDrumTexture(cells = 8, cellPx = 192) {
     ctx.translate(cellPx * 0.13, cellPx * 0.12);
     drawAnimal(ctx, ANIMAL_IDS[i % ANIMAL_IDS.length], {
       size: cellPx * 0.74,
-      line: '#41627c',
-      bg: '#eef4f9',
-      width: 8,
+      line: '#2c4d66',
+      bg: '#f4f9fc',
+      width: 9,
     });
     ctx.restore();
   }

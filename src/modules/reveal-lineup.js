@@ -24,10 +24,10 @@ export class RevealLineup extends Module {
 
     rig.move(
       CameraRig.shot({
-        look: [L.trayX, 0.4, 0],
-        dir: [0.1, 0.6, 0.79],
-        fitW: 5.8,
-        fitH: 4.8,
+        look: [L.trayX, 0.45, 0],
+        dir: [0.08, 0.72, 0.69],
+        fitW: 5.2,
+        fitH: 4.4,
       }),
       2.9,
       Ease.inOut,

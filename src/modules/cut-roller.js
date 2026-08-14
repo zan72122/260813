@@ -26,7 +26,7 @@ export class CutRoller extends Module {
     rig.move(
       CameraRig.shot({
         look: [L.cutX + 0.45, 0.45, 0],
-        dir: [0.12, 0.5, 0.86],
+        dir: [0.12, 0.58, 0.81],
         fitW: 3.9,
         fitH: 3.2,
       }),
