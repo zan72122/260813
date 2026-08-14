@@ -9,7 +9,7 @@ const args = process.argv.slice(2);
 const which = args.find((a) => !a.startsWith('-')) || 'portrait';
 const headed = args.includes('--headed');
 const urlArg = args.find((a) => a.startsWith('--url='));
-const URL = urlArg ? urlArg.slice(6) : 'http://127.0.0.1:5173/';
+const URL = urlArg ? urlArg.slice(6) : 'http://127.0.0.1:5173/?pdb=1&tier=' + (process.env.TIER || '2');
 
 const DEVICES = {
   portrait: { name: 'iphone-portrait', width: 390, height: 844, dpr: 3 },
@@ -55,7 +55,7 @@ async function waitStage(page, name, ms = 20000) {
 async function run() {
   const dev = DEVICES[which];
   if (!dev) throw new Error('unknown device: ' + which);
-  const browser = await chromium.launch({ headless: !headed });
+  const browser = await chromium.launch({ headless: !headed, args: ['--enable-unsafe-swiftshader'] });
   const ctx = await browser.newContext({
     viewport: { width: dev.width, height: dev.height },
     deviceScaleFactor: dev.dpr,

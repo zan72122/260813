@@ -2,29 +2,41 @@
 // 文字は一切出さない。すべて形・動き・音で伝える。
 import { clamp, lerp, inv, smooth, approach, TAU, roundRect, dist } from './util.js';
 import { computeLayout, fitScale, revealLayout } from './layout.js';
-import { Sheet } from './sheet.js';
+import { Sheet, COLS, ROWS } from './sheet.js';
 import { Fx } from './fx.js';
 import { sfx } from './audio.js';
 import * as S from './scene.js';
+import { quality } from './quality.js';
+import { SheetGL } from './gl/sheetGL.js';
+
+// 統一光源。全素材がこの1灯を参照する（工房の窓あかりと向きを合わせてある）。
+const LIGHT = [-0.46, -0.60, 0.66];
+const MAT_TILT = -0.22;        // 抄き枠が奥へ傾いている分の法線の傾き
+const GU = 14, GVA = 16, GV = 46;   // メッシュ分割（GVA までが台に付いた部分）
 
 export const ORDER = ['mix', 'pour', 'spread', 'press', 'dry', 'peel', 'reveal'];
 
 const STAGE_LOOK = {
-  mix: { cam: 'mix', persp: 0.86, tilt: 0.80 },
-  pour: { cam: 'pour', persp: 0.87, tilt: 0.83 },
-  spread: { cam: 'spread', persp: 0.93, tilt: 0.95 },
-  press: { cam: 'press', persp: 0.95, tilt: 0.99 },
-  dry: { cam: 'dry', persp: 0.90, tilt: 0.91 },
-  peel: { cam: 'peel', persp: 0.96, tilt: 1.00 },
-  reveal: { cam: 'reveal', persp: 0.90, tilt: 0.88 },
+  // dof = 背景のボケ量。寄る工程ほど強くして、模型を近くで撮っている感じにする。
+  mix: { cam: 'mix', persp: 0.86, tilt: 0.80, dof: 0.16 },
+  pour: { cam: 'pour', persp: 0.87, tilt: 0.83, dof: 0.24 },
+  spread: { cam: 'spread', persp: 0.93, tilt: 0.95, dof: 0.50 },
+  press: { cam: 'press', persp: 0.95, tilt: 0.99, dof: 0.62 },
+  dry: { cam: 'dry', persp: 0.90, tilt: 0.91, dof: 0.34 },
+  peel: { cam: 'peel', persp: 0.96, tilt: 1.00, dof: 0.68 },
+  reveal: { cam: 'reveal', persp: 0.90, tilt: 0.88, dof: 0.30 },
 };
 
 const TARGET = { mix: 1500, pour: 0.42, spread: 0.93, press: 0.88, dry: 1, peel: 1 };
 
 export class Game {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+  constructor(canvases) {
+    this.canvas = canvases.back;
+    this.backCanvas = canvases.back;
+    this.frontCanvas = canvases.front;
+    this.glCanvas = canvases.gl;
+    this.ctx = canvases.back.getContext('2d', { alpha: false });
+    this.fctx = canvases.front.getContext('2d');
     this.sheet = new Sheet();
     this.fx = new Fx();
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -36,7 +48,9 @@ export class Game {
     this.made = 0;
     this.persp = 0.86;
     this.tilt = 0.8;
+    this.dof = 0.16;
     this.pointer = { down: false, x: 0, y: 0, px: 0, py: 0, sx: 0, sy: 0, id: null, moved: 0 };
+    this.initGL();
     this.reset(true);
     this.resize();
   }
@@ -78,10 +92,13 @@ export class Game {
     if (w * h * dpr * dpr > MAX_PX) dpr = Math.max(1, Math.sqrt(MAX_PX / (w * h)));
     this.dpr = dpr;
     this.sw = w; this.sh = h;
-    this.canvas.width = Math.round(w * this.dpr);
-    this.canvas.height = Math.round(h * this.dpr);
-    this.canvas.style.width = w + 'px';
-    this.canvas.style.height = h + 'px';
+    for (const c of [this.backCanvas, this.frontCanvas]) {
+      c.width = Math.round(w * this.dpr);
+      c.height = Math.round(h * this.dpr);
+      c.style.width = w + 'px';
+      c.style.height = h + 'px';
+    }
+    if (this.gl) this.gl.resize(w, h, this.dpr);
     const prev = this.layout;
     this.layout = computeLayout(w, h);
     this.hud = Math.max(11, Math.min(w, h) * 0.028);
@@ -251,6 +268,7 @@ export class Game {
     const look = STAGE_LOOK[this.stage];
     this.persp = approach(this.persp, look.persp, 2.6, dt);
     this.tilt = approach(this.tilt, look.tilt, 2.6, dt);
+    this.dof = approach(this.dof === undefined ? look.dof : this.dof, look.dof, 2.2, dt);
 
     // カメラ（常に連続移動。カットしない）
     const r = this.camRect();
@@ -277,7 +295,7 @@ export class Game {
     this.swirlV = approach(this.swirlV, 0, 0.7, dt);
     this.lever.spin += (0.6 + this.lever.pull * 26) * dt;
     this.fx.update(dt);
-    this.sheet.buildTexture();
+    if (!this.gl) this.sheet.buildTexture();   // WebGL 経路では状態テクスチャだけ作る
   }
 
   complete() {
@@ -549,7 +567,7 @@ export class Game {
     if (stage === 'pour') { this.ladle.x = this.ladle.tx = this.layout.ladleHome.x; this.ladle.y = this.ladle.ty = this.layout.ladleHome.y; }
     if (stage === 'press') { this.sponge.x = this.sponge.tx = this.layout.press.x; this.sponge.y = this.sponge.ty = this.layout.press.y; }
     if (stage === 'reveal') { this.made++; this.rt = 0; }
-    sh.buildTexture();
+    sh.dirty = true;
     this.snapCamera();
   }
 
@@ -589,9 +607,179 @@ export class Game {
     x.setTransform(S_, 0, 0, S_, -X * S_, -Y * S_);
     S.drawWorkshop(x, { x0: X, y0: Y, x1: X + W, y1: Y + H }, 0,
       this.layout.horizon, this.layout.props, true);
+
+    // 被写界深度用のボケ版。低解像度に落として戻すだけで十分なぼけになる。
+    const b = document.createElement('canvas');
+    b.width = Math.max(8, c.width >> 3); b.height = Math.max(8, c.height >> 3);
+    const bx = b.getContext('2d');
+    bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = 'high';
+    bx.drawImage(c, 0, 0, b.width, b.height);
+    const b2 = document.createElement('canvas');
+    b2.width = c.width; b2.height = c.height;
+    const b2x = b2.getContext('2d');
+    b2x.imageSmoothingEnabled = true; b2x.imageSmoothingQuality = 'high';
+    b2x.drawImage(b, 0, 0, b2.width, b2.height);
+
     this._bgKey = this.layout.mode;
-    this._bg = { canvas: c, x: X, y: Y, w: W, h: H };
+    this._bg = { sharp: c, blur: b2, x: X, y: Y, w: W, h: H };
     return this._bg;
+  }
+
+  initGL() {
+    if (!quality.useGL) return;
+    try {
+      const g = new SheetGL(this.glCanvas, quality.tier);
+      if (!g.ok) { quality.fallback(); } else { this.gl = g; }
+    } catch (e) {
+      console.warn('WebGL 層を無効化:', e && e.message);
+      quality.fallback();
+    }
+    if (!this.gl) this.glCanvas.style.display = 'none';
+  }
+
+  dropTier() {
+    if (!quality.useGL) {
+      this.gl = null;
+      this.glCanvas.style.display = 'none';
+    } else if (this.gl) {
+      this.gl.setTier(quality.tier);
+    }
+  }
+
+  // 誘導のゆれ。枠と海苔で同じ変換を使わないとズレるので一箇所にまとめる。
+  wigParams() {
+    const on = (this.stage === 'spread' || this.stage === 'pour' || this.stage === 'press') && this.hinting;
+    if (!on) return null;
+    const w = this.wig;
+    const c = this.frameCenter;
+    return { cx: c.x, cy: c.y, rot: w * 0.008, sc: 1 + w * 0.006 };
+  }
+
+  applyWig(wp, x, y) {
+    if (!wp) return { x, y };
+    const dx = (x - wp.cx) * wp.sc, dy = (y - wp.cy) * wp.sc;
+    const c = Math.cos(wp.rot), s2 = Math.sin(wp.rot);
+    return { x: wp.cx + dx * c - dy * s2, y: wp.cy + dx * s2 + dy * c };
+  }
+
+  // 剥がしの幾何。メッシュ・2D代替・繊維の糸引きで共有する。
+  peelGeom() {
+    const P = this.peel;
+    if (this.stage !== 'peel' || P.t <= 0.001) return null;
+    const vf = 1 - P.t;
+    const H = this.sheetQ(0.5, vf);
+    const fdx = P.fx - H.x, fdy = P.fy - H.y;
+    const fd = Math.max(1e-3, Math.hypot(fdx, fdy));
+    const len = Math.max(P.len, 1);
+    const reach = Math.min(fd, len * 0.9);
+    const lean = Math.atan2(-fdx, fdy);
+    const { R, L } = this.solveArc(reach, len);
+    const nearW = Math.abs(this.sheetQ(1, 1).x - this.sheetQ(0, 1).x);
+    return { vf, H, lean, R, L, nearW, cos: Math.cos(lean), sin: Math.sin(lean) };
+  }
+
+  // 剥がれた面のワールド座標。s は 0(剥離線) .. 1(自由端)。
+  // 行は剥離線と平行なまま保ち、「垂れる向き」だけを指の方へ倒す。
+  // 幅方向まで回すと、s=0 の行が剥離線からずれて裂け目ができる。
+  flapPoint(g, u, s) {
+    const th = (s * g.L) / g.R;
+    const w = g.nearW * (1 - 0.045 * s);
+    const lx = (u - 0.5) * w, ly = g.R * Math.sin(th);
+    return {
+      x: g.H.x + lx - ly * g.sin,
+      y: g.H.y + ly * g.cos,
+      th,
+    };
+  }
+
+  // 海苔メッシュ。頂点法線が曲面に追従するので、めくるほど光り方が変わる。
+  buildMesh() {
+    const n = (GU + 1) * (GV + 1);
+    if (!this._mesh) {
+      this._mesh = {
+        n, gu: GU, gv: GV,
+        pos: new Float32Array(n * 2), uv: new Float32Array(n * 2),
+        nor: new Float32Array(n * 3), lift: new Float32Array(n),
+      };
+    }
+    const M = this._mesh;
+    const g = this.peelGeom();
+    M.uvKey = g ? 'peel' : 'flat';
+    const wp = this.wigParams();
+    const vf = g ? g.vf : 1;
+    let k = 0;
+    for (let j = 0; j <= GV; j++) {
+      // 台に付いた部分は平面なので粗く、めくれる部分は細かく割る
+      let v, s = -1;
+      if (!g) v = j / GV;
+      else if (j <= GVA) v = vf * (j / GVA);
+      else { s = (j - GVA) / (GV - GVA); v = vf + (1 - vf) * s; }
+      const th = s < 0 ? 0 : (s * g.L) / g.R;
+      const ang = MAT_TILT + th;
+      let nx = 0, ny = -Math.sin(ang);
+      const nz = Math.cos(ang);
+      if (g) { const t = nx; nx = t * g.cos - ny * g.sin; ny = t * g.sin + ny * g.cos; }
+      // -1 = 台に付いている / 0..1 = めくれた弧の上の位置
+      const lift = !g ? -1 : (j < GVA ? -1 : (j === GVA ? 0 : s));
+      for (let i = 0; i <= GU; i++, k++) {
+        const u = i / GU;
+        let px, py;
+        if (s < 0) { const q = this.sheetQ(u, v); px = q.x; py = q.y; }
+        else { const q = this.flapPoint(g, u, s); px = q.x; py = q.y; }
+        const w2 = this.applyWig(wp, px, py);
+        M.pos[k * 2] = w2.x; M.pos[k * 2 + 1] = w2.y;
+        M.uv[k * 2] = u; M.uv[k * 2 + 1] = v;
+        M.nor[k * 3] = nx; M.nor[k * 3 + 1] = ny; M.nor[k * 3 + 2] = nz;
+        M.lift[k] = lift;
+      }
+    }
+    return M;
+  }
+
+  // 板状の一枚（リビールで手に持った海苔・重ねた一番上）
+  buildQuadMesh(quad, wave) {
+    const n = (GU + 1) * (GV + 1);
+    if (!this._qmesh) {
+      this._qmesh = {
+        n, gu: GU, gv: GV,
+        pos: new Float32Array(n * 2), uv: new Float32Array(n * 2),
+        nor: new Float32Array(n * 3), lift: new Float32Array(n),
+      };
+    }
+    const M = this._qmesh;
+    M.uvKey = 'quad';
+    let k = 0;
+    for (let j = 0; j <= GV; j++) {
+      const v = j / GV;
+      for (let i = 0; i <= GU; i++, k++) {
+        const u = i / GU;
+        const q = quad(u, v);
+        M.pos[k * 2] = q.x; M.pos[k * 2 + 1] = q.y;
+        M.uv[k * 2] = u; M.uv[k * 2 + 1] = v;
+        // ゆるい波打ちを法線に載せる（一枚の紙らしいしなり）
+        const a = MAT_TILT * 0.4 + Math.sin(v * 5.2 + u * 1.7) * wave;
+        M.nor[k * 3] = Math.sin(u * 4.1) * wave * 0.6;
+        M.nor[k * 3 + 1] = -Math.sin(a);
+        M.nor[k * 3 + 2] = Math.cos(a);
+        M.lift[k] = 1;
+      }
+    }
+    return M;
+  }
+
+  glOpts(extra) {
+    const P = this.peel;
+    return Object.assign({
+      light: LIGHT,
+      wetCol: [0.200, 0.290, 0.190],
+      dryCol: [0.058, 0.105, 0.072],
+      dry: this.sheet.dry,
+      backlight: 1.0,
+      matPitch: 22,
+      shadow: true,
+      shadowOff: [10 + 30 * P.t, 16 + 34 * P.t],
+      alpha: 1,
+    }, extra || {});
   }
 
   vignette() {
@@ -610,20 +798,31 @@ export class Game {
 
   // ---- 描画 -----------------------------------------------------------
   render() {
+    this.renderBack();
+    this.renderGL();
+    this.renderFront();
+  }
+
+  // ---- 下層: 工房・桶・抄き枠 ------------------------------------------
+  renderBack() {
     const ctx = this.ctx;
     const d = this.dpr;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0b100e';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillRect(0, 0, this.backCanvas.width, this.backCanvas.height);
     ctx.setTransform(this.cam.scale * d, 0, 0, this.cam.scale * d,
       (this.sw / 2 - this.cam.x * this.cam.scale) * d,
       (this.sh / 2 - this.cam.y * this.cam.scale) * d);
 
-    const view = this.view();
-    // 背景は動かないので、ワールド空間に一度だけ焼いて毎フレーム貼るだけにする
+    // 背景はワールド空間に焼いたものを貼る。寄るほどボケた版を重ねて
+    // 被写界深度を作る（模型を近くで撮っている感じ）。
     const bg = this.bgCache();
-    ctx.drawImage(bg.canvas, bg.x, bg.y, bg.w, bg.h);
-    // 周辺減光は小さな画像を引き伸ばして貼る（毎フレームのグラデ生成を避ける）
+    ctx.drawImage(bg.sharp, bg.x, bg.y, bg.w, bg.h);
+    ctx.save();
+    ctx.globalAlpha = clamp(this.dof === undefined ? 0.2 : this.dof, 0, 1);
+    ctx.drawImage(bg.blur, bg.x, bg.y, bg.w, bg.h);
+    ctx.restore();
+
     ctx.save();
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.drawImage(this.vignette(), 0, 0, this.sw, this.sh);
@@ -632,7 +831,6 @@ export class Game {
     const idx = ORDER.indexOf(this.stage);
     const wig = this.wig;
 
-    // 桶
     if (idx <= 1) {
       const level = 1 - clamp(this.sheet.coverage() / TARGET.pour, 0, 1) * 0.28;
       ctx.save();
@@ -645,24 +843,67 @@ export class Game {
       ctx.restore();
     }
 
-    // 抄き枠 + シート（リビールでは切り替えずに、枠が静かに消えていく）
-    const revealFade = this.stage === 'reveal' ? smooth(inv(0.2, 1.4, this.rt)) : 0;
+    const revealFade = this.revealFade();
     if (this.frameIn > 0.01 && revealFade < 0.995) {
       const geo = { q: (u, v) => this.frameQ(u, v), w: this.layout.frame.w, h: this.layout.frame.h };
       ctx.save();
-      if ((this.stage === 'spread' || this.stage === 'pour' || this.stage === 'press') && this.hinting) {
-        const c = this.frameCenter;
-        ctx.translate(c.x, c.y); ctx.rotate(wig * 0.008); ctx.scale(1 + wig * 0.006, 1 + wig * 0.006); ctx.translate(-c.x, -c.y);
-      }
+      this.applyWigCtx(ctx);
       ctx.globalAlpha = clamp(this.frameIn * 1.4, 0, 1) * (1 - revealFade);
       S.drawFrameBase(ctx, geo, this.time);
-      if (this.stage !== 'reveal') this.drawSheet(ctx);
+      // WebGL が使えないときはここに 2D のシートを描く
+      if (!this.gl && this.stage !== 'reveal') this.drawSheet(ctx);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    if (this.stage === 'reveal') this.drawRevealBack(ctx);
+  }
+
+  // ---- 中層: 海苔と水（WebGL） -----------------------------------------
+  renderGL() {
+    if (!this.gl) return;
+    if (this.gl.lost) { quality.fallback(); this.dropTier(); return; }
+    const gl = this.gl;
+    gl.beginFrame(this.dpr);
+    gl.uploadState(this.sheet.stateData(), COLS, ROWS);
+
+    if (this.stage === 'reveal') {
+      this.drawRevealSheetGL();
+      return;
+    }
+    if (this.frameIn <= 0.01) return;
+    const mesh = this.buildMesh();
+    gl.draw(mesh, this.cam, this.sw, this.sh, this.glOpts({
+      shadow: !!this.peelGeom(),
+      shadowFrom: GVA * GU * 6,          // 影は剥がれた行だけ
+      alpha: clamp(this.frameIn * 1.4, 0, 1),
+    }));
+  }
+
+  // ---- 上層: 手前のレール・道具・粒子・HUD ------------------------------
+  renderFront() {
+    const ctx = this.fctx;
+    const d = this.dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.frontCanvas.width, this.frontCanvas.height);
+    ctx.setTransform(this.cam.scale * d, 0, 0, this.cam.scale * d,
+      (this.sw / 2 - this.cam.x * this.cam.scale) * d,
+      (this.sh / 2 - this.cam.y * this.cam.scale) * d);
+
+    const wig = this.wig;
+    const revealFade = this.revealFade();
+    if (this.frameIn > 0.01 && revealFade < 0.995) {
+      const geo = { q: (u, v) => this.frameQ(u, v), w: this.layout.frame.w, h: this.layout.frame.h };
+      ctx.save();
+      this.applyWigCtx(ctx);
+      ctx.globalAlpha = clamp(this.frameIn * 1.4, 0, 1) * (1 - revealFade);
       S.drawFrameFront(ctx, geo);
       ctx.globalAlpha = 1;
       ctx.restore();
     }
 
-    // 道具
+    if (this.stage === 'peel') this.drawPeelThreads(ctx);
+
     if (this.stage === 'pour') {
       ctx.save();
       if (this.hinting) { ctx.translate(this.ladle.x, this.ladle.y); ctx.rotate(wig * 0.05); ctx.translate(-this.ladle.x, -this.ladle.y); }
@@ -684,14 +925,52 @@ export class Game {
       this.drawWind(ctx);
     }
 
-    if (this.stage === 'reveal') this.drawReveal(ctx);
+    if (this.stage === 'reveal') this.drawRevealFront(ctx);
 
     this.fx.draw(ctx);
     if (this.hinting) this.drawHint(ctx);
 
-    // HUD（スクリーン座標）
     ctx.setTransform(d, 0, 0, d, 0, 0);
     this.drawHud(ctx);
+  }
+
+  revealFade() {
+    return this.stage === 'reveal' ? smooth(inv(0.2, 1.4, this.rt)) : 0;
+  }
+
+  applyWigCtx(ctx) {
+    const wp = this.wigParams();
+    if (!wp) return;
+    ctx.translate(wp.cx, wp.cy);
+    ctx.rotate(wp.rot);
+    ctx.scale(wp.sc, wp.sc);
+    ctx.translate(-wp.cx, -wp.cy);
+  }
+
+  // 剥離線で繊維が数本、糸を引いて切れる
+  drawPeelThreads(ctx) {
+    const P = this.peel;
+    const g = this.peelGeom();
+    if (!g || P.t <= 0.02 || P.t >= 0.995) return;
+    const a = clamp(0.18 + P.speed * 1.1, 0, 1);
+    if (a < 0.05) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    const seed = Math.floor(P.t * 24);
+    for (let i = 0; i < 8; i++) {
+      const h = Math.abs(Math.sin((seed * 7.3 + i * 131.7)) * 43758.5453) % 1;
+      const h2 = Math.abs(Math.sin((seed * 3.1 + i * 57.3)) * 24634.6345) % 1;
+      const u = 0.05 + h * 0.9;
+      const A = this.sheetQ(u, g.vf);
+      const B = this.flapPoint(g, u, 0.055 + h2 * 0.07);
+      ctx.strokeStyle = `rgba(158,186,146,${(0.16 + h2 * 0.3) * a})`;
+      ctx.lineWidth = 0.9 + h2 * 1.3;
+      ctx.beginPath();
+      ctx.moveTo(A.x, A.y);
+      ctx.quadraticCurveTo((A.x + B.x) / 2 + (h - 0.5) * 14, (A.y + B.y) / 2, B.x, B.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawSheet(ctx) {
@@ -764,16 +1043,20 @@ export class Game {
   // 長さ matLen の材料が弦 chord に収まるときの曲率半径 R を求め、
   //   y = R*sin(弧長/R),  面の向き = cos(弧長/R)
   // とする。たるむほど巻き込み、θが90°を超えると裏返って見える。
-  peelArc(chord, matLen, widthNear) {
+  // R*sin(L/R) = d を二分法で解く
+  solveArc(chord, matLen) {
     const L = Math.max(1, matLen);
     const d = clamp(chord, 0, L * 0.999);
-    // R*sin(L/R) = d を二分法で解く
     let lo = L / Math.PI * 1.0001, hi = Math.max(L * 40, d * 40 + L);
     for (let i = 0; i < 26; i++) {
       const mid = (lo + hi) / 2;
       if (mid * Math.sin(L / mid) < d) lo = mid; else hi = mid;
     }
-    const R = (lo + hi) / 2;
+    return { R: (lo + hi) / 2, L };
+  }
+
+  peelArc(chord, matLen, widthNear) {
+    const { R, L } = this.solveArc(chord, matLen);
     return (s) => {
       const th = (s * L) / R;
       return { x: 0, y: R * Math.sin(th), ang: 0, w: widthNear * (1 - 0.045 * s), face: Math.cos(th) };
@@ -802,21 +1085,27 @@ export class Game {
     ctx.restore();
   }
 
-  drawReveal(ctx) {
+  // リビールは3層に分かれる:
+  //   下 = 重ねた海苔の下敷き・おにぎり・お弁当
+  //   中 = 自分が作った海苔（WebGL）
+  //   上 = 巻きに飛ぶ一枚・きらめき
+  revealTiming() {
     const R = revealLayout(this.layout);
     const t = this.rt;
-    // 手に持った海苔 → 重ねる
     const fly = smooth(inv(0.9, 2.0, t));
-    const held = { x: lerp(R.hold.x, R.stack.x, fly), y: lerp(R.hold.y, R.stack.y - (this.made - 1) * 14, fly) };
-    const scale = lerp(1, 0.52, fly);
+    const held = {
+      x: lerp(R.hold.x, R.stack.x, fly),
+      y: lerp(R.hold.y, R.stack.y - (this.made - 1) * 14, fly),
+    };
+    return { R, t, fly, held, scale: lerp(1, 0.52, fly) };
+  }
 
-    // 重ねた海苔
-    // 置かれている感じを出す影
+  drawRevealBack(ctx) {
+    const { R, t, fly } = this.revealTiming();
     ctx.beginPath();
     ctx.ellipse(R.stack.x, R.stack.y + R.sheetH * 0.58, R.sheetW * 0.56, R.sheetH * 0.1, 0, 0, TAU);
     ctx.fillStyle = 'rgba(0,0,0,0.34)';
     ctx.fill();
-    // 工房に元からある数枚 + 自分が作った分
     const base = 2;
     for (let i = 0; i < base; i++) {
       S.drawNoriSheetIcon(ctx, R.stack.x - 10 + i * 9, R.stack.y + (base - i) * 15,
@@ -826,8 +1115,9 @@ export class Game {
     for (let i = 0; i < n; i++) {
       const sx = R.stack.x + (i % 2) * 8 - 3, sy = R.stack.y - i * 14;
       const rot = (i % 2 ? 0.02 : -0.015);
-      if (i === n - 1 && fly >= 1) {
-        // 一番上は、いま自分が作った海苔そのもの
+      const top = (i === n - 1 && fly >= 1);
+      if (top && this.gl) continue;              // 一番上は WebGL 層で描く
+      if (top) {
         ctx.save();
         ctx.translate(sx, sy); ctx.rotate(rot); ctx.translate(-sx, -sy);
         this.sheet.drawFlat(ctx, (u, v) => ({
@@ -838,19 +1128,8 @@ export class Game {
         S.drawNoriSheetIcon(ctx, sx, sy, R.sheetW, R.sheetH, rot, 1, 0.5);
       }
     }
+    if (!this.gl && t < 2.05) this.drawRevealSheet2D(ctx);
 
-    // 今作った一枚（実物のテクスチャで）
-    if (t < 2.05) {
-      const w = R.sheetW * 1.5 * scale, h = R.sheetH * 1.5 * scale;
-      const wob = Math.sin(t * 3) * (1 - fly) * 0.05;
-      const q = (u, v) => ({
-        x: held.x + (u - 0.5) * w + Math.sin(v * 3 + t * 2.4) * 8 * (1 - fly),
-        y: held.y + (v - 0.5) * h + Math.sin(u * 3.2 + t * 2) * 7 * (1 - fly) + wob * 20,
-      });
-      this.sheet.drawFlat(ctx, q, 0, 1);
-    }
-
-    // おにぎり
     const rise = smooth(inv(2.2, 3.1, t));
     if (rise > 0) {
       const wrap = smooth(inv(3.1, 4.3, t));
@@ -858,16 +1137,54 @@ export class Game {
       ctx.globalAlpha = rise;
       S.drawOnigiri(ctx, R.onigiri.x, R.onigiri.y + (1 - rise) * 220, R.onigiriS, wrap);
       ctx.restore();
-      // 巻きに向かって飛ぶ海苔
-      if (t > 3.0 && t < 3.5) {
-        const k = inv(3.0, 3.5, t);
-        S.drawNoriSheetIcon(ctx, lerp(R.stack.x, R.onigiri.x, k), lerp(R.stack.y, R.onigiri.y, k),
-          R.sheetW * lerp(1, 0.8, k), R.sheetH * lerp(1, 0.8, k), lerp(0, 0.4, k), 1, 1);
-      }
     }
-    // お弁当
     const bento = smooth(inv(4.3, 5.2, t));
     if (bento > 0) S.drawBento(ctx, R.bento.x, R.bento.y, R.bentoS, bento);
+  }
+
+  revealQuad() {
+    const { R, t, fly, held, scale } = this.revealTiming();
+    const w = R.sheetW * 1.5 * scale, h = R.sheetH * 1.5 * scale;
+    const wob = Math.sin(t * 3) * (1 - fly) * 0.05;
+    return (u, v) => ({
+      x: held.x + (u - 0.5) * w + Math.sin(v * 3 + t * 2.4) * 8 * (1 - fly),
+      y: held.y + (v - 0.5) * h + Math.sin(u * 3.2 + t * 2) * 7 * (1 - fly) + wob * 20,
+    });
+  }
+
+  drawRevealSheet2D(ctx) {
+    this.sheet.drawFlat(ctx, this.revealQuad(), 0, 1);
+  }
+
+  drawRevealSheetGL() {
+    const { R, t, fly } = this.revealTiming();
+    if (t < 2.05) {
+      // 持ち上がった一枚。透過が効くので薄い所が光る。
+      const mesh = this.buildQuadMesh(this.revealQuad(), 0.16 * (1 - fly) + 0.05);
+      this.gl.draw(mesh, this.cam, this.sw, this.sh,
+        this.glOpts({ shadow: true, shadowOff: [16, 30], backlight: 1.15 }));
+      return;
+    }
+    const n = Math.max(0, Math.min(6, this.made));
+    if (n <= 0) return;
+    const sx = R.stack.x + ((n - 1) % 2) * 8 - 3, sy = R.stack.y - (n - 1) * 14;
+    const rot = ((n - 1) % 2 ? 0.02 : -0.015);
+    const c = Math.cos(rot), s2 = Math.sin(rot);
+    const mesh = this.buildQuadMesh((u, v) => {
+      const dx = (u - 0.5) * R.sheetW, dy = (v - 0.5) * R.sheetH;
+      return { x: sx + dx * c - dy * s2, y: sy + dx * s2 + dy * c };
+    }, 0.05);
+    this.gl.draw(mesh, this.cam, this.sw, this.sh,
+      this.glOpts({ shadow: false, backlight: 0.25 }));
+  }
+
+  drawRevealFront(ctx) {
+    const { R, t } = this.revealTiming();
+    if (t > 3.0 && t < 3.5) {
+      const k = inv(3.0, 3.5, t);
+      S.drawNoriSheetIcon(ctx, lerp(R.stack.x, R.onigiri.x, k), lerp(R.stack.y, R.onigiri.y, k),
+        R.sheetW * lerp(1, 0.8, k), R.sheetH * lerp(1, 0.8, k), lerp(0, 0.4, k), 1, 1);
+    }
   }
 
   drawHint(ctx) {

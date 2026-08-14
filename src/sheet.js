@@ -52,6 +52,8 @@ export class Sheet {
     this.fill = new Float32Array(COLS * ROWS);
     this.wet = new Float32Array(COLS * ROWS);
     this.press = new Float32Array(COLS * ROWS);
+    this.ring = new Float32Array(COLS * ROWS);   // 水が引いた跡（乾燥リング）
+    this.stateBuf = new Uint8Array(COLS * ROWS * 4);
     this.mottle = new Float32Array(COLS * ROWS);
     this.dry = 0;
     this.shrink = 0;
@@ -83,6 +85,7 @@ export class Sheet {
     this.fill.fill(0);
     this.wet.fill(1);
     this.press.fill(0);
+    this.ring.fill(0);
     this.dry = 0;
     this.shrink = 0;
   }
@@ -164,6 +167,7 @@ export class Sheet {
         if (this.fill[i] > 0.2) this.fill[i] = lerp(this.fill[i], 1.0, 0.25 * w * amount);
       }
     }
+    if (squeezed > 0) this.depositRing(amount * 0.55);
     return squeezed;
   }
 
@@ -192,8 +196,41 @@ export class Sheet {
     this.dry = clamp(this.dry + amount, 0, 1);
     this.shrink = this.dry * 0.035;
     if (amount > 0) {
+      this.depositRing(amount * 2.2);
       for (let i = 0; i < this.wet.length; i++) this.wet[i] = Math.max(0, this.wet[i] - amount * 1.4);
     }
+  }
+
+  // 水が引いていく境目に、濃い縁が残る（コーヒーリングと同じ現象）。
+  // 乾いたあとも跡として残り、「そこに水があった」ことを語る。
+  depositRing(amount) {
+    const w = this.wet, r = this.ring;
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const i = y * COLS + x;
+        if (this.fill[i] < 0.2) continue;
+        const gx = Math.abs(w[i] - w[x < COLS - 1 ? i + 1 : i]);
+        const gy = Math.abs(w[i] - w[y < ROWS - 1 ? i + COLS : i]);
+        const g = gx + gy;
+        if (g > 0.012) r[i] = Math.min(1, r[i] + amount * g * 2.6);
+      }
+    }
+  }
+
+  // WebGL 層へ渡す状態テクスチャ (r=量 g=濡れ b=押し a=リング)
+  stateData() {
+    if (this.dirty) {
+      this.dirty = false;
+      const b = this.stateBuf;
+      for (let i = 0; i < COLS * ROWS; i++) {
+        const o = i * 4;
+        b[o] = clamp(this.fill[i] * 170, 0, 255);      // 1.5 で飽和
+        b[o + 1] = clamp(this.wet[i] * 255, 0, 255);
+        b[o + 2] = clamp(this.press[i] * 255, 0, 255);
+        b[o + 3] = clamp(this.ring[i] * 255, 0, 255);
+      }
+    }
+    return this.stateBuf;
   }
 
   // --- 指標 -------------------------------------------------------------

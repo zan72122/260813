@@ -15,14 +15,14 @@ const dir = path.join(process.cwd(), 'shots', 'preview');
 fs.mkdirSync(dir, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
 const ctx = await browser.newContext({
   viewport: { width: DEV.width, height: DEV.height },
   deviceScaleFactor: DEV.dpr, hasTouch: true, isMobile: true,
 });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
-await page.goto('http://127.0.0.1:5173/', { waitUntil: 'load' });
+await page.goto('http://127.0.0.1:5173/?pdb=1&tier=' + (process.env.TIER || '2'), { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__nori);
 
 for (const st of ['mix', 'pour', 'spread', 'press', 'dry', 'peel', 'reveal']) {

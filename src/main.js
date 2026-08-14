@@ -2,10 +2,16 @@
 import { Game } from './game.js';
 import { sfx } from './audio.js';
 import { clamp } from './util.js';
+import { quality } from './quality.js';
 
-const canvas = document.getElementById('stage');
+const canvas = document.getElementById('back');      // 入力を受けるのは最下層
 const boot = document.getElementById('boot');
-const game = new Game(canvas);
+quality.probe();
+const game = new Game({
+  back: canvas,
+  gl: document.getElementById('gl'),
+  front: document.getElementById('front'),
+});
 
 let last = performance.now();
 let raf = 0;
@@ -16,6 +22,8 @@ function frame(now) {
   last = now;
   game.update(dt);
   game.render();
+  // 実測FPSを見て、重い効果から段階的に落とす
+  if (quality.sample(dt)) game.dropTier();
 }
 
 // --- 入力 ---------------------------------------------------------------
@@ -90,6 +98,9 @@ window.__nori = {
   get progress() { return game.p; },
   get orientation() { return game.layout.mode; },
   get audio() { return sfx.ctx ? sfx.ctx.state : 'none'; },
+  get tier() { return quality.tier; },
+  get fps() { return Math.round(quality.fps); },
+  setTier(t) { quality.tier = t; quality.locked = (t === 0); game.dropTier(); },
   get made() { return game.made; },
   get state() {
     return {

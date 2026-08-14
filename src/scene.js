@@ -88,6 +88,29 @@ export function drawVignette(ctx, view) {
   ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 }
 
+// 接地影。接触部のきつい暗さ(AO)と、やわらかい落ち影を分けて描く。
+// 「置かれている」感の正体はこの2層。
+export function contactShadow(ctx, x, y, rx, ry) {
+  const g1 = ctx.createRadialGradient(x, y, 0, x, y, rx * 1.9);
+  g1.addColorStop(0, 'rgba(0,0,0,0.34)');
+  g1.addColorStop(0.55, 'rgba(0,0,0,0.14)');
+  g1.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, (ry * 1.9) / (rx * 1.9));
+  ctx.translate(-x, -y);
+  ctx.fillStyle = g1;
+  ctx.beginPath();
+  ctx.arc(x, y, rx * 1.9, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+  // 接触線の直下だけ強く暗く
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx * 0.94, ry * 0.42, 0, 0, TAU);
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.fill();
+}
+
 // 工房の小物（シルエット）。奥行きと「ここは何かを作る場所だ」感を出す。
 function drawProps(ctx, view, horizon, props) {
   const { x0, x1 } = view;
@@ -137,11 +160,7 @@ function drawProps(ctx, view, horizon, props) {
 export function drawVat(ctx, vat, t, swirl, level = 1, mixed = 0) {
   const { x, y, rx, ry } = vat;
   ctx.save();
-  // 影
-  ctx.beginPath();
-  ctx.ellipse(x, y + ry * 0.75, rx * 1.06, ry * 0.6, 0, 0, TAU);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fill();
+  contactShadow(ctx, x, y + ry * 1.62, rx * 0.94, ry * 0.34);
 
   // 桶の胴
   const body = ctx.createLinearGradient(x - rx, 0, x + rx, 0);
@@ -259,15 +278,17 @@ export function drawFrameBase(ctx, geo, t) {
   const o00 = q(-m, -m), o10 = q(1 + m, -m), o11 = q(1 + m, 1 + m), o01 = q(-m, 1 + m);
 
   ctx.save();
-  // 影
+  // 落ち影（やわらかく大きく）と、接触部のきつい暗さ
   ctx.save();
-  ctx.translate(0, geo.h * 0.06);
+  ctx.translate(geo.h * 0.035, geo.h * 0.075);
+  ctx.filter = 'none';
   ctx.beginPath();
   ctx.moveTo(o00.x, o00.y); ctx.lineTo(o10.x, o10.y); ctx.lineTo(o11.x, o11.y); ctx.lineTo(o01.x, o01.y);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(0,0,0,0.36)';
+  ctx.fillStyle = 'rgba(0,0,0,0.26)';
   ctx.fill();
   ctx.restore();
+  contactShadow(ctx, (o01.x + o11.x) / 2, o11.y - 2, Math.abs(o11.x - o01.x) * 0.5, geo.h * 0.05);
 
   // 木枠（外周）
   ctx.beginPath();
@@ -383,10 +404,7 @@ export function drawSponge(ctx, x, y, squash) {
   ctx.save();
   ctx.translate(x, y);
   const w = 210 * (1 + squash * 0.14), h = 118 * (1 - squash * 0.34);
-  ctx.beginPath();
-  ctx.ellipse(0, h * 0.62, w * 0.52, 20, 0, 0, TAU);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fill();
+  contactShadow(ctx, 0, h * 0.60, w * 0.48, 18);
   const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
   g.addColorStop(0, '#ffd772');
   g.addColorStop(0.55, '#f2b53f');
