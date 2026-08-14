@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>bake</title>
+<style>body{background:#222;color:#ccc;font:12px monospace;margin:0;padding:8px}canvas{image-rendering:pixelated;margin:4px;background:#333}</style>
+</head>
+<body>
+<div id="log">loading…</div>
+<script type="module">
+import { bakeBean, BEAN_STATES } from './gen/bean.js';
+
+const log = (m) => { document.getElementById('log').textContent = m; console.log(m); };
+
+/** 8 粒 1 組をアトラスに詰める（4 列 x 2 行） */
+const VARIANTS = 8;
+const CELL = 256;
+const COLS = 4, ROWS = 2;
+
+function newCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+async function bakeBeanAtlas(state) {
+  const atlas = newCanvas(CELL * COLS, CELL * ROWS);
+  const actx = atlas.getContext('2d');
+  const tmp = newCanvas(CELL, CELL);
+  const tctx = tmp.getContext('2d');
+  for (let i = 0; i < VARIANTS; i++) {
+    const img = bakeBean(tctx, {
+      size: CELL, seed: 1000 + i * 17, state, ss: 2,
+      orient: (i / VARIANTS) * Math.PI * 2,     // 形だけを回した個体差
+    });
+    tctx.putImageData(img, 0, 0);
+    actx.drawImage(tmp, (i % COLS) * CELL, ((i / COLS) | 0) * CELL);
+    log(`bean ${state} ${i + 1}/${VARIANTS}`);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  document.body.appendChild(atlas);
+  atlas.style.width = '256px';
+  return atlas;
+}
+
+window.__bake = async () => {
+  const out = [];
+  for (const state of Object.keys(BEAN_STATES)) {
+    const c = await bakeBeanAtlas(state);
+    out.push({ name: `bean-${state}.png`, url: c.toDataURL('image/png') });
+  }
+  log('done');
+  return out;
+};
+
+window.__meta = { variants: VARIANTS, cell: CELL, cols: COLS, rows: ROWS };
+window.__bakeReady = true;
+log('ready');
+</script>
+</body>
+</html>

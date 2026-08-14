@@ -16,6 +16,8 @@ export default [
         URLSearchParams: 'readonly',
         AudioContext: 'readonly',
         process: 'readonly',
+        Image: 'readonly',
+        Buffer: 'readonly',
       },
     },
     rules: {

@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const url = process.argv[2] || 'http://127.0.0.1:8123/material.html';
+const out = process.argv[3] || '/tmp/natto-shots/bench.png';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const p = await b.newPage({ viewport: { width: 1180, height: 1400 }, deviceScaleFactor: 1 });
+p.on('pageerror', e => console.log('ERR', String(e)));
+p.on('console', m => { if (m.type()==='error') console.log('CONSOLE', m.text()); });
+await p.goto(url, { waitUntil: 'networkidle' });
+await p.waitForTimeout(900);
+await p.screenshot({ path: out, fullPage: true });
+await b.close();
+console.log('saved', out);

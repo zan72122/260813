@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>質感テストベンチ</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; background: #2a2724; color: #e8ddcb;
+    font: 13px/1.6 -apple-system, "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+    padding: 12px 12px 60px;
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+  p.note { margin: 0 0 14px; opacity: .6; font-size: 12px; }
+  section { margin: 0 0 22px; }
+  h2 { font-size: 13px; margin: 0 0 6px; opacity: .8; font-weight: 600; }
+  canvas { display: block; max-width: 100%; border-radius: 10px; background: #efe0c4; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { font-size: 11px; opacity: .55; margin-top: 3px; }
+  label { display: inline-flex; gap: 6px; align-items: center; margin-right: 14px; font-size: 12px; }
+  input[type=range] { width: 160px; }
+</style>
+</head>
+<body>
+<h1>質感テストベンチ</h1>
+<p class="note">A段階の確認用。ゲーム本体には未接続。</p>
+
+<section>
+  <h2>1. 豆 1 粒（工程ごと）</h2>
+  <div class="row" id="singles"></div>
+</section>
+
+<section>
+  <h2>2. 納豆の塊：混ぜるほど粘る（左 0% → 右 100%）</h2>
+  <canvas id="mass" width="1100" height="300"></canvas>
+</section>
+
+<section>
+  <h2>3. 寄り（接写）と びよーん</h2>
+  <div class="row">
+    <div><canvas id="closeup" width="540" height="420"></canvas><div class="cap">接写：混ぜたあと</div></div>
+    <div><canvas id="lift" width="540" height="420"></canvas><div class="cap">糸を持ち上げる</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>4. 旧（ベクター）と新（焼き込み）の比較</h2>
+  <div class="row">
+    <div><canvas id="old" width="520" height="300"></canvas><div class="cap">旧</div></div>
+    <div><canvas id="new" width="520" height="300"></canvas><div class="cap">新</div></div>
+  </div>
+</section>
+
+<script type="module" src="./src/bench.js"></script>
+</body>
+</html>

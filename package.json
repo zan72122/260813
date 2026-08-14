@@ -11,6 +11,8 @@
     "test:portrait": "node tests/play.mjs portrait",
     "test:landscape": "node tests/play.mjs landscape",
     "test:ipad": "node tests/play.mjs ipad",
-    "lint": "npx eslint src tests"
+    "lint": "npx eslint src tests",
+    "bake": "node tools/bake.mjs",
+    "bench": "node tools/shot.mjs http://127.0.0.1:8123/material.html /tmp/natto-shots/bench.png"
   }
 }
