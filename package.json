@@ -1,0 +1,16 @@
+{
+  "name": "somen-factory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "のびのび！しゃらら！ そうめんこうじょう — a one-finger, no-text web game for 4-year-olds",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "serve": "python3 -m http.server 4173",
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/smoke.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
