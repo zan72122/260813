@@ -19,14 +19,45 @@ export const BEAN_ATLAS = {
 const images = new Map();
 let ready = false;
 
-export function loadAssets(base = './assets/') {
-  const jobs = BEAN_ATLAS.states.map((s) => new Promise((res) => {
+const RICE_ATLAS = { cell: 128, cols: 4, variants: 8 };
+
+function load(key, url) {
+  return new Promise((res) => {
     const im = new Image();
-    im.onload = () => { images.set(s, im); res(true); };
+    im.onload = () => { images.set(key, im); res(true); };
     im.onerror = () => res(false);
-    im.src = `${base}bean-${s}.png`;
-  }));
+    im.src = url;
+  });
+}
+
+export function loadAssets(base = './assets/') {
+  const jobs = BEAN_ATLAS.states.map((s) => load(s, `${base}bean-${s}.png`));
+  jobs.push(load('rice', `${base}rice.png`));
   return Promise.all(jobs).then((r) => { ready = r.every(Boolean); return ready; });
+}
+
+/** 米粒 1 つ。長さ len（長辺）で描く。 */
+export function drawRice(ctx, variant, x, y, len, rot = 0) {
+  const im = images.get('rice');
+  const C = RICE_ATLAS.cell;
+  if (!im) {
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = 'rgba(250,247,238,0.95)';
+    ctx.beginPath(); ctx.ellipse(0, 0, len * 0.5, len * 0.19, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+    return;
+  }
+  const v = variant % RICE_ATLAS.variants;
+  const sx = (v % RICE_ATLAS.cols) * C;
+  const sy = ((v / RICE_ATLAS.cols) | 0) * C;
+  const w = len / 0.94;
+  // 米は焼き込みで 8 方向を用意してあるので、追加の回転はごく浅くにとどめる
+  ctx.save();
+  ctx.translate(x, y);
+  if (rot) ctx.rotate(clamp(rot, -0.35, 0.35));
+  ctx.drawImage(im, sx, sy, C, C, -w / 2, -w / 2, w, w);
+  ctx.restore();
 }
 
 export const assetsReady = () => ready;

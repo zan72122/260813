@@ -50,6 +50,25 @@ iPhone / iPad で開く場合は、同じ Wi-Fi 上から `http://<PCのIP>:8123
 | `?fast=1` | 軽量モード（DPR 1・パーティクル削減）。E2E 用 |
 | `?seed=7` | 乱数シード固定 |
 
+## 素材（焼き込み）
+
+豆と米は、実行時に描いているのではなく **オフラインで焼いた PNG** です。
+
+```bash
+npm start          # 別ターミナルでサーバを立てておく
+npm run bake       # assets/*.png を再生成（数十秒）
+```
+
+`tools/bake.mjs` がヘッドレス Chromium をレンダラーとして起動し、1 枚あたり
+数秒かけて per-pixel で **高さ場 → 法線 → 3灯ライティング → 表面下散乱 →
+濡れコート → フレネル → AO** を計算します。実行時は `drawImage` するだけです。
+
+- 豆は工程 5 種 × 個体 8 種。**向きは形だけを焼き込み時に回し、光は画面に固定**
+  しています（スプライトを実行時に回すと、焼き込んだ光まで回って嘘になる）。
+- 納豆の「粘り」は `src/natto.js` が担当します。豆の円と近接ペアの帯を合成した
+  メタボールで塊を作り、接触影・照り・泡・糸・膜・宙に立つ糸を重ねます。
+- 材質だけを確認するページ: `material.html`（`npm run bench` で画像化）
+
 ## 構成
 
 ```
@@ -61,7 +80,10 @@ src/
   util.js           数学 / 決定的乱数 / スプライト
   audio.js          効果音（WebAudio で合成。音声ファイルなし）
   fx.js             パーティクル（湯気・きらきら・霧・しずく・泡）
-  art.js            豆・糸・パック・道具の描画（Hero Material はここ）
+  art.js            器・道具・背景の描画
+  natto.js          納豆の材質（塊・接触影・照り・泡・糸・膜）と焼き込み素材
+assets/             焼き込み済みスプライト（PNG, 約 2.4MB）
+tools/              焼き込みパイプライン（bake.mjs / gen/*.js）
   scenes/           title / soak / steam / spray / pack / ferment / finale / reveal
 tests/play.mjs      縦横それぞれで一周プレイする自動確認
 ```

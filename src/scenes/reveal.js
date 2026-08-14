@@ -7,7 +7,7 @@ import {
 } from '../art.js';
 import {
   drawBeanAuto, drawStickyMass, drawStickyGlaze, drawContactShadows,
-  drawWetRim, drawThread, BEAN_ATLAS,
+  drawWetRim, drawThread, drawRice, BEAN_ATLAS,
 } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
@@ -143,26 +143,44 @@ export class RevealScene extends Scene {
 
     // ごはんの山（茶碗のふちより高く盛る）
     const riceY = bl.y - bl.r * 0.32;
-    ctx.fillStyle = '#fffdf7';
+    ctx.fillStyle = '#ddd6c4';
     ctx.beginPath();
     ctx.ellipse(bl.x, riceY, bl.r * 0.9, bl.r * 0.52, 0, Math.PI, TAU);
     ctx.fill();
     ctx.beginPath();
     ctx.ellipse(bl.x, riceY, bl.r * 0.9, bl.r * 0.18, 0, 0, TAU);
     ctx.fill();
-    // 米粒
-    ctx.fillStyle = 'rgba(224,219,203,0.85)';
-    for (let i = 0; i < 30; i++) {
-      const a = i * 2.399;
-      const rr = Math.sqrt((i % 15) / 15) * bl.r * 0.8;
-      const x = bl.x + Math.cos(a) * rr;
-      const y = riceY - Math.abs(Math.sin(a)) * bl.r * 0.34 + Math.sin(a * 2.7) * bl.r * 0.06;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(a);
-      ctx.beginPath(); ctx.ellipse(0, 0, S * 0.015, S * 0.0075, 0, 0, TAU); ctx.fill();
-      ctx.restore();
+    // 米粒（焼き込みスプライト）。
+    // ごはんは「白い山＋点々」ではなく、粒が積み重なってできた面にする。
+    // ここがベタ塗りのままだと、隣の納豆まで嘘に見えてしまう。
+    const grain = S * 0.05;
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(bl.x, riceY, bl.r * 0.92, bl.r * 0.54, 0, Math.PI, TAU);
+    ctx.ellipse(bl.x, riceY, bl.r * 0.92, bl.r * 0.19, 0, 0, TAU);
+    ctx.clip();
+    const grains = f.fast ? 150 : 280;
+    const list = [];
+    for (let i = 0; i < grains; i++) {
+      // 黄金角のらせんで単位円に散らし、それを「見えている山の面」へ写す
+      const a = i * 2.39996;
+      const rad = Math.sqrt((i + 0.5) / grains);
+      const dx = Math.cos(a) * rad, dy = Math.sin(a) * rad;
+      const edge = Math.sqrt(Math.max(0, 1 - dx * dx));
+      list.push({
+        x: bl.x + dx * bl.r * 0.9,
+        y: lerp(riceY - bl.r * 0.54 * edge, riceY + bl.r * 0.18 * edge, (dy + 1) / 2),
+        i, shade: 1 - (dy + 1) / 2,
+      });
     }
+    list.sort((p, q) => p.y - q.y);          // 奥から手前へ
+    for (const g2 of list) {
+      ctx.globalAlpha = 0.85 + g2.shade * 0.15;
+      drawRice(ctx, g2.i, g2.x, g2.y, grain * (0.86 + ((g2.i * 13) % 7) * 0.045),
+        Math.sin(g2.i * 2.1) * 0.3);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
 
     const jitter = this.toss > 0 ? Math.sin(this.t * 22) * S * 0.006 * (1 - this.toss) : 0;
 
