@@ -238,6 +238,7 @@ export class Game {
         this.ui.say(LINES.polish);
         this.setTool('roller');
         this.view.cutTo('polish');
+        this._glossSnap = false;
         break;
 
       case 'finale':
@@ -312,12 +313,24 @@ export class Game {
     return 0;
   }
 
-  /** Roughly where the powder surface is right now at (x,z), in world Y. */
+  /**
+   * Roughly where the powder surface is right now at (x,z), in world Y.
+   * Mirrors the shader's height function closely enough for a tool to ride on:
+   * the same cover response and the same tapered rim.
+   */
   surfaceY(x, z) {
     if (!this.onMound) return 0;
+    const smooth = (e, v) => {
+      const t = clamp01(v / e);
+      return t * t * (3 - 2 * t);
+    };
+    const u = (x + this.mound.width / 2) / this.mound.width;
+    const v = (z + this.mound.depth / 2) / this.mound.depth;
+    const edge = smooth(0.26, u) * smooth(0.26, 1 - u) * smooth(0.28, v) * smooth(0.28, 1 - v);
     const cover = this.mound.coverAt(x, z, this.time * 1000);
     const t = clamp01((cover - 0.05) / 0.75);
-    return this.moundGroup.position.y + TRAY.moundAmp * 0.85 * (t * t * (3 - 2 * t));
+    const drop = t * t * (3 - 2 * t);
+    return this.moundGroup.position.y + TRAY.moundAmp * 0.85 * drop * edge;
   }
 
   /**
@@ -734,7 +747,7 @@ export class Game {
       this.digProgress = this.mound.measure('cover', this.time * 1000);
       const revealed = this.gummies.items.filter((g) => g.found).length;
       const total = Math.max(1, this.gummies.count);
-      this.ui.showMeter(Math.max(revealed / total, this.digProgress / 0.5));
+      this.ui.showMeter(Math.max(revealed / total, this.digProgress / 0.45));
       if (this.stage === 'dig' && this.stageTime > 1.7) {
         if (revealed === 0) this.ui.say(LINES.dig, true);
         else if (revealed < 3) this.ui.say(LINES.dig_color, true);
@@ -745,7 +758,7 @@ export class Game {
       this.digDone =
         this.stage === 'free'
           ? revealed >= Math.ceil(total * 0.85) || this.digProgress >= 0.6
-          : revealed >= Math.ceil(total * 0.8) || this.digProgress >= 0.5;
+          : revealed >= Math.ceil(total * 0.75) || this.digProgress >= 0.45;
     }
 
     if (this.digDone) {
@@ -829,12 +842,31 @@ export class Game {
       }
     }
     this.gloss = Math.min(1, this.gloss + dt * 0.03); // never stalls
+    // "一気にツヤツヤ": past the halfway mark the shine takes over and finishes
+    // itself in a third of a second, so the change reads as one event
+    if (this.gloss > 0.55) {
+      if (!this._glossSnap) {
+        this._glossSnap = true;
+        sfx.shine();
+        for (const g of this.gummies.items) {
+          this.gummies.poke(g, 0.28);
+          this.puffs.burst(g.x, this.moundGroup.position.y + 1.1, g.z, {
+            count: FAST ? 1 : 5,
+            spread: 0.9,
+            up: 1.6,
+            size: 0.5,
+            life: 0.7,
+            color: '#ffffff',
+          });
+        }
+      }
+      this.gloss = Math.min(1, this.gloss + dt * 2.6);
+    }
     for (const g of this.gummies.items) g.gloss = this.gloss;
     this.dustGummies(dt);
     this.ui.showMeter(this.gloss);
 
     if (this.gloss >= 1) {
-      sfx.shine();
       for (const g of this.gummies.items) this.gummies.poke(g, 0.26);
       this.setStage('finale');
     }

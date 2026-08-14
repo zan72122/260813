@@ -30,8 +30,11 @@ describe('forgiveness budget', () => {
   });
 
   it('leads the brush a real distance ahead of the fingertip', () => {
-    expect(FORGIVE.brushLead).toBeGreaterThan(1);
-    expect(FORGIVE.brushLeadMinPx).toBeGreaterThanOrEqual(40);
+    expect(FORGIVE.brushLeadPx).toBeGreaterThanOrEqual(70);
+    expect(FORGIVE.brushLeadPx).toBeGreaterThan(FORGIVE.brushLeadMinPx);
+    const [lo, hi] = FORGIVE.brushLeadWorldRange;
+    expect(lo).toBeGreaterThan(0);
+    expect(hi).toBeGreaterThan(lo);
   });
 
   it('offers the five juice colours the brief asks for', () => {

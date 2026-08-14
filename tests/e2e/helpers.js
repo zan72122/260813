@@ -88,8 +88,21 @@ export async function doFlip(page) {
   await step(page, 90);
 }
 
+/**
+ * Brush across the band of screen rows the gummies actually sit in. Deriving
+ * it from the scene keeps the sweep meaningful on every viewport instead of
+ * hard-coding fractions that only line up on one of them.
+ */
 export async function doDig(page, passes = 12) {
-  await sweeps(page, { passes, y0: 0.38, dy: 0.045, hold: 2, stages: ['dig', 'free'] });
+  const [top, bottom] = await page.evaluate(() => {
+    const ys = globalThis.__GAME__.game.gummies.items.map(
+      (g) => globalThis.__GAME__.aimAt(g.x, g.z).y / window.innerHeight,
+    );
+    return [Math.min(...ys) - 0.03, Math.max(...ys) + 0.03];
+  });
+  const rows = 6;
+  const dy = (bottom - top) / (rows - 1);
+  await sweeps(page, { passes, y0: top, dy, hold: 2, stages: ['dig', 'free'] });
   await step(page, 40);
 }
 

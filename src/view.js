@@ -9,25 +9,33 @@ import * as THREE from 'three';
 import { QUALITY, WHITE_WORLD } from './config.js';
 
 /**
+ * `depth` is how far the subject sticks out towards the camera from the
+ * target, along the ground. Framing is solved for the NEAR edge and the camera
+ * then pushed back by that much, otherwise perspective quietly crops the front
+ * corners of a big flat prop on a wide screen.
+ *
  * @typedef {{ dir: [number,number,number], target: [number,number,number],
- *   frameW: number, frameH: number, fov?: number, ms?: number }} Shot
+ *   frameW: number, frameH: number, depth?: number, fov?: number,
+ *   ms?: number }} Shot
  */
 
 /** @type {Record<string, Shot>} */
 export const SHOTS = {
   // a tray of white powder, seen from above and slightly in front
-  tray: { dir: [0, 0.86, 0.9], target: [0, 0, 0], frameW: 14.5, frameH: 10.5, fov: 42, ms: 900 },
+  tray: { dir: [0, 0.86, 0.9], target: [0, 0, 0], frameW: 14.2, frameH: 10.2, depth: 4.7, fov: 42, ms: 900 },
   // the stamp coming down: low and close, so the press has weight
-  stamp: { dir: [0.1, 0.5, 1.0], target: [0, 1.5, 0.2], frameW: 13.5, frameH: 10.5, fov: 40, ms: 850 },
+  stamp: { dir: [0.1, 0.5, 1.0], target: [0, 1.5, 0.2], frameW: 13.5, frameH: 10.5, depth: 4.7, fov: 40, ms: 850 },
   // macro on the hole being filled
-  pour: { dir: [0.08, 0.95, 0.8], target: [0, 0, 0], frameW: 9.5, frameH: 7.5, fov: 34, ms: 700 },
+  pour: { dir: [0.08, 0.95, 0.8], target: [0, 0, 0], frameW: 9.5, frameH: 7.5, depth: 2.2, fov: 34, ms: 700 },
   // pull back a bit for the flip
-  flip: { dir: [0, 0.78, 1.0], target: [0, 0.2, 0], frameW: 16, frameH: 12, fov: 44, ms: 900 },
+  flip: { dir: [0, 0.78, 1.0], target: [0, 0.2, 0], frameW: 15, frameH: 11.5, depth: 5.0, fov: 44, ms: 900 },
   // the reveal: very close, oblique. This shot is NEVER cut while brushing.
-  dig: { dir: [0, 0.72, 0.88], target: [0, -0.45, 0.1], frameW: 12.5, frameH: 9.5, fov: 36, ms: 1100 },
-  polish: { dir: [0, 0.76, 0.86], target: [0, -0.5, 0.2], frameW: 14, frameH: 10.5, fov: 38, ms: 700 },
+  // deliberately tighter than the heap: the powder bleeds off the sides and
+  // fills the frame, which is what makes the reveal feel close
+  dig: { dir: [0, 0.72, 0.88], target: [0, -0.45, 0.1], frameW: 10.6, frameH: 8.6, depth: 4.6, fov: 36, ms: 1100 },
+  polish: { dir: [0, 0.76, 0.86], target: [0, -0.5, 0.2], frameW: 12.5, frameH: 9.6, depth: 5.0, fov: 38, ms: 700 },
   // everything at once, for the first time
-  finale: { dir: [0, 0.95, 0.85], target: [0, -0.9, 0], frameW: 20, frameH: 14.5, fov: 44, ms: 1400 },
+  finale: { dir: [0, 0.95, 0.85], target: [0, -0.9, -1.0], frameW: 19, frameH: 14, depth: 6.0, fov: 44, ms: 1400 },
 };
 
 export class View {
@@ -114,15 +122,17 @@ export class View {
     const tan = Math.tan(vfov / 2);
     const distV = shot.frameH / 2 / tan;
     const distH = shot.frameW / 2 / (tan * aspect);
-    const dist = Math.max(distV, distH) * 1.06;
-
     // On a tall phone the shot is width-limited and the subject ends up as a
     // thin band with dead space above and below. Tilting further over the
     // table trades that dead space for more of the tray.
     const tall = Math.min(1, Math.max(0, (1 / aspect - 0.9) / 0.9));
     out.tgt.set(shot.target[0], shot.target[1], shot.target[2]);
-    out.pos.set(shot.dir[0], shot.dir[1] * (1 + 0.45 * tall), shot.dir[2]);
-    out.pos.normalize().multiplyScalar(dist).add(out.tgt);
+    out.pos.set(shot.dir[0], shot.dir[1] * (1 + 0.45 * tall), shot.dir[2]).normalize();
+
+    // solve for the near edge, then step back over the subject's own depth
+    const groundRun = Math.hypot(out.pos.x, out.pos.z);
+    const dist = Math.max(distV, distH) * 1.06 + (shot.depth ?? 0) * groundRun;
+    out.pos.multiplyScalar(dist).add(out.tgt);
     out.fov = fov;
     return out;
   }

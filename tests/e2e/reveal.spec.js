@@ -130,11 +130,12 @@ test.describe('layout', () => {
       const g = globalThis.__GAME__.game;
       const THREE = g.view.camera.constructor;
       void THREE;
+      // the outer corners of the tray rim
       const corners = [
-        [-6.5, 0, -4.5],
-        [6.5, 0, -4.5],
-        [-6.5, 0, 4.5],
-        [6.5, 0, 4.5],
+        [-6.6, 0, -4.6],
+        [6.6, 0, -4.6],
+        [-6.6, 0, 4.6],
+        [6.6, 0, 4.6],
       ];
       return corners.map((c) => {
         const v = new g.view.camera.position.constructor(c[0], c[1], c[2]);

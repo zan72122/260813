@@ -27,7 +27,9 @@ test.describe('しろい こなの こうじょう', () => {
 
   test('plays the whole line from powder to a table of gummies', async ({ page }) => {
     const errors = await boot(page);
-    test.setTimeout(120_000);
+    // the whole factory line, driven frame by frame on a software rasteriser:
+    // slow by construction, and slowest on the largest viewport
+    test.setTimeout(240_000);
 
     await tapStart(page);
     expect((await state(page)).stage).toBe('flatten');
@@ -52,6 +54,9 @@ test.describe('しろい こなの こうじょう', () => {
     // several different juices, not one flat colour
     expect(poured.colorsVisible.length).toBeGreaterThanOrEqual(3);
 
+    // curing is time-compressed, but it is still wall-clock time: drive it
+    // with fixed logical frames so a slow software rasteriser cannot time out
+    await step(page, 220);
     await expect
       .poll(async () => (await state(page)).stage, { timeout: 30_000 })
       .toBe('flip');
@@ -67,7 +72,7 @@ test.describe('しろい こなの こうじょう', () => {
     expect(buried.revealed).toBe(0);
     expect(buried.colorsVisible).toEqual([]);
 
-    await doDig(page, 16);
+    await doDig(page, 24);
     expect((await state(page)).revealed).toBeGreaterThan(0);
 
     await expect
@@ -83,6 +88,8 @@ test.describe('しろい こなの こうじょう', () => {
     const done = await state(page);
     expect(done.gummies).toBeGreaterThanOrEqual(15);
     expect(done.colorsVisible.length).toBeGreaterThanOrEqual(4);
+    // the panel deliberately waits for the pull-back to land
+    await step(page, 260);
     await expect(page.locator('.panel.show')).toBeVisible({ timeout: 20_000 });
 
     expect(errors).toEqual([]);
