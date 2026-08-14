@@ -1,0 +1,247 @@
+/* みずのまち — UI レイヤ
+   4歳児向け: 文字ゼロ / 大きなタップ標的 / 縦横どちらでも同じ操作位置 */
+
+:root {
+  --btn: clamp(58px, 15vmin, 96px);
+  --btn-big: clamp(74px, 19vmin, 122px);
+  --pad: clamp(10px, 2.6vmin, 22px);
+  --ink: #23303a;
+  --card: #fffdf6;
+  --shadow: 0 6px 0 rgba(0, 0, 0, .18), 0 10px 22px rgba(0, 0, 0, .22);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #221a12;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Maru Gothic ProN", sans-serif;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ---------- ボタン共通 ---------- */
+.btn, .tool {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  width: var(--btn);
+  height: var(--btn);
+  transition: transform .12s ease, filter .12s ease, opacity .2s ease;
+  cursor: pointer;
+}
+
+.btn:active, .tool:active { transform: translateY(4px) scale(.96); box-shadow: 0 2px 0 rgba(0,0,0,.18); }
+
+.btn svg, .tool svg { width: 62%; height: 62%; overflow: visible; }
+
+.ink {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ink-fill { fill: var(--ink); stroke: none; }
+.tool .ink { stroke-width: 3.4; }
+.tool .water { fill: none; stroke: #4bb3e8; stroke-width: 3.4; stroke-linecap: round; }
+.tool .line { stroke-width: 2.6; }
+
+/* ---------- 主コントロール（下中央） ---------- */
+.controls {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--pad) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 3.4vmin, 30px);
+  z-index: 5;
+}
+
+.btn-play {
+  width: var(--btn-big);
+  height: var(--btn-big);
+  background: linear-gradient(#7fe08a, #3fbf63);
+}
+.btn-play .ink-fill { fill: #123c1d; }
+.btn-play .ico-stop { display: none; }
+.btn-play.is-playing { background: linear-gradient(#ffd36e, #f5a623); }
+.btn-play.is-playing .ico-play { display: none; }
+.btn-play.is-playing .ico-stop { display: block; }
+.btn-play.pulse { animation: pulse 1.6s ease-in-out infinite; }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.btn-reset { background: linear-gradient(#cfe6ff, #8fc4f2); }
+.btn-sound { background: linear-gradient(#fff, #e6e0d2); width: calc(var(--btn) * .82); height: calc(var(--btn) * .82); }
+.btn-sound .mute { display: none; }
+.btn-sound.is-muted .snd { display: none; }
+.btn-sound.is-muted .mute { display: block; }
+
+/* ---------- 道具トレイ（下左） ---------- */
+.tray {
+  position: absolute;
+  left: calc(var(--pad) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--pad) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: clamp(8px, 2vmin, 16px);
+  z-index: 5;
+}
+
+.tool { background: linear-gradient(#fffdf6, #efe7d6); }
+.tool.is-on { background: linear-gradient(#ffe9a8, #ffcf5c); outline: 4px solid #fff; }
+.tool.is-used { opacity: .45; }
+
+/* 横向きで幅が広いときはトレイを縦のまま左端に、コントロールと重ならないよう調整 */
+@media (orientation: landscape) and (max-height: 460px) {
+  :root { --btn: clamp(48px, 13vmin, 74px); --btn-big: clamp(60px, 17vmin, 92px); }
+}
+
+/* ---------- 結果くらべ ---------- */
+.result {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 14, 8, .48);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 10;
+  transition: opacity .3s ease;
+}
+.result.hidden { opacity: 0; pointer-events: none; }
+
+.result-card {
+  background: var(--card);
+  border-radius: clamp(18px, 4vmin, 34px);
+  padding: clamp(12px, 3vmin, 26px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 2vmin, 18px);
+  max-width: 94vw;
+  max-height: 92vh;
+  animation: pop .32s cubic-bezier(.2, 1.4, .5, 1);
+}
+
+@keyframes pop {
+  from { transform: scale(.7); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.maps { display: flex; align-items: center; gap: clamp(6px, 2vmin, 18px); }
+.map-slot { position: relative; }
+.minimap {
+  width: clamp(104px, 30vmin, 210px);
+  height: clamp(104px, 30vmin, 210px);
+  border-radius: clamp(10px, 2.4vmin, 20px);
+  background: #efe7d6;
+  display: block;
+}
+.result.first-run #slot-before, .result.first-run .vs { display: none; }
+.slot-tag {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: clamp(26px, 7vmin, 42px);
+  height: clamp(26px, 7vmin, 42px);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: clamp(14px, 4vmin, 24px);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .18);
+}
+.tag-before { background: #b9a88c; }
+.tag-after { background: #3fbf63; }
+.vs svg { width: clamp(24px, 6vmin, 40px); height: clamp(24px, 6vmin, 40px); }
+.vs .ink { stroke: #b9a88c; }
+
+.scores { display: flex; gap: clamp(8px, 2.4vmin, 20px); align-items: flex-end; }
+.score { display: grid; place-items: center; gap: 4px; }
+.score .glass {
+  width: clamp(22px, 6vmin, 38px);
+  height: clamp(38px, 10vmin, 62px);
+  border-radius: 6px 6px 10px 10px;
+  background: #e7eef2;
+  box-shadow: inset 0 0 0 3px #cfdae1;
+  position: relative;
+  overflow: hidden;
+}
+.score .fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: linear-gradient(#6fd0f5, #2b8fd8);
+  transition: height .8s cubic-bezier(.3, 1, .4, 1);
+}
+.score svg { width: clamp(22px, 6vmin, 36px); height: clamp(22px, 6vmin, 36px); }
+.score .ink { stroke-width: 4; }
+
+.btn-again {
+  width: var(--btn-big);
+  height: var(--btn-big);
+  background: linear-gradient(#7fe08a, #3fbf63);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ---------- ゆびヒント ---------- */
+.hint {
+  position: absolute;
+  z-index: 4;
+  width: clamp(46px, 12vmin, 80px);
+  height: clamp(46px, 12vmin, 80px);
+  pointer-events: none;
+  transform: translate(-30%, -14%);
+  transition: opacity .3s ease;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, .35));
+}
+.hint.hidden { opacity: 0; }
+.hint svg { width: 100%; height: 100%; animation: tap 1.5s ease-in-out infinite; }
+.hint .hand { fill: #fffdf6; stroke: #23303a; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+
+@keyframes tap {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  45% { transform: translate(-6%, -12%) scale(.9); }
+}
+
+.hidden { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-play.pulse, .btn-again, .hint svg { animation: none; }
+}

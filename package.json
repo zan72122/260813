@@ -1,0 +1,14 @@
+{
+  "name": "mizu-no-machi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "みずのまち — a miniature-city rain & drainage experiment game for very young children (4y+), tuned for iPhone / iPad Safari.",
+  "scripts": {
+    "serve": "http-server . -p 4173 -c-1 --silent",
+    "lint": "eslint src tools tests",
+    "test:unit": "node --test tests/unit",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test": "npm run test:unit && npm run test:e2e"
+  }
+}
