@@ -10,7 +10,8 @@
 // camera transform is active. Textures therefore sit on the objects and do
 // not swim when the camera moves.
 
-const FILES = ['wood', 'floor', 'bamboo', 'cloth', 'dough', 'flour', 'ice', 'grain'];
+const FILES = ['wood', 'wall', 'bench', 'floor', 'bamboo', 'cloth', 'dough',
+  'flour', 'ice', 'grain', 'grass'];
 
 const imgs = Object.create(null);
 const patterns = new Map();
@@ -45,30 +46,35 @@ export function loadTextures(onDone) {
 export let DISABLE = false;
 export function setDisable(v) { DISABLE = v; patterns.clear(); }
 
-export function pattern(ctx, name, span) {
+export function pattern(ctx, name, span, rot = 0) {
   if (DISABLE) return null;
   const img = imgs[name];
   if (!img) return null;
-  const key = name + '|' + span;
+  const key = name + '|' + span + '|' + rot;
   let p = patterns.get(key);
   if (p !== undefined) return p;
 
   p = ctx.createPattern(img, 'repeat');
   if (p && p.setTransform) {
     const k = span / img.naturalWidth;
+    const c = Math.cos(rot) * k, s2 = Math.sin(rot) * k;
     try {
-      p.setTransform(new DOMMatrix([k, 0, 0, k, 0, 0]));
+      // Rotation lets one timber tile serve boards running in either
+      // direction — the grain follows the plank instead of the screen.
+      p.setTransform(new DOMMatrix([c, s2, -s2, c, 0, 0]));
     } catch (e) {
       // Very old Safari: fall back to an untransformed tile rather than none.
     }
   }
-  patterns.set(key, p);
+  // Never cache a miss: an image that was not decoded yet would otherwise be
+  // remembered as "no pattern" forever.
+  if (p) patterns.set(key, p);
   return p;
 }
 
 /** Fill the current path with a material, or a flat colour if it is missing. */
-export function texStyle(ctx, name, span, fallback) {
-  return pattern(ctx, name, span) || fallback;
+export function texStyle(ctx, name, span, fallback, rot = 0) {
+  return pattern(ctx, name, span, rot) || fallback;
 }
 
 /**

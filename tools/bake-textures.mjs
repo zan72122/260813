@@ -24,9 +24,20 @@ fs.mkdirSync(OUT, { recursive: true });
 const LIGHT = [-0.42, -0.52, 0.74];
 
 const RECIPES = [
-  // Workshop timber: rods, shelf, wall planks, cutting board.
+  // Workshop timber: rods, shelf, cutting board.
   { out: 'wood', src: 'wood', size: 256,
     grade: { sat: 0.96, bright: 1.03, contrast: 1.14 } },
+
+  // The wall and the bench are whole-screen surfaces, so their tint is baked
+  // in rather than multiplied over them at run time. Each multiply pass we
+  // remove here is a full screen of work off the backdrop's refresh.
+  // Rotated at bake time, not at run time: a rotated pattern matrix drops
+  // the rasteriser off its fast path, and this tile covers the whole screen.
+  { out: 'wall', src: 'wood', size: 256, rotate: true,
+    grade: { tint: '#e8d2b0', tintAmt: 0.58, sat: 0.9, bright: 1.02, contrast: 1.1 } },
+
+  { out: 'bench', src: 'floor', size: 256,
+    grade: { tint: '#c08a4a', tintAmt: 0.55, sat: 0.82, bright: 1.12, contrast: 1.0 } },
 
   // Floor and the table in the finale.
   { out: 'floor', src: 'floor', size: 256,
@@ -120,7 +131,7 @@ await page.evaluate(() => {
 async function bake(r) {
   const maps = srcSet(r.src);
   const size = r.size;
-  const dataUrl = await page.evaluate(async ([maps, size, light, grade, relief]) => {
+  const dataUrl = await page.evaluate(async ([maps, size, light, grade, relief, rotate]) => {
     // Source tiles keep their aspect; wood is 2:1 and squashing it would put
     // the grain at the wrong scale.
     const img = new Image();
@@ -216,8 +227,17 @@ async function bake(r) {
       o[k + 3] = 255;
     }
     g.putImageData(outImg, 0, 0);
+    if (rotate) {
+      const r90 = document.createElement('canvas');
+      r90.width = H; r90.height = W;
+      const rg = r90.getContext('2d');
+      rg.translate(H / 2, W / 2);
+      rg.rotate(Math.PI / 2);
+      rg.drawImage(c, -W / 2, -H / 2);
+      return r90.toDataURL('image/webp', 0.9);
+    }
     return c.toDataURL('image/webp', 0.9);
-  }, [maps, size, LIGHT, r.grade, r.relief ?? 1]);
+  }, [maps, size, LIGHT, r.grade, r.relief ?? 1, !!r.rotate]);
 
   const buf = Buffer.from(dataUrl.split(',')[1], 'base64');
   fs.writeFileSync(path.join(OUT, `${r.out}.webp`), buf);
@@ -252,10 +272,14 @@ async function bakeGrain() {
     for (let y = 0; y < S; y++) {
       for (let x = 0; x < S; x++) {
         const n = smp(g1, 64, x / 4, y / 4) * 0.6 + smp(g2, 16, x / 16, y / 16) * 0.4;
-        const v = 128 + (n - 0.5) * 74;
+        // Encode grain in the ALPHA channel over black/white, so the game
+        // can composite it normally. A soft-light pass over a full screen is
+        // one of the most expensive things a software rasteriser can do.
+        const dev = n - 0.5;
         const k = (y * S + x) * 4;
+        const v = dev > 0 ? 255 : 0;
         d[k] = d[k + 1] = d[k + 2] = v;
-        d[k + 3] = 255;
+        d[k + 3] = Math.min(255, Math.abs(dev) * 210);
       }
     }
     g.putImageData(im, 0, 0);
@@ -266,15 +290,59 @@ async function bakeGrain() {
   return buf.length;
 }
 
+
+async function bakeGrass() {
+  const dataUrl = await page.evaluate(() => {
+    const S = 256;
+    const c = document.getElementById('c');
+    c.width = S; c.height = S;
+    const g = c.getContext('2d');
+    const im = g.createImageData(S, S);
+    const d = im.data;
+    // Blades: short directional streaks over a two-octave value noise. A flat
+    // green field is the one thing that gives a drying yard away as a drawing.
+    const grid = (n) => { const a = new Float32Array(n * n); for (let i = 0; i < n * n; i++) a[i] = Math.random(); return a; };
+    const g1 = grid(32), g2 = grid(8);
+    const smp = (a, n, x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf);
+      const at = (i, j) => a[(((j % n) + n) % n) * n + (((i % n) + n) % n)];
+      return (at(xi, yi) * (1 - sx) + at(xi + 1, yi) * sx) * (1 - sy)
+           + (at(xi, yi + 1) * (1 - sx) + at(xi + 1, yi + 1) * sx) * sy;
+    };
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const patch = smp(g1, 32, x / 8, y / 8) * 0.55 + smp(g2, 8, x / 32, y / 32) * 0.45;
+        // fine vertical blades, wrapped so the tile stays seamless
+        const blade = 0.5 + 0.5 * Math.sin(x * 1.9 + smp(g1, 32, x / 3, y / 9) * 9);
+        const v = patch * 0.72 + blade * 0.28;
+        const k = (y * S + x) * 4;
+        d[k]     = 118 + v * 58;
+        d[k + 1] = 152 + v * 62;
+        d[k + 2] = 84 + v * 44;
+        d[k + 3] = 255;
+      }
+    }
+    g.putImageData(im, 0, 0);
+    return c.toDataURL('image/webp', 0.9);
+  });
+  const buf = Buffer.from(dataUrl.split(',')[1], 'base64');
+  fs.writeFileSync(path.join(OUT, 'grass.webp'), buf);
+  return buf.length;
+}
+
 let total = 0;
 for (const r of RECIPES) {
   const n = await bake(r);
   total += n;
   console.log(`${r.out.padEnd(8)} ${(n / 1024).toFixed(0).padStart(4)}KB`);
 }
-const gn = await bakeGrain();
-total += gn;
-console.log(`${'grain'.padEnd(8)} ${(gn / 1024).toFixed(0).padStart(4)}KB`);
+for (const [nm, fn] of [['grain', bakeGrain], ['grass', bakeGrass]]) {
+  const n = await fn();
+  total += n;
+  console.log(`${nm.padEnd(8)} ${(n / 1024).toFixed(0).padStart(4)}KB`);
+}
 console.log(`\ntotal ${(total / 1024).toFixed(0)}KB -> ${OUT}`);
 
 await browser.close();

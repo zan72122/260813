@@ -22,11 +22,22 @@ let valid = false;
 export function invalidateBackdrop() { valid = false; }
 
 // The backdrop is scenery, never the subject, so it is baked at reduced
-// resolution: the re-render that happens when the camera settles costs half
-// as much, and the slight softness reads as depth rather than as blur.
-const BAKE = 0.72;
+// resolution: the re-render that happens when the camera settles costs less,
+// and the slight softness reads as depth rather than as blur.
+//
+// The factor is chosen so the bake covers roughly the same number of pixels
+// on every device. Otherwise a big iPad pays three times an iPhone's cost for
+// the same picture, and its refresh frame turns into a visible freeze.
+const BAKE_BUDGET = 900_000;
+let BAKE = 0.62;
+
+function chooseBake() {
+  const px = screenSize.w * screenSize.dpr * screenSize.h * screenSize.dpr;
+  BAKE = Math.max(0.42, Math.min(0.72, Math.sqrt(BAKE_BUDGET / Math.max(1, px))));
+}
 
 function ensure() {
+  chooseBake();
   const w = Math.max(1, Math.round(screenSize.w * screenSize.dpr * BAKE));
   const h = Math.max(1, Math.round(screenSize.h * screenSize.dpr * BAKE));
   if (!canvas) {
@@ -46,9 +57,11 @@ function ensure() {
  * Draw the backdrop, reusing the cached bitmap when nothing that affects it
  * has moved. `stateKey` must fold in every animated value the draw reads.
  */
-export function drawBackdrop(destCtx, stateKey, paintScreen, paint) {
+export function drawBackdrop(destCtx, stateKey, paintScreen, paint, paintOver) {
   // Quantise the camera so a pixel of drift does not throw the cache away.
-  const k = `${stateKey}|${Math.round(camera.x * 2)}|${Math.round(camera.y * 2)}|${Math.round(camera.scale * 700)}`;
+  // Coarse on purpose: every boundary this crosses costs a full refresh,
+  // and a pixel of drift in scenery is invisible.
+  const k = `${stateKey}|${Math.round(camera.x)}|${Math.round(camera.y)}|${Math.round(camera.scale * 380)}`;
 
   // While the key is still changing — a fade in progress, the camera easing —
   // caching would cost a render *and* a blit every frame. So churn draws
@@ -65,6 +78,12 @@ export function drawBackdrop(destCtx, stateKey, paintScreen, paint) {
     destCtx.translate(-camera.x, -camera.y);
     paint(destCtx);
     destCtx.restore();
+    if (paintOver) {
+      destCtx.save();
+      destCtx.setTransform(screenSize.dpr, 0, 0, screenSize.dpr, 0, 0);
+      paintOver(destCtx);
+      destCtx.restore();
+    }
     return;
   }
 
@@ -82,6 +101,12 @@ export function drawBackdrop(destCtx, stateKey, paintScreen, paint) {
     lctx.translate(-camera.x, -camera.y);
     paint(lctx);
     lctx.restore();
+    if (paintOver) {
+      lctx.save();
+      lctx.setTransform(screenSize.dpr * BAKE, 0, 0, screenSize.dpr * BAKE, 0, 0);
+      paintOver(lctx);
+      lctx.restore();
+    }
   }
   destCtx.save();
   destCtx.setTransform(1, 0, 0, 1, 0, 0);

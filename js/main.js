@@ -104,7 +104,7 @@ function backdropKey() {
     W.mood.from, W.mood.to, q(W.mood.t, 0.06),
     q(W.shopAlpha, 0.1), q(W.floorAlpha, 0.1), q(W.floorY, 16),
     q(W.bowlA, 0.1), q(W.dryness, 0.12),
-    q(W.boardAlpha, 0.1), q(W.cutBoardAlpha, 0.1), q(W.ball.x, 20),
+    q(W.boardAlpha, 0.1), q(W.cutBoardAlpha, 0.1), q(W.ball.x, 20), q(W.grain, 0.1),
   ].join(',');
 }
 
@@ -122,7 +122,7 @@ function render() {
     art.drawBoard(g, W.ball.x * 0.6, 105, 340, W.boardAlpha);
     art.drawCuttingBoard(g, W.cutBoardAlpha);
     if (W.bowlA > 0.01) art.drawRevealTable(g, W.bowlA);
-  });
+  }, (g) => art.drawGrain(g, W.grain));
   end();
 
   beginWorld();
@@ -237,7 +237,9 @@ document.addEventListener('visibilitychange', () => {
 
 // Materials stream in behind the game: every draw call has a flat-colour
 // fallback, so the first frame paints immediately and simply gets richer.
-loadTextures();
+// The cached backdrop must be told, or it keeps serving the bitmap it baked
+// from those fallbacks for the rest of the session.
+loadTextures(() => invalidateBackdrop());
 
 initStages();
 requestAnimationFrame(frame);

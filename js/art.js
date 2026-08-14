@@ -16,7 +16,7 @@ import { texStyle, pattern } from './textures.js';
 // the grain of every surface lands at a similar size on screen — a consistent
 // grain scale is most of what separates "photographed" from "drawn".
 const SPAN = {
-  wall: 620,
+  wall: 150,   // the wall tile is baked already rotated, so it is half as wide
   floor: 430,
   rod: 300,
   board: 460,
@@ -296,21 +296,44 @@ export function drawSky(ctx) {
   if (out < 0.01) return;
   ctx.save();
   ctx.globalAlpha = out;
-  ctx.fillStyle = '#8fbf76';
+  // haze where the air thickens toward the horizon
+  const hz = ctx.createLinearGradient(0, 120, 0, 430);
+  hz.addColorStop(0, 'rgba(226,240,246,0)');
+  hz.addColorStop(1, 'rgba(226,240,246,0.75)');
+  ctx.fillStyle = hz;
+  ctx.fillRect(-2400, 120, 4800, 320);
+
+  // distant hills, pushed into the haze so they sit behind everything
+  ctx.fillStyle = '#9dc389';
   ctx.beginPath();
-  ctx.moveTo(-2400, 420);
+  ctx.moveTo(-2400, 430);
   for (let i = -6; i <= 6; i++) {
-    ctx.quadraticCurveTo(i * 400 - 200, 250 - (i % 2) * 90, i * 400, 400);
+    ctx.quadraticCurveTo(i * 400 - 200, 268 - (i % 2) * 88, i * 400, 412);
   }
   ctx.lineTo(2400, 1400);
   ctx.lineTo(-2400, 1400);
   ctx.closePath();
   ctx.fill();
-  const gg = ctx.createLinearGradient(0, 400, 0, 1200);
-  gg.addColorStop(0, '#a8cf8a');
-  gg.addColorStop(1, '#7fae66');
+
+  // a tree line along the foot of the hills: the cheapest depth cue there is
+  ctx.fillStyle = 'rgba(96,138,86,0.85)';
+  for (let i = -14; i <= 14; i++) {
+    const tx = i * 190 + ((i * 37) % 60);
+    const th = 46 + ((i * 53) % 40);
+    ctx.beginPath();
+    ctx.ellipse(tx, 418 - th * 0.4, th * 0.8, th, 0, 0, TAU);
+    ctx.fill();
+  }
+
+  // the field itself, with real blades rather than a flat wash
+  ctx.fillStyle = texStyle(ctx, 'grass', 620, '#8fbf76');
+  ctx.fillRect(-2400, 424, 4800, 1000);
+  const gg = ctx.createLinearGradient(0, 424, 0, 1200);
+  gg.addColorStop(0, 'rgba(214,236,206,0.7)');
+  gg.addColorStop(0.28, 'rgba(214,236,206,0.05)');
+  gg.addColorStop(1, 'rgba(38,70,30,0.28)');
   ctx.fillStyle = gg;
-  ctx.fillRect(-2400, 430, 4800, 1000);
+  ctx.fillRect(-2400, 424, 4800, 1000);
   ctx.restore();
 }
 
@@ -374,42 +397,70 @@ export function drawShop(ctx, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // wall planks
-  ctx.strokeStyle = 'rgba(150,102,58,0.22)';
-  ctx.lineWidth = 5;
-  for (let i = -8; i <= 3; i++) {
-    const y = i * 190;
-    ctx.beginPath();
-    ctx.moveTo(-2400, y);
-    ctx.lineTo(2400, y + 6);
-    ctx.stroke();
+  // --- the wall: real boards, standing on end.
+  // A gradient with three ruled lines on it was the flattest surface in the
+  // game and it filled half the screen. Because the backdrop is cached, a
+  // photographed timber fill here costs nothing per frame.
+  const top = -1500, bot = 900;
+  ctx.fillStyle = texStyle(ctx, 'wall', SPAN.wall, '#d9b184');
+  ctx.fillRect(-2400, top, 4800, bot - top);
+
+  // Board seams. Each is a dark groove with a lit edge on the side the light
+  // comes from, which is what actually reads as "separate boards".
+  const PLANK = 178;
+  for (let i = -9; i <= 9; i++) {
+    const x = i * PLANK + 24;
+    ctx.fillStyle = 'rgba(60,34,12,0.34)';
+    ctx.fillRect(x, top, 4, bot - top);
+    ctx.fillStyle = 'rgba(255,238,206,0.16)';
+    ctx.fillRect(x + (LIT.x < 0 ? -5 : 4), top, 3, bot - top);
   }
 
-  // shelf with a few jars — reads as "a place where food is made"
+  // Light falls off away from the bench and toward the corners.
+  const wg = ctx.createLinearGradient(0, top, 0, bot);
+  wg.addColorStop(0, 'rgba(52,30,10,0.34)');
+  wg.addColorStop(0.6, 'rgba(52,30,10,0.0)');
+  wg.addColorStop(1, 'rgba(52,30,10,0.1)');
+  ctx.fillStyle = wg;
+  ctx.fillRect(-2400, top, 4800, bot - top);
+
+  // --- shelf with a few jars: it reads as a place where food is made
   const sy = -620;
-  woodRod(ctx, -1100, sy, 1100, sy, 34);
   const jars = [[-560, 62, '#e7d3ae'], [-430, 46, '#cfa877'], [-300, 74, '#f0e2c4'],
                 [330, 54, '#dcc39a'], [470, 70, '#e7d3ae']];
   for (const [jx, jr, col] of jars) {
-    ctx.fillStyle = 'rgba(90,58,30,0.18)';
-    ctx.beginPath(); ctx.ellipse(jx, sy - 16, jr * 1.05, jr * 0.28, 0, 0, TAU); ctx.fill();
-    const g = ctx.createLinearGradient(jx - jr, 0, jx + jr, 0);
-    g.addColorStop(0, '#a97754');
-    g.addColorStop(0.4, col);
-    g.addColorStop(1, '#a37b4c');
-    ctx.fillStyle = g;
-    roundRect(ctx, jx - jr, sy - 22 - jr * 1.9, jr * 2, jr * 1.9, jr * 0.42);
+    const h = jr * 1.9;
+    softShadow(ctx, jx, sy - 12, jr * 1.2, jr * 0.34, 0.8);
+    // glazed stoneware: a cylinder, with the glaze catching one bright band
+    roundRect(ctx, jx - jr, sy - 22 - h, jr * 2, h, jr * 0.42);
+    ctx.fillStyle = col;
     ctx.fill();
-    ctx.fillStyle = 'rgba(120,80,44,0.65)';
-    roundRect(ctx, jx - jr * 0.78, sy - 30 - jr * 2.1, jr * 1.56, jr * 0.34, jr * 0.16);
+    const jg = ctx.createLinearGradient(jx - jr, 0, jx + jr, 0);
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      const nn = t * 2 - 1;
+      const nz = Math.sqrt(Math.max(0, 1 - nn * nn));
+      const ndl = Math.max(0, nn * LIT.x + nz * LIGHT.z);
+      const v = AMBIENT + (1 - AMBIENT) * ndl;
+      jg.addColorStop(t, `rgba(58,34,12,${(1 - v) * 0.66})`);
+    }
+    ctx.fillStyle = jg;
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,252,242,0.5)';
+    roundRect(ctx, jx + LIT.x * jr * 0.44 - jr * 0.1, sy - 18 - h * 0.86, jr * 0.2, h * 0.66, jr * 0.1);
+    ctx.fill();
+    // lid
+    ctx.fillStyle = 'rgba(122,84,46,0.9)';
+    roundRect(ctx, jx - jr * 0.82, sy - 30 - h - jr * 0.34, jr * 1.64, jr * 0.36, jr * 0.16);
     ctx.fill();
   }
+  woodRod(ctx, -1400, sy, 1400, sy, 34, { span: 700 });
 
-  // hanging cloth (noren) at the very top
-  ctx.fillStyle = 'rgba(112,146,152,0.88)';
+  // hanging cloth at the very top
+  ctx.fillStyle = texStyle(ctx, 'cloth', SPAN.cloth, 'rgba(112,146,152,0.88)');
   roundRect(ctx, -900, -1180, 1800, 210, 12);
   ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.fillStyle = 'rgba(20,34,48,0.3)';
   for (let i = -3; i <= 3; i++) {
     roundRect(ctx, i * 270 - 8, -1180, 16, 210, 6);
     ctx.fill();
@@ -424,17 +475,11 @@ export function drawFloor(ctx, y = 300, alpha = 1) {
   if (alpha <= 0.01) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = texStyle(ctx, 'floor', SPAN.floor, '#b8834b');
+  // Its tone is baked into the tile: a surface that matches the wall stops
+  // reading as a surface at all, but a multiply here would cost a full screen
+  // every time the backdrop refreshes.
+  ctx.fillStyle = texStyle(ctx, 'bench', SPAN.floor, '#b8834b');
   ctx.fillRect(-2400, y, 4800, 1400);
-  // Push it well away from the wall behind. A surface that matches the wall
-  // stops reading as a surface at all, and its front edge starts to look
-  // like a rail hanging in mid-air.
-  ctx.save();
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.globalAlpha = 0.52;
-  ctx.fillStyle = '#bd8544';
-  ctx.fillRect(-2400, y, 4800, 1400);
-  ctx.restore();
   // ambient occlusion where the surface meets the wall, and light spilling
   // forward — the same trick a photographer's bounce card plays
   const g = ctx.createLinearGradient(0, y, 0, y + 900);
@@ -471,10 +516,18 @@ export function drawBoard(ctx, cx, cy, r, alpha = 1) {
   // worked-in flour: two plain fills, heavier in the middle where the dough
   // sits. (A destination-in mask would punch through the opaque canvas.)
   ctx.save();
-  ctx.globalAlpha = alpha * 0.55;
-  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.26, r * 0.8, r * 0.272, 0, 0, TAU);
+  // A scattering, not a disc. One clean ellipse of flour reads as a paper
+  // plate sitting on the board.
   ctx.fillStyle = texStyle(ctx, 'flour', SPAN.flour, 'rgba(255,255,255,0.3)');
-  ctx.fill();
+  const patches = [[0, 0, 0.66, 0.24], [-0.34, -0.03, 0.34, 0.2], [0.3, 0.04, 0.3, 0.18],
+                   [0.08, -0.09, 0.26, 0.16], [-0.12, 0.09, 0.36, 0.18],
+                   [0.42, -0.06, 0.18, 0.14], [-0.46, 0.05, 0.2, 0.14]];
+  for (const [ox, oy, rw, a] of patches) {
+    ctx.globalAlpha = alpha * a;
+    ctx.beginPath();
+    ctx.ellipse(cx + ox * r, cy + r * 0.26 + oy * r, r * rw, r * rw * 0.34, 0, 0, TAU);
+    ctx.fill();
+  }
   ctx.restore();
   ctx.strokeStyle = 'rgba(255,244,220,0.4)';
   ctx.lineWidth = 4;
@@ -621,7 +674,7 @@ export function drawRack(ctx) {
   ctx.save();
   ctx.globalAlpha = rk.alpha;
   const px = RACK_HALF + 130;
-  const post = { span: 520, tint: '#c08d55', tintAlpha: 0.35 };
+  const post = { span: 520, tint: '#a9723c', tintAlpha: 0.5 };
   woodRod(ctx, -px, rk.postTop, -px, rk.postBot, 46, post);
   woodRod(ctx, px, rk.postTop, px, rk.postBot, 46, post);
   // cross braces top and bottom
@@ -660,42 +713,53 @@ export function drawBottomRod(ctx) {
  * background reads as depth. That tint is atmospheric perspective, and it is
  * doing more work here than any amount of extra detail would.
  */
+/**
+ * More racks, standing further back in the yard.
+ *
+ * Three curtains of faint hairlines read as wire strung across the sky. Two
+ * *whole* racks — posts, rods, a curtain each — standing on the same ground
+ * as the player's, hazed by distance, read as a working yard. Fewer, more
+ * complete objects beat more, fainter ones.
+ */
 export function drawBackRacks(ctx) {
   const a = clamp01(W.backRacks);
   if (a <= 0.01) return;
   const rk = W.rack;
-  const spanTop = rk.rodTopY;
-  const len = (rk.rodBotY - spanTop) * 0.58;
-  const haze = W.mood.to === 'outdoor' ? '#bfe0ef' : '#d9b184';
+  const top = rk.rodTopY;
+  const full = rk.rodBotY - top;
+  const outdoors = W.mood.to === 'outdoor' || W.mood.from === 'outdoor';
+  const haze = outdoors ? '#cfe6ef' : '#c19a6c';
+  const ground = outdoors ? 470 : W.floorY + 60;
+
   ctx.save();
   ctx.lineCap = 'round';
-  for (let row = 3; row >= 1; row--) {
-    const s = 1 - row * 0.16;
-    const fade = row / 3.0;                      // how far into the haze
-    const alpha = a * (0.5 - row * 0.115);
+  for (const [scale, baseDrop, ox, fade] of [[0.62, 0, -780, 0.4], [0.42, -30, 800, 0.64]]) {
+    const rodTop = ground + baseDrop - full * scale;
+    const rodBot = ground + baseDrop;
+    const half = (RACK_HALF + 130) * scale;
     ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(row * 46, spanTop - row * 116);
-    ctx.scale(s, s);
-    ctx.translate(0, -spanTop);
+    ctx.globalAlpha = a * (1 - fade * 0.35);
 
-    ctx.globalAlpha = Math.min(1, alpha * 1.4);
-    woodRod(ctx, -RACK_HALF - 700, spanTop, RACK_HALF + 700, spanTop, 20,
-      { span: 300, tint: haze, tintAlpha: 0.35 + fade * 0.5 });
+    const tint = { span: 300, tint: haze, tintAlpha: fade };
+    // posts and rods
+    woodRod(ctx, ox - half, rodTop - 90 * scale, ox - half, rodBot + 150 * scale, 46 * scale, tint);
+    woodRod(ctx, ox + half, rodTop - 90 * scale, ox + half, rodBot + 150 * scale, 46 * scale, tint);
+    woodRod(ctx, ox - half - 40 * scale, rodTop, ox + half + 40 * scale, rodTop, 30 * scale, tint);
 
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = mix(W.dryness > 0.4 ? '#fffdf6' : '#f2e6cc', haze, 0.3 + fade * 0.6);
-    ctx.lineWidth = Math.max(4, W.baseThick * 1.25);
-    const count = 46;
+    // its curtain
+    ctx.strokeStyle = mix(W.dryness > 0.4 ? '#fffdf6' : '#f2e6cc', haze, 0.2 + fade * 0.6);
+    ctx.lineWidth = Math.max(3, W.baseThick * 1.15 * scale);
+    const count = 40;
     for (let i = 0; i < count; i++) {
       const u = (i + 0.5) / count;
-      const x = lerp(-RACK_HALF - 640, RACK_HALF + 640, u);
-      const sway = Math.sin(W.time * 0.9 + i * 0.7 + row) * 5;
+      const x = ox + lerp(-RACK_HALF, RACK_HALF, u) * scale;
+      const sway = Math.sin(W.time * 0.85 + i * 0.7 + scale * 9) * 4 * scale;
       ctx.beginPath();
-      ctx.moveTo(x, spanTop);
-      ctx.quadraticCurveTo(x + sway, spanTop + len * 0.5, x, spanTop + len);
+      ctx.moveTo(x, rodTop);
+      ctx.quadraticCurveTo(x + sway, (rodTop + rodBot) / 2, x, rodBot);
       ctx.stroke();
     }
+    woodRod(ctx, ox - (RACK_HALF + 60) * scale, rodBot, ox + (RACK_HALF + 60) * scale, rodBot, 24 * scale, tint);
     ctx.restore();
   }
   ctx.restore();
@@ -1559,6 +1623,27 @@ function overlaySprite(key, w, h, paint) {
   if (overlays.size > 12) overlays.clear();
   overlays.set(id, c);
   return c;
+}
+
+
+/**
+ * Film grain over the finished frame.
+ *
+ * It goes into the cached backdrop rather than over the live scene: a
+ * full-screen pattern fill every frame is one of the most expensive things
+ * this game could do, and the grain's job — tying every surface into one
+ * photograph — is done just as well on the background alone.
+ */
+export function drawGrain(ctx, amount = 0.5) {
+  if (amount <= 0.01) return;
+  ctx.save();
+  // Plain alpha compositing: the tile carries the grain in its alpha channel
+  // so no blend mode is needed. soft-light over a full screen cost about
+  // forty milliseconds of every backdrop refresh.
+  ctx.globalAlpha = amount;
+  ctx.fillStyle = texStyle(ctx, 'grain', 190, 'rgba(128,128,128,0)');
+  ctx.fillRect(0, 0, screenSize.w, screenSize.h);
+  ctx.restore();
 }
 
 // -------------------------------------------------------- screen widgets

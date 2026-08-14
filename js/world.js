@@ -51,6 +51,7 @@ export const W = {
   mood: { from: 'shop', to: 'shop', t: 1 },
   flash: 0,
   vignette: 0.35,
+  grain: 0.2,      // film grain strength baked into the backdrop
   backRacks: 0,    // parallax rows of noodles behind the player's rack
   spotlight: 0,
 
@@ -99,6 +100,7 @@ export function resetWorld() {
   W.bundle = { rot: 0, lift: 0, alpha: 0 };
   W.mood = { from: 'shop', to: 'shop', t: 1 };
   W.flash = 0;
+  W.grain = 0.2;
   W.backRacks = 0;
   W.spotlight = 0;
   W.shopAlpha = 0;
