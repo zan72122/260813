@@ -48,6 +48,8 @@ export class Game {
     this.idle = 0;
     this.beat = 0;
     this.introT = 0;
+    this.stray = 0;      // 触っているのに何も起きていない時間
+    this.acting = false;
     this.swirl = 0;
     this.swirlV = 0;
     this.mixDrag = 0;
@@ -261,8 +263,11 @@ export class Game {
       this.beat -= dt;
       if (this.beat <= 0) this.next();
     } else {
+      this.acting = false;
       this[`up_${this.stage}`](dt);
     }
+    // 触っているのに手ごたえがない時間が続いたら、正しい対象を教える
+    this.stray = (this.pointer.down && !this.acting && this.beat <= 0) ? this.stray + dt : 0;
 
     // 枠の登場
     const wantFrame = ORDER.indexOf(this.stage) >= 1 ? 1 : 0;
@@ -327,6 +332,7 @@ export class Game {
       const mvx = this.pointer.x - this.pointer.px, mvy = this.pointer.y - this.pointer.py;
       const tang = -Math.sin(ang) * mvx + Math.cos(ang) * mvy;
       this.swirlV = clamp(this.swirlV + tang * 0.012, -7, 7);
+      if (d > 1) this.acting = true;
       if (d > 2) {
         this.mixed = clamp(this.mixed + d * 0.0009, 0, 1);
         if (Math.random() < d * 0.05) {
@@ -359,6 +365,7 @@ export class Game {
     L.on = approach(L.on, pouring ? 1 : 0, 8, dt);
 
     if (pouring) {
+      this.acting = true;
       this.sheet.pour(clamp(u, 0.04, 0.96), clamp(v, 0.04, 0.96), dt, 3.4, 0.125);
       if (Math.random() < 0.75) {
         this.fx.spawn({
@@ -384,6 +391,7 @@ export class Game {
       const d = dist(this.pointer.x, this.pointer.y, this.pointer.px, this.pointer.py);
       const { u, v } = this.frameUV(this.pointer.x, this.pointer.y);
       if (u > -0.25 && u < 1.25 && v > -0.25 && v < 1.25) {
+        this.acting = true;
         this.sheet.spread(clamp(u, 0, 1), clamp(v, 0, 1), 0, 0, clamp(d * 0.05 + 0.012, 0, 0.35));
         if (d > 1.5) {
           sfx.loop('spread', true, { f: 320 + d * 8, q: 0.9, gain: clamp(d * 0.012, 0, 0.08), type: 'lowpass' });
@@ -414,6 +422,7 @@ export class Game {
     if (this.pointer.down) {
       const { u, v } = this.frameUV(S2.x, S2.y + 46);
       if (u > -0.25 && u < 1.25 && v > -0.25 && v < 1.25) {
+        this.acting = true;
         const sq = this.sheet.pressAt(clamp(u, 0, 1), clamp(v, 0, 1), 1.5 * dt, 0.3);
         if (sq > 0.0006) {
           // 端からにじみ出る水
@@ -448,6 +457,7 @@ export class Game {
     this.lever.pull = approach(this.lever.pull, pull, 9, dt);
     const power = this.lever.pull;
     if (power > 0.08) {
+      this.acting = true;
       this.sheet.dryStep(power * 0.19 * dt);
       // 湯気はシート面から立ちのぼる程度に。主役は色が濃くなる変化。
       if (Math.random() < power * 0.75) {
@@ -487,6 +497,7 @@ export class Game {
     } else {
       P.speed = approach(P.speed, 0, 6, dt);
     }
+    if (P.grab) this.acting = true;
     P.t = clamp(P.pull / need, 0, 1);
     P.len = P.t * fh;   // 描画用の「剥がれた材料の長さ」
     this.p = P.t;
@@ -544,6 +555,11 @@ export class Game {
 
   hintTarget() {
     const L = this.layout;
+    // 触っているのに空振りしているときは、枠そのものを指す
+    if (this.stray > 1.4 && (this.stage === 'pour' || this.stage === 'spread' || this.stage === 'press')) {
+      const c = this.frameCenter;
+      return { x: c.x, y: c.y, r: L.frame.w * 0.34 };
+    }
     switch (this.stage) {
       case 'mix': return { x: L.vat.x, y: L.vat.y, r: L.vat.rx * 0.55 };
       case 'pour': return { x: this.ladle.x, y: this.ladle.y, r: 110 };
@@ -555,8 +571,13 @@ export class Game {
     }
   }
 
-  get hinting() { return this.idle > 2.2 && this.beat <= 0 && this.stage !== 'reveal'; }
-  get wig() { return this.hinting ? Math.sin(this.time * 9) * smooth(inv(2.2, 2.9, this.idle)) : 0; }
+  get hinting() {
+    return (this.idle > 2.2 || this.stray > 1.4) && this.beat <= 0 && this.stage !== 'reveal';
+  }
+  get hintK() {
+    return Math.max(smooth(inv(2.2, 3.0, this.idle)), smooth(inv(1.4, 2.1, this.stray)));
+  }
+  get wig() { return this.hinting ? Math.sin(this.time * 9) * this.hintK : 0; }
 
   // 工房の背景をワールド座標で焼いたキャッシュ。向きが変わったときだけ作り直す。
   bgCache() {
@@ -629,7 +650,7 @@ export class Game {
     if (this.frameIn > 0.01 && revealFade < 0.995) {
       const geo = { q: (u, v) => this.frameQ(u, v), w: this.layout.frame.w, h: this.layout.frame.h };
       ctx.save();
-      if ((this.stage === 'spread' || this.stage === 'pour') && this.hinting) {
+      if ((this.stage === 'spread' || this.stage === 'pour' || this.stage === 'press') && this.hinting) {
         const c = this.frameCenter;
         ctx.translate(c.x, c.y); ctx.rotate(wig * 0.008); ctx.scale(1 + wig * 0.006, 1 + wig * 0.006); ctx.translate(-c.x, -c.y);
       }
@@ -852,39 +873,32 @@ export class Game {
   drawHint(ctx) {
     const h = this.hintTarget();
     if (!h) return;
-    const k = smooth(inv(2.2, 3.0, this.idle));
+    const k = this.hintK;
     const ph = (this.time * 0.9) % 1;
     ctx.save();
-    ctx.globalAlpha = k * (1 - ph) * 0.85;
+    ctx.globalAlpha = k * (1 - ph) * 0.95;
     ctx.beginPath();
     ctx.arc(h.x, h.y, h.r * (0.55 + ph * 0.8), 0, TAU);
     ctx.strokeStyle = 'rgba(255,240,190,0.95)';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 15;
     ctx.stroke();
     ctx.restore();
 
-    // 指のアイコン
+    // 指のアイコン（人差し指を立てた手）
     ctx.save();
-    ctx.globalAlpha = k * 0.9;
-    const bob = Math.sin(this.time * 3.2) * h.r * 0.14;
-    ctx.translate(h.x + h.r * 0.35, h.y + h.r * 0.5 + bob);
-    const s = h.r * 0.02;
+    ctx.globalAlpha = k * 0.92;
+    const bob = Math.sin(this.time * 3.2) * h.r * 0.1;
+    ctx.translate(h.x + h.r * 0.3, h.y + h.r * 0.34 + bob);
+    const s = clamp(h.r * 0.0085, 0.32, 1.25);
     ctx.scale(s, s);
-    ctx.fillStyle = 'rgba(255,244,214,0.95)';
-    ctx.strokeStyle = 'rgba(90,70,40,0.6)';
-    ctx.lineWidth = 3;
+    ctx.fillStyle = 'rgba(255,246,222,0.96)';
+    ctx.strokeStyle = 'rgba(72,56,32,0.55)';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(0, -46);
-    ctx.quadraticCurveTo(11, -46, 11, -30);
-    ctx.lineTo(11, -6);
-    ctx.quadraticCurveTo(30, -6, 30, 12);
-    ctx.quadraticCurveTo(30, 46, 4, 46);
-    ctx.quadraticCurveTo(-18, 46, -18, 18);
-    ctx.lineTo(-18, -2);
-    ctx.quadraticCurveTo(-11, -8, -11, 4);
-    ctx.lineTo(-11, -30);
-    ctx.quadraticCurveTo(-11, -46, 0, -46);
-    ctx.closePath();
+    roundRect(ctx, -19, -2, 40, 46, 17);          // にぎった手
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    roundRect(ctx, -7, -42, 17, 46, 8.5);         // 立てた人差し指
     ctx.fill(); ctx.stroke();
     ctx.restore();
   }
