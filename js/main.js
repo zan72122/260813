@@ -101,23 +101,21 @@ function updateAuto(dt) {
 /** Everything the cached backdrop's appearance depends on, besides the camera. */
 function backdropKey() {
   return [
-    W.mood.from, W.mood.to, q(W.mood.t, 0.02),
-    q(W.shopAlpha, 0.05), q(W.floorAlpha, 0.05), q(W.floorY, 8),
-    q(W.bowlA, 0.05), q(W.dryness, 0.08),
-    q(W.boardAlpha, 0.05), q(W.cutBoardAlpha, 0.05), q(W.ball.x, 10),
+    W.mood.from, W.mood.to, q(W.mood.t, 0.06),
+    q(W.shopAlpha, 0.1), q(W.floorAlpha, 0.1), q(W.floorY, 16),
+    q(W.bowlA, 0.1), q(W.dryness, 0.12),
+    q(W.boardAlpha, 0.1), q(W.cutBoardAlpha, 0.1), q(W.ball.x, 20),
   ].join(',');
 }
 
 function render() {
+  // The sky, wall, floor and table are expensive to paint (repeating
+  // materials are resampled per pixel) but only change when the camera does
+  // — so they are cached together and blitted while the camera holds still.
+  // Folding the background gradient into the same layer means one opaque
+  // copy replaces what used to be two full-screen passes.
   beginScreen();
-  art.drawBackground(ctx);
-  end();
-
-  // The wall, floor and table are expensive to paint (repeating materials
-  // are resampled per pixel) but only change when the camera does — so they
-  // are cached and blitted while the camera holds still.
-  beginScreen();
-  drawBackdrop(ctx, backdropKey(), (g) => {
+  drawBackdrop(ctx, backdropKey(), (g) => art.drawBackground(g), (g) => {
     art.drawSky(g);
     art.drawShop(g, W.shopAlpha);
     art.drawFloor(g, W.floorY, W.floorAlpha);

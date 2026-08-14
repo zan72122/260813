@@ -3,6 +3,7 @@
 
 import {
   TAU, clamp, clamp01, lerp, smooth, easeOut, mix, roundRect, strokeThrough,
+  makeRng, rr,
 } from './util.js';
 import { W, RACK_HALF, GUIDE, strandPoints, noodleColor } from './world.js';
 import { screenSize } from './scene.js';
@@ -228,14 +229,27 @@ export function drawBackground(ctx) {
 }
 
 export function drawVignette(ctx) {
-  const spot = W.spotlight;
-  const cx = screenSize.w / 2, cy = screenSize.h / 2;
-  const r = Math.hypot(cx, cy);
-  const g = ctx.createRadialGradient(cx, cy, r * lerp(0.55, 0.18, spot), cx, cy, r);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(1, `rgba(60,36,16,${lerp(0.22, 0.66, spot)})`);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, screenSize.w, screenSize.h);
+  const spot = Math.round(W.spotlight * 12) / 12;
+  const w = Math.round(screenSize.w), h = Math.round(screenSize.h);
+  // Once the sunbeams are at full strength they never change again, so the
+  // two overlays are baked together and cost one pass instead of two.
+  const withBeams = W.beams > 0.92;
+  const sprite = overlaySprite(`vig${spot}${withBeams ? 'b' : ''}`, w, h, (g, cw, ch) => {
+    if (withBeams) {
+      g.save();
+      g.globalAlpha = 0.15;
+      g.drawImage(beamSprite(cw, ch), 0, 0, cw, ch);
+      g.restore();
+    }
+    const cx = cw / 2, cy = ch / 2;
+    const r = Math.hypot(cx, cy);
+    const grd = g.createRadialGradient(cx, cy, r * lerp(0.55, 0.18, spot), cx, cy, r);
+    grd.addColorStop(0, 'rgba(0,0,0,0)');
+    grd.addColorStop(1, `rgba(60,36,16,${lerp(0.22, 0.66, spot)})`);
+    g.fillStyle = grd;
+    g.fillRect(0, 0, cw, ch);
+  });
+  ctx.drawImage(sprite, 0, 0, w, h);
   if (W.flash > 0.002) {
     ctx.fillStyle = `rgba(255,255,255,${clamp01(W.flash)})`;
     ctx.fillRect(0, 0, screenSize.w, screenSize.h);
@@ -968,6 +982,132 @@ export function drawBoilingNoodles(ctx, t) {
 }
 
 
+
+// --- the nest of noodles in the finished bowl ---------------------------
+//
+// Cold somen is not a stack of parallel lines. It is a loose coil: strands
+// curve, cross, loop back on themselves, and the ones underneath sit in the
+// water rather than on top of it. So each strand here is an arc through the
+// bowl's squashed ellipse, and every strand carries a depth — which decides
+// its draw order, how far the water has drained its contrast, and whether it
+// gets a glint. The water veil is painted between the deep strands and the
+// shallow ones, so some noodles are literally under it.
+
+const NEST_PTS = 14;
+let nest = null;
+
+function buildNest() {
+  const rng = makeRng(917);
+  const out = [];
+  const COUNT = 84;
+  for (let i = 0; i < COUNT; i++) {
+    // Depth is deliberately not the loop index: shuffling it means deep and
+    // shallow strands interleave in space, the way a real tangle does.
+    const depth = ((i * 29) % COUNT) / (COUNT - 1);
+
+    // A served heap is wide at the bottom and narrow on top, and the top of
+    // it sits higher on screen — that difference is what makes it a mound
+    // instead of a mat.
+    const rad = lerp(252, 104, depth) * rr(rng, 0.55, 1.12);
+    const cy = lerp(40, -26, depth) + rr(rng, -12, 12);
+    const cx = rr(rng, -1, 1) * lerp(112, 52, depth);
+
+    const a0 = rr(rng, 0, TAU);
+    const span = rr(rng, 1.4, 3.9) * (rng() < 0.4 ? -1 : 1);
+    const squash = rr(rng, 0.22, 0.44);
+    const wob = rr(rng, 4, 13);
+    const wobF = rr(rng, 2.2, 5.4);
+    const wobP = rr(rng, 0, TAU);
+    const bulge = rr(rng, 0.08, 0.24);
+    const bulgeP = rr(rng, 0, TAU);
+
+    const pts = new Float32Array(NEST_PTS * 2);
+    for (let k = 0; k < NEST_PTS; k++) {
+      const t = k / (NEST_PTS - 1);
+      const th = a0 + span * t;
+      const r = rad * (1 + bulge * Math.sin(t * 3.1 + bulgeP));
+      pts[k * 2] = cx + Math.cos(th) * r;
+      pts[k * 2 + 1] = cy + Math.sin(th) * r * squash + Math.sin(t * wobF + wobP) * wob;
+    }
+    out.push({
+      pts, depth,
+      drift: rr(rng, 0.25, 0.6),
+      phase: rr(rng, 0, TAU),
+      thick: rr(rng, 5, 6.8),
+    });
+  }
+  out.sort((a, b) => a.depth - b.depth);
+  return out;
+}
+
+/** Draw the slice of the nest lying in this depth band. */
+function drawNest(ctx, by, lo, hi) {
+  if (!nest) nest = buildNest();
+  ctx.lineCap = 'round';
+  for (const n of nest) {
+    if (n.depth < lo || n.depth >= hi) continue;
+    // Water bends what is under it: the deeper a strand sits, the further it
+    // is displaced and the more the blue drains its contrast.
+    const sink = 1 - n.depth;
+    ctx.save();
+    ctx.translate(
+      Math.sin(W.time * n.drift + n.phase) * 2.4 + sink * 4,
+      by + 104 + Math.cos(W.time * n.drift * 0.8 + n.phase) * 1.6,
+    );
+    const w = n.thick * lerp(0.84, 1, n.depth);
+
+    // Strands near the surface throw a shadow onto the tangle below. Deep
+    // ones do not bother: the water veil hides it anyway.
+    if (n.depth > 0.3) {
+      ctx.strokeStyle = `rgba(38,88,124,${0.1 + n.depth * 0.26})`;
+      ctx.lineWidth = w * 1.3;
+      strokeThrough(ctx, n.pts, 1);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = mix('#fbf5e6', '#8ec2dc', sink * 0.54);
+    ctx.lineWidth = w;
+    strokeThrough(ctx, n.pts, 1);
+    ctx.stroke();
+
+    // only strands near the surface catch a highlight
+    if (n.depth > 0.5) {
+      ctx.save();
+      ctx.translate(LIT.x * w * 0.24, LIT.y * w * 0.3);
+      ctx.globalAlpha = (n.depth - 0.5) * 1.8;
+      ctx.strokeStyle = '#fffdf6';
+      ctx.lineWidth = w * 0.38;
+      strokeThrough(ctx, n.pts, 1);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+
+// The mouthful hanging from the chopsticks. Built once; only the sway moves.
+let lifted = null;
+function buildLifted() {
+  const rng = makeRng(5150);
+  const out = [];
+  for (let i = 0; i < 13; i++) {
+    const u = i / 12;
+    out.push({
+      x: lerp(-44, 44, u) + rr(rng, -3, 3),
+      len: rr(rng, 108, 208),
+      c1x: rr(rng, -14, 22),
+      c2x: rr(rng, -26, 34),
+      tipX: rr(rng, -34, 40),
+      swing: rr(rng, 3, 9),
+      spd: rr(rng, 0.9, 1.7),
+      ph: rr(rng, 0, TAU),
+    });
+  }
+  return out;
+}
+
 /** The table and mat under the finished bowl — static, so it is cached. */
 export function drawRevealTable(ctx, t) {
   const a = clamp01(t);
@@ -1041,45 +1181,20 @@ export function drawBowlScene(ctx, t) {
   ctx.fillStyle = 'rgba(126,196,226,0.85)';
   ctx.fillRect(-brx, by - ry - 4, brx * 2, 300);
 
-  // The somen mound. Same cylinder treatment as the hanging strands: a
-  // shadow sinking into the water, a warm body, then a glint along the top
-  // edge. The glint is what makes cold noodles look wet rather than chalky.
-  ctx.lineCap = 'round';
-  const passes = [
-    { off: 3.2, w: 7.5, c: 'rgba(52,104,138,0.45)' },
-    { off: 0, w: 6.2, c: '#faf4e6' },
-    { off: LIT.y * 1.8, w: 2.6, c: '#fffdf7' },
-  ];
-  const ROWS = 44;
-  for (const pass of passes) {
-    ctx.strokeStyle = pass.c;
-    ctx.lineWidth = pass.w;
-    for (let i = 0; i < ROWS; i++) {
-      const u = i / (ROWS - 1);
-      const yy = by + 30 + u * 132 + Math.sin(i * 2.3) * 4 + pass.off;
-      const half = lerp(268, 108, Math.abs(u - 0.34) * 1.4);
-      ctx.beginPath();
-      for (let k = 0; k <= 12; k++) {
-        const kk = k / 12;
-        const x = lerp(-half, half, kk);
-        const wav = Math.sin(kk * 4.2 + i * 1.9 + W.time * 0.5) * 5;
-        if (k === 0) ctx.moveTo(x, yy + wav); else ctx.lineTo(x, yy + wav);
-      }
-      ctx.stroke();
-    }
-  }
-
-  // ice cubes
-  for (const [ix, iy, s, rot] of [[-170, by + 62, 1, 0.3], [150, by + 84, 0.9, -0.4], [-30, by + 40, 0.75, 0.9]]) {
+  // Ice, drawn in two layers: cubes that the surface noodles drape over, and
+  // one riding on top. Everything sitting flatly above the food was what made
+  // the bowl read as a diagram.
+  const iceCube = (ix, iy, sc, rot, alpha) => {
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.translate(ix, iy);
     ctx.rotate(rot);
-    ctx.scale(s, s);
+    ctx.scale(sc, sc);
     roundRect(ctx, -46, -40, 92, 80, 16);
     ctx.fillStyle = texStyle(ctx, 'ice', 60, 'rgba(238,251,255,0.82)');
     ctx.fill();
     ctx.save();
-    ctx.globalAlpha = 0.68;
+    ctx.globalAlpha = alpha * 0.4;
     ctx.fillStyle = 'rgba(246,253,255,0.92)';
     ctx.fill();
     ctx.restore();
@@ -1095,7 +1210,42 @@ export function drawBowlScene(ctx, t) {
     roundRect(ctx, -46, -40, 92, 80, 16);
     ctx.stroke();
     ctx.restore();
+  };
+
+  // Submerged half of the nest.
+  drawNest(ctx, by, 0, 0.5);
+  iceCube(-182, by + 82, 0.72, 0.3, 0.72);
+  iceCube(166, by + 96, 0.62, -0.4, 0.72);
+
+  // The water itself, painted *between* the two halves. Everything above is
+  // breaking the surface; everything below is seen through it.
+  const wv = ctx.createLinearGradient(0, by - 20, 0, by + 232);
+  wv.addColorStop(0, 'rgba(132,200,228,0.16)');
+  wv.addColorStop(0.45, 'rgba(104,180,214,0.38)');
+  wv.addColorStop(1, 'rgba(74,152,190,0.6)');
+  ctx.fillStyle = wv;
+  ctx.fillRect(-brx, by - ry - 4, brx * 2, 300);
+
+  // Strands riding the surface, still bright and sharp.
+  drawNest(ctx, by, 0.5, 1.01);
+  iceCube(-18, by + 40, 0.54, 0.9, 0.9);
+
+  // A few surface glints where the water is disturbed.
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const gx = -190 + i * 96 + Math.sin(W.time * 0.5 + i) * 10;
+    const gy = by + 34 + (i % 3) * 26;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.quadraticCurveTo(gx + 22, gy - 4, gx + 46, gy + 1);
+    ctx.stroke();
   }
+  ctx.restore();
+
   ctx.restore(); // unclip
 
   // bowl rim + glass highlights
@@ -1171,17 +1321,24 @@ export function drawBowlScene(ctx, t) {
     ctx.rotate(0.42);
     // the drape first, so the sticks sit on top
     ctx.lineCap = 'round';
-    for (const dp of [{ o: 2.4, w: 8, c: 'rgba(120,150,168,0.45)' },
-                      { o: 0, w: 7, c: '#fbf6e9' },
-                      { o: -2.1, w: 2.6, c: '#ffffff' }]) {
+    if (!lifted) lifted = buildLifted();
+    for (const dp of [{ o: 2.4, w: 7.5, c: 'rgba(112,146,166,0.42)' },
+                      { o: 0, w: 6.4, c: '#fbf6e9' },
+                      { o: -1.9, w: 2.4, c: '#ffffff' }]) {
       ctx.strokeStyle = dp.c;
       ctx.lineWidth = dp.w;
-      for (let i = 0; i < 12; i++) {
-        const x = -46 + i * 8.5 + dp.o;
-        const drop = 150 + Math.sin(i * 1.7) * 46;
+      for (const n of lifted) {
+        // Each strand hangs on its own: a different length, a different bow,
+        // and a tail that curls away. Twelve identical arcs read as a comb.
+        const sway = Math.sin(W.time * n.spd + n.ph) * n.swing;
+        const x = n.x + dp.o;
         ctx.beginPath();
-        ctx.moveTo(x, 6);
-        ctx.quadraticCurveTo(x + 16 + Math.sin(W.time * 1.2 + i) * 6, drop * 0.6, x + 4, drop);
+        ctx.moveTo(x, 4);
+        ctx.bezierCurveTo(
+          x + n.c1x, n.len * 0.34,
+          x + n.c2x + sway, n.len * 0.74,
+          x + n.tipX + sway * 1.5, n.len,
+        );
         ctx.stroke();
       }
     }
@@ -1284,6 +1441,27 @@ function drawFinger(ctx) {
   ctx.restore();
 }
 
+
+// --- cached screen-space overlays ---------------------------------------
+// Sunbeams and the vignette are full-screen gradient fills that barely
+// change. Rebuilding them every frame was the single most expensive thing
+// in the final tableau, so each is rendered once into a sprite and blitted.
+
+const overlays = new Map();
+function overlaySprite(key, w, h, paint) {
+  const id = `${key}|${w}x${h}`;
+  let c = overlays.get(id);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = Math.max(1, w);
+  c.height = Math.max(1, h);
+  paint(c.getContext('2d'), c.width, c.height);
+  // Only ever a handful of variants; drop the oldest if that assumption breaks.
+  if (overlays.size > 12) overlays.clear();
+  overlays.set(id, c);
+  return c;
+}
+
 // -------------------------------------------------------- screen widgets
 
 export function drawSpeaker(ctx, x, y, r, muted) {
@@ -1353,28 +1531,36 @@ export function drawReplay(ctx, x, y, r, t) {
 }
 
 /** Warm sunbeams for the final tableau. */
+function beamSprite(w, h) {
+  return overlaySprite('beams', w, h, (g, cw, ch) => {
+    g.save();
+    g.translate(cw * 0.5, -ch * 0.15);
+    const R = Math.hypot(cw, ch) * 1.4;
+    for (let i = 0; i < 9; i++) {
+      g.save();
+      g.rotate((i / 9) * Math.PI - Math.PI / 2 + 0.15);
+      const grd = g.createLinearGradient(0, 0, 0, R);
+      grd.addColorStop(0, 'rgba(255,250,214,0.9)');
+      grd.addColorStop(1, 'rgba(255,250,214,0)');
+      g.fillStyle = grd;
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(-38, R);
+      g.lineTo(38, R);
+      g.closePath();
+      g.fill();
+      g.restore();
+    }
+    g.restore();
+  });
+}
+
 export function drawSunbeams(ctx, amount) {
-  if (amount <= 0.01) return;
+  // At full strength the beams ride along in the vignette sprite.
+  if (amount <= 0.01 || W.beams > 0.92) return;
+  const w = Math.round(screenSize.w), h = Math.round(screenSize.h);
   ctx.save();
   ctx.globalAlpha = amount * 0.15;
-  ctx.translate(screenSize.w * 0.5, -screenSize.h * 0.15);
-  ctx.rotate(Math.sin(W.time * 0.15) * 0.05);
-  const R = Math.hypot(screenSize.w, screenSize.h) * 1.4;
-  for (let i = 0; i < 9; i++) {
-    ctx.save();
-    ctx.rotate((i / 9) * Math.PI - Math.PI / 2 + 0.15);
-    const g = ctx.createLinearGradient(0, 0, 0, R);
-    g.addColorStop(0, 'rgba(255,250,214,0.9)');
-    g.addColorStop(1, 'rgba(255,250,214,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(-38, R);
-    ctx.lineTo(38, R);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
+  ctx.drawImage(beamSprite(w, h), 0, 0, w, h);
   ctx.restore();
-  ctx.globalAlpha = 1;
 }

@@ -21,12 +21,18 @@ let valid = false;
 /** Content changed for reasons other than the camera (a fade, a mood swap). */
 export function invalidateBackdrop() { valid = false; }
 
+// The backdrop is scenery, never the subject, so it is baked at reduced
+// resolution: the re-render that happens when the camera settles costs half
+// as much, and the slight softness reads as depth rather than as blur.
+const BAKE = 0.72;
+
 function ensure() {
-  const w = Math.max(1, Math.round(screenSize.w * screenSize.dpr));
-  const h = Math.max(1, Math.round(screenSize.h * screenSize.dpr));
+  const w = Math.max(1, Math.round(screenSize.w * screenSize.dpr * BAKE));
+  const h = Math.max(1, Math.round(screenSize.h * screenSize.dpr * BAKE));
   if (!canvas) {
     canvas = document.createElement('canvas');
-    ctx = canvas.getContext('2d', { alpha: true });
+    // Opaque: the layer covers the whole screen, so the blit is a plain copy.
+    ctx = canvas.getContext('2d', { alpha: false });
   }
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
@@ -40,7 +46,7 @@ function ensure() {
  * Draw the backdrop, reusing the cached bitmap when nothing that affects it
  * has moved. `stateKey` must fold in every animated value the draw reads.
  */
-export function drawBackdrop(destCtx, stateKey, paint) {
+export function drawBackdrop(destCtx, stateKey, paintScreen, paint) {
   // Quantise the camera so a pixel of drift does not throw the cache away.
   const k = `${stateKey}|${Math.round(camera.x * 2)}|${Math.round(camera.y * 2)}|${Math.round(camera.scale * 700)}`;
 
@@ -53,6 +59,7 @@ export function drawBackdrop(destCtx, stateKey, paint) {
     valid = false;
     destCtx.save();
     destCtx.setTransform(screenSize.dpr, 0, 0, screenSize.dpr, 0, 0);
+    paintScreen(destCtx);
     destCtx.translate(screenSize.w / 2 + camera.shakeX, screenSize.h / 2 + camera.shakeY);
     destCtx.scale(camera.scale, camera.scale);
     destCtx.translate(-camera.x, -camera.y);
@@ -65,9 +72,11 @@ export function drawBackdrop(destCtx, stateKey, paint) {
   if (!valid) {
     valid = true;
     lctx.setTransform(1, 0, 0, 1, 0, 0);
-    lctx.clearRect(0, 0, canvas.width, canvas.height);
     lctx.save();
-    lctx.setTransform(screenSize.dpr, 0, 0, screenSize.dpr, 0, 0);
+    lctx.setTransform(screenSize.dpr * BAKE, 0, 0, screenSize.dpr * BAKE, 0, 0);
+    // The sky gradient goes in the layer too, so the blit replaces both the
+    // background fill and the backdrop instead of stacking on top of it.
+    paintScreen(lctx);
     lctx.translate(screenSize.w / 2, screenSize.h / 2);
     lctx.scale(camera.scale, camera.scale);
     lctx.translate(-camera.x, -camera.y);
@@ -78,7 +87,9 @@ export function drawBackdrop(destCtx, stateKey, paint) {
   destCtx.setTransform(1, 0, 0, 1, 0, 0);
   // Camera shake is applied at blit time, so a kick never invalidates the
   // cache — it just slides the finished bitmap.
-  destCtx.drawImage(canvas, camera.shakeX * screenSize.dpr, camera.shakeY * screenSize.dpr);
+  destCtx.drawImage(canvas,
+    camera.shakeX * screenSize.dpr, camera.shakeY * screenSize.dpr,
+    canvas.width / BAKE, canvas.height / BAKE);
   destCtx.restore();
 }
 
