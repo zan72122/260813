@@ -82,6 +82,8 @@ class Buf {
 
 const maskBuf = new Buf();
 const gooBuf = new Buf();
+// 直前に作った塊のシルエット。照りと泡を同じ形で切り抜くために覚えておく。
+const lastMask = { valid: false, x0: 0, y0: 0, w: 0, h: 0, scale: 1 };
 
 /**
  * 豆の集合を「粘りでつながった 1 つの塊」として描く。
@@ -90,6 +92,7 @@ const gooBuf = new Buf();
  * 呼び出し側の変換はそのまま使うので、bounds は描画座標で渡すこと。
  */
 export function drawStickyMass(ctx, beans, r, sticky, opt = {}) {
+  lastMask.valid = false;
   if (!beans.length || sticky <= 0.02) return;
   const pad = r * 2.2;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -135,6 +138,9 @@ export function drawStickyMass(ctx, beans, r, sticky, opt = {}) {
     }
   }
   mx.fill();
+
+  lastMask.valid = true;
+  lastMask.x0 = x0; lastMask.y0 = y0; lastMask.w = w; lastMask.h = h; lastMask.scale = scale;
 
   // --- 2. 塊の材質：上が明るく下が沈む、濁った半透明の粘り ---
   const g = gx.createLinearGradient(0, 0, 0, h);
@@ -194,49 +200,55 @@ export function drawWetRim(ctx, beans, r, sticky) {
   ctx.globalAlpha = 1;
 }
 
+
 /* ------------------------------------------------------------------ */
-/* 糸                                                                  */
+/* 糸（最重要マテリアル）                                               */
 /* ------------------------------------------------------------------ */
 
 /**
- * 1 本の糸。ベタ塗りの白いリボンをやめ、
- * 「広くて薄い胴 → 中くらい → 鋭いコア」の 3 枚重ねで半透明にする。
- * 実物の納豆の糸は白ではなく、わずかに黄みがかった透明。
+ * 糸 1 本。
+ *
+ * 実物の納豆の糸は「白い線」ではなく、
+ *   ・根もとが粘りの土台に太く食い込み、中ほどが髪より細い
+ *   ・ほぼ透明で、円柱の稜に沿って細い光だけが強く走る
+ *   ・下側にわずかな影があり、そこで初めて丸みが出る
+ *   ・たるむと途中に液の玉が下がる
+ * という物体。それを 4〜5 枚のリボンの重ねで作る。
  */
 export function drawThread(ctx, ax, ay, bx, by, opt = {}) {
   const {
-    width = 3, sag = 0, wobble = 0, phase = 0, segs = 16,
-    alpha = 1, tension = 0, curl = 0, beads = 0, shadow = true,
+    width = 3, sag = 0, wobble = 0, phase = 0, segs = 18,
+    alpha = 1, tension = 0, curl = 0, beads = 0,
+    halo = true, shadow = true,
   } = opt;
   const dx = bx - ax, dy = by - ay;
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len, ny = dx / len;
 
-  // 中心線を先に求めておく（3 回使う）
   const P = new Float64Array((segs + 1) * 2);
   for (let i = 0; i <= segs; i++) {
     const u = i / segs;
     const s = Math.sin(Math.PI * u);
-    const w = Math.sin(u * Math.PI * (1.6 + curl) + phase) * wobble * s;
+    const w = Math.sin(u * Math.PI * (1.4 + curl) + phase) * wobble * s;
     P[i * 2] = ax + dx * u + nx * w;
     P[i * 2 + 1] = ay + dy * u + sag * s + ny * w;
   }
 
-  const ribbon = (scale, color, a) => {
+  // 幅の分布：両端で太く（粘りの土台に生えている）、中ほどが最も細い。
+  // 張るほど全体に細くなる。
+  const thin = lerp(1, 0.42, clamp(tension, 0, 1));
+  const profile = (u) => (0.30 + 0.70 * Math.pow(Math.abs(Math.cos(Math.PI * u)), 0.65)) * thin;
+
+  const ribbon = (scale, color, a, ox = 0, oy = 0) => {
+    if (a <= 0.004) return;
     ctx.beginPath();
     for (let i = 0; i <= segs; i++) {
-      const u = i / segs;
-      const s = Math.sin(Math.PI * u);
-      const taper = (1 - 0.55 * s) * lerp(1, 0.5, clamp(tension, 0, 1));
-      const hw = Math.max(0.18, width * 0.5 * taper * scale);
-      ctx.lineTo(P[i * 2] + nx * hw, P[i * 2 + 1] + ny * hw);
+      const hw = Math.max(0.14, width * 0.5 * profile(i / segs) * scale);
+      ctx.lineTo(P[i * 2] + nx * hw + ox, P[i * 2 + 1] + ny * hw + oy);
     }
     for (let i = segs; i >= 0; i--) {
-      const u = i / segs;
-      const s = Math.sin(Math.PI * u);
-      const taper = (1 - 0.55 * s) * lerp(1, 0.5, clamp(tension, 0, 1));
-      const hw = Math.max(0.18, width * 0.5 * taper * scale);
-      ctx.lineTo(P[i * 2] - nx * hw, P[i * 2 + 1] - ny * hw);
+      const hw = Math.max(0.14, width * 0.5 * profile(i / segs) * scale);
+      ctx.lineTo(P[i * 2] - nx * hw + ox, P[i * 2 + 1] - ny * hw + oy);
     }
     ctx.closePath();
     ctx.globalAlpha = clamp(a * alpha, 0, 1);
@@ -245,31 +257,126 @@ export function drawThread(ctx, ax, ay, bx, by, opt = {}) {
   };
 
   ctx.save();
-  // 背景から浮かせるための、ごく薄い影（下地が明るいので必要）
-  if (shadow) {
-    ctx.save();
-    ctx.translate(width * 0.22, width * 0.28);
-    ribbon(1.0, 'rgba(96,72,40,0.85)', 0.10);
-    ctx.restore();
-  }
-  ribbon(1.0, 'rgba(244,236,214,0.95)', 0.17);   // 胴（ほぼ透ける）
-  ribbon(0.50, 'rgba(252,247,232,0.95)', 0.28);  // 中
-  ribbon(0.18, 'rgba(255,255,250,1)', 0.78);     // コアの光
+  const d = width * 0.30;
+  if (halo) ribbon(2.4, 'rgba(250,244,226,1)', 0.045);        // まわりに滲む粘り
+  if (shadow) ribbon(1.0, 'rgba(92,68,38,1)', 0.13, d, d);    // 下側の影＝丸み
+  ribbon(1.0, 'rgba(246,239,219,1)', 0.20);                   // 胴（ほぼ透ける）
+  ribbon(0.46, 'rgba(253,249,236,1)', 0.34);                  // 中
+  ribbon(0.15, 'rgba(255,255,252,1)', 0.88, -d * 0.5, -d * 0.5); // 稜の光
 
-  // 液の玉
-  if (beads > 0) {
-    ctx.globalAlpha = clamp(alpha * 0.75, 0, 1);
-    ctx.fillStyle = 'rgba(255,253,245,0.95)';
+  // 液の玉：たるんだ糸の下がったところに下がる
+  if (beads > 0 && tension < 0.75) {
     for (let k = 0; k < beads; k++) {
-      const u = (k + 1) / (beads + 1) + Math.sin(phase + k) * 0.06;
-      const i = Math.round(clamp(u, 0, 1) * segs);
-      const s = Math.sin(Math.PI * u);
-      const rr = width * (0.62 + 0.3 * Math.sin(phase * 2 + k)) * (1 - tension * 0.45);
+      const u = clamp((k + 1) / (beads + 1) + Math.sin(phase + k * 2.1) * 0.12, 0.12, 0.88);
+      const i = Math.round(u * segs);
+      const bx2 = P[i * 2], by2 = P[i * 2 + 1];
+      const rr = width * (0.48 + 0.30 * Math.sin(phase * 3 + k)) * (1 - tension);
+      ctx.globalAlpha = clamp(alpha * 0.32, 0, 1);
+      ctx.fillStyle = 'rgba(250,244,226,1)';
       ctx.beginPath();
-      ctx.ellipse(P[i * 2], P[i * 2 + 1], rr * 0.55, rr * 0.85 * (0.6 + s * 0.5), 0, 0, TAU);
+      ctx.ellipse(bx2, by2 + rr * 0.25, rr * 0.62, rr * 0.95, 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = clamp(alpha * 0.6, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,252,1)';
+      ctx.beginPath();
+      ctx.ellipse(bx2 - rr * 0.2, by2, rr * 0.2, rr * 0.28, -0.4, 0, TAU);
       ctx.fill();
     }
   }
   ctx.globalAlpha = 1;
   ctx.restore();
+}
+
+/**
+ * 糸の膜。2 粒のあいだに張る薄い膜で、線を何本引いても出ない
+ * 「ねばついた面」を作る。糸より先に描く。
+ */
+export function drawVeil(ctx, ax, ay, bx, by, opt = {}) {
+  const { width = 10, sag = 0, phase = 0, alpha = 0.09, segs = 14 } = opt;
+  const dx = bx - ax, dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs, s = Math.sin(Math.PI * u);
+    const hw = width * 0.5 * (0.25 + 0.75 * Math.pow(Math.abs(Math.cos(Math.PI * u)), 0.5));
+    ctx.lineTo(ax + dx * u + nx * hw, ay + dy * u + sag * s * 0.55 + ny * hw);
+  }
+  for (let i = segs; i >= 0; i--) {
+    const u = i / segs, s = Math.sin(Math.PI * u);
+    const hw = width * 0.5 * (0.25 + 0.75 * Math.pow(Math.abs(Math.cos(Math.PI * u)), 0.5));
+    ctx.lineTo(ax + dx * u - nx * hw, ay + dy * u + sag * s * 1.25 - ny * hw);
+  }
+  ctx.closePath();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+  ctx.fillStyle = 'rgba(252,247,232,1)';
+  ctx.fill();
+  ctx.globalAlpha = clamp(alpha * 2.2, 0, 1);
+  ctx.strokeStyle = 'rgba(255,255,250,1)';
+  ctx.lineWidth = Math.max(0.4, width * 0.05);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
+/* 塊の上に乗る「濡れ」                                                 */
+/* ------------------------------------------------------------------ */
+
+const glazeBuf = new Buf();
+
+/**
+ * 粘りの照り。豆を描いたあとに重ねる。
+ * 直前の drawStickyMass が作ったシルエットを使い回す。
+ */
+export function drawStickyGlaze(ctx, sticky, opt = {}) {
+  if (!lastMask.valid || sticky <= 0.12) return;
+  const { x0, y0, w, h, scale } = lastMask;
+  const gx = glazeBuf.fit(w, h, scale);
+
+  // 上から差す光の帯
+  const g = gx.createLinearGradient(0, 0, w * 0.35, h);
+  g.addColorStop(0, 'rgba(255,252,240,0.85)');
+  g.addColorStop(0.35, 'rgba(255,250,232,0.30)');
+  g.addColorStop(0.75, 'rgba(255,246,220,0.02)');
+  g.addColorStop(1, 'rgba(255,246,220,0)');
+  gx.fillStyle = g;
+  gx.fillRect(0, 0, w, h);
+
+  // 泡：かき混ぜた納豆の表面に必ず立つ
+  const n = Math.round(sticky * (opt.foam ?? 26));
+  let s = 1234;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  gx.globalCompositeOperation = 'source-atop';
+  for (let i = 0; i < n; i++) {
+    const bx = rnd() * w, by = rnd() * h;
+    const rr = (opt.foamR ?? 4) * (0.5 + rnd());
+    gx.globalAlpha = 0.5 + rnd() * 0.4;
+    gx.strokeStyle = 'rgba(255,255,250,0.9)';
+    gx.lineWidth = Math.max(0.5, rr * 0.32);
+    gx.beginPath();
+    gx.arc(bx, by, rr, 0, TAU);
+    gx.stroke();
+    gx.globalAlpha = 0.5;
+    gx.fillStyle = 'rgba(255,255,252,0.8)';
+    gx.beginPath();
+    gx.arc(bx - rr * 0.3, by - rr * 0.35, rr * 0.26, 0, TAU);
+    gx.fill();
+  }
+  gx.globalAlpha = 1;
+
+  // シルエットで切り抜く
+  gx.globalCompositeOperation = 'destination-in';
+  gx.setTransform(1, 0, 0, 1, 0, 0);
+  gx.drawImage(maskBuf.c, 0, 0);
+  gx.setTransform(scale, 0, 0, scale, 0, 0);
+  gx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = clamp((sticky - 0.12) * 0.30, 0, 1);
+  ctx.drawImage(glazeBuf.c, 0, 0, glazeBuf.c.width, glazeBuf.c.height, x0, y0, w, h);
+  ctx.restore();
+  ctx.globalAlpha = 1;
 }

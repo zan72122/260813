@@ -2,7 +2,8 @@
 import { TAU, seedRandom, rand, rrange } from './util.js';
 import {
   loadAssets, assetsReady, drawBeanSprite, drawBeanBlend,
-  drawStickyMass, drawContactShadows, drawWetRim, drawThread, BEAN_ATLAS,
+  drawStickyMass, drawStickyGlaze, drawContactShadows, drawWetRim,
+  drawThread, drawVeil, BEAN_ATLAS,
 } from './natto.js';
 import { drawBean, BEAN_LOOK, blendLook, drawStrand } from './art.js';
 
@@ -62,8 +63,8 @@ function webs(beans, n, seed, r) {
     const a = (rand() * beans.length) | 0;
     const cand = beans
       .map((b, i) => ({ i, d: Math.hypot(b.x - beans[a].x, b.y - beans[a].y) }))
-      .filter((o) => o.i !== a && o.d < r * (rand() < 0.3 ? 4.2 : 2.4))
-      .sort((p, q) => p.d - q.d).slice(0, 5);
+      .filter((o) => o.i !== a && o.d > r * 1.5 && o.d < r * (rand() < 0.35 ? 4.4 : 2.9))
+      .sort((p, q) => p.d - q.d).slice(0, 6);
     if (!cand.length) continue;
     const c = cand[(rand() * cand.length) | 0];
     out.push({ a, b: c.i, d: c.d, ph: rand() * TAU, w: rrange(0.5, 1.35) });
@@ -71,41 +72,73 @@ function webs(beans, n, seed, r) {
   return out;
 }
 
+/** 糸の張り方（端点・たるみ）を 1 か所で決める */
+function span(A, B, r) {
+  const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1;
+  // 端の食い込みは距離に比例させる。固定量にすると、近い粒どうしで
+  // スパンが潰れて「ひげ」のような短い線になる。
+  const k = 0.24;
+  return {
+    ax: A.x + dx * k, ay: A.y + dy * k - r * 0.20,
+    bx: B.x - dx * k, by: B.y - dy * k - r * 0.20,
+    d, sag: d * 0.15 + r * 0.03,
+  };
+}
+
 function paintNatto(x, beans, r, sticky, t = 0) {
   drawContactShadows(x, beans, r, 0.20 + sticky * 0.14);
   drawStickyMass(x, beans, r, sticky);
-  const ws = webs(beans, Math.round(sticky * 46), 99, r);
-  const span = (w, A, B, i) => {
-    // 端は粒の中心ではなく、相手側の表面あたりから出す
-    const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1;
-    const k = r * 0.52 / d;
-    return {
-      ax: A.x + dx * k, ay: A.y + dy * k - r * 0.22,
-      bx: B.x - dx * k, by: B.y - dy * k - r * 0.22,
-      sag: d * 0.26 + r * 0.05,
-    };
-  };
-  // 豆の下の糸
+
+  const ws = webs(beans, Math.round(sticky * 64), 99, r);
+
+  // 1. 膜：線を引くだけでは出ない「ねばついた面」を先に張る
+  if (sticky > 0.35) {
+    for (let i = 0; i < ws.length; i += 5) {
+      const w = ws[i], p = span(beans[w.a], beans[w.b], r);
+      drawVeil(x, p.ax, p.ay, p.bx, p.by, {
+        width: r * 0.55 * w.w, sag: p.sag * 0.8, alpha: (sticky - 0.35) * 0.14,
+      });
+    }
+  }
+
+  // 2. 豆の下の糸
   for (let i = 0; i < ws.length; i += 2) {
-    const w = ws[i], A = beans[w.a], B = beans[w.b];
-    const p = span(w, A, B, i);
+    const w = ws[i], p = span(beans[w.a], beans[w.b], r);
     drawThread(x, p.ax, p.ay, p.bx, p.by, {
-      width: r * 0.09 * w.w, sag: p.sag, wobble: r * 0.03, segs: 20,
-      phase: w.ph + t, alpha: 0.5 + sticky * 0.3, shadow: false, curl: 0.4,
+      width: r * 0.075 * w.w * w.w, sag: p.sag, wobble: r * 0.03, segs: 18,
+      phase: w.ph + t, alpha: 0.45 + sticky * 0.3, shadow: false, halo: false, curl: 0.4,
     });
   }
+
   for (const b of beans) {
     drawBeanBlend(x, 'fermented', 'mixed', sticky, b.v, b.x, b.y, r * (b.s || 1), b.rot);
   }
   drawWetRim(x, beans, r, sticky);
-  // 豆の上の糸
+  drawStickyGlaze(x, sticky, { foam: 34, foamR: r * 0.10 });
+
+  // 3. 宙に立つ糸：粘りが強いと、糸は塊から空中へ立ち上がる
+  if (sticky > 0.45) {
+    seedRandom(77);
+    const n = Math.round((sticky - 0.45) * 26);
+    for (let i = 0; i < n; i++) {
+      const A = beans[(rand() * beans.length) | 0];
+      const up = r * (0.9 + rand() * 1.9);
+      const side = rrange(-1, 1) * r * 1.1;
+      drawThread(x, A.x, A.y - r * 0.5, A.x + side, A.y - r * 0.5 - up, {
+        width: r * 0.05 * rrange(0.6, 1.3), sag: -up * 0.12, wobble: r * 0.07,
+        phase: rand() * TAU, alpha: 0.4 + sticky * 0.35, tension: 0.35,
+        segs: 16, curl: 0.9, halo: false,
+      });
+    }
+  }
+
+  // 4. 豆の上の糸（太さは w^2 で散らす＝ほとんどは髪より細く、たまに太い）
   for (let i = 1; i < ws.length; i += 2) {
-    const w = ws[i], A = beans[w.a], B = beans[w.b];
-    const p = span(w, A, B, i);
+    const w = ws[i], p = span(beans[w.a], beans[w.b], r);
     drawThread(x, p.ax, p.ay, p.bx, p.by, {
-      width: r * 0.10 * w.w, sag: p.sag, wobble: r * 0.035, segs: 20,
-      phase: w.ph + t, alpha: 0.55 + sticky * 0.35, curl: 0.4,
-      beads: w.w > 1.3 ? 1 : 0,
+      width: r * 0.085 * w.w * w.w, sag: p.sag, wobble: r * 0.035, segs: 18,
+      phase: w.ph + t, alpha: 0.5 + sticky * 0.35, curl: 0.4,
+      beads: w.w > 1.15 ? 1 : 0,
     });
   }
 }
@@ -161,18 +194,21 @@ function paintNatto(x, beans, r, sticky, t = 0) {
 
   // 伸びる糸
   seedRandom(11);
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 34; i++) {
     const A = beans[(rand() * beans.length) | 0];
     const B = clump[(rand() * clump.length) | 0];
-    drawThread(x, A.x, A.y - r * 0.3, B.x + rrange(-0.4, 0.4) * r, B.y + r * 0.4, {
-      width: r * 0.15 * rrange(0.5, 1.4), sag: r * 0.1, wobble: r * 0.08,
-      phase: rand() * TAU, alpha: 0.9, tension: 0.8, segs: 22,
-      beads: rand() < 0.4 ? 1 : 0,
+    const ww = rrange(0.42, 1.35);
+    drawThread(x, A.x + rrange(-0.3, 0.3) * r, A.y - r * 0.35,
+      B.x + rrange(-0.5, 0.5) * r, B.y + r * 0.45, {
+      width: r * 0.13 * ww * ww, sag: r * (0.06 + rand() * 0.1), wobble: r * 0.05,
+      phase: rand() * TAU, alpha: 0.55 + rand() * 0.4, tension: 0.62 + rand() * 0.3,
+      segs: 24, curl: 0.6, beads: rand() < 0.22 ? 1 : 0, halo: ww > 1,
     });
   }
   drawStickyMass(x, clump, r, 0.95);
   for (const b of clump) drawBeanSprite(x, 'mixed', b.v, b.x, b.y, r, b.rot);
   drawWetRim(x, clump, r, 0.95);
+  drawStickyGlaze(x, 0.95, { foam: 14, foamR: r * 0.1 });
   // 棒
   x.fillStyle = '#c99257';
   x.fillRect(tip.x - 9, 0, 18, tip.y + r * 0.2);
