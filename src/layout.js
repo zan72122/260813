@@ -13,6 +13,8 @@ const PORTRAIT = {
   ],
   vat: { x: 0, y: -335, rx: 300, ry: 132 },
   frame: { x: 0, y: 175, w: 470, h: 372 },
+  window: { x: -300, y: -560, w: 250, h: 300 },
+  beam: { x: -110, y: -180, r: 205 },
   ladleHome: { x: -230, y: -110 },
   press: { x: 250, y: 470 },
   lever: { x: 350, y: -170 },
@@ -26,6 +28,7 @@ const PORTRAIT = {
     press: { x: 0, y: 165, w: 600, h: 820 },
     dry: { x: 75, y: 90, w: 900, h: 1215 },
     peel: { x: 0, y: 150, w: 590, h: 800 },
+    hold: { x: -70, y: -190, w: 900, h: 1230 },
     reveal: { x: 0, y: 165, w: 780, h: 1060 },
   },
 };
@@ -39,6 +42,8 @@ const LANDSCAPE = {
     { kind: 'bucket', x: 770, s: 0.75 },
   ],
   vat: { x: -450, y: -25, rx: 268, ry: 120 },
+  window: { x: -620, y: -430, w: 280, h: 300 },
+  beam: { x: -300, y: -115, r: 225 },
   frame: { x: 195, y: 15, w: 520, h: 400 },
   ladleHome: { x: -140, y: -150 },
   press: { x: 195, y: 330 },
@@ -53,6 +58,7 @@ const LANDSCAPE = {
     press: { x: 195, y: 15, w: 1290, h: 600 },
     dry: { x: 380, y: 10, w: 1560, h: 730 },
     peel: { x: 195, y: 5, w: 1290, h: 600 },
+    hold: { x: -180, y: -165, w: 1620, h: 910 },
     reveal: { x: 60, y: 0, w: 1640, h: 920 },
   },
 };

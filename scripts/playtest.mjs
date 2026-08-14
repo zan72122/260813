@@ -216,7 +216,31 @@ async function run() {
     note(`peel -> ${JSON.stringify(await state(page))}`);
     await shot(page, dev, '7-peel-end');
   }
-  if (!await waitStage(page, 'reveal', 8000)) throw new Error('剥がし工程が終わらない');
+  if (!await waitStage(page, 'hold', 8000)) throw new Error('剥がし工程が終わらない');
+  await sleep(1100);
+  await shot(page, dev, '8-hold-start');
+
+  // ---- 7. 光にかざす ----
+  {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const s = await state(page);
+      if (s.stage !== 'hold') break;
+      const t = await target(page);          // 窓あかりの位置
+      const from = { x: dev.width * 0.55, y: dev.height * 0.62 };
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(t.x, t.y, { steps: 12 });
+      for (let i = 0; i < 12; i++) {
+        await sleep(120);
+        if ((await state(page)).stage !== 'hold') break;
+      }
+      await page.mouse.up();
+      await sleep(150);
+    }
+    note(`hold -> ${JSON.stringify(await state(page))}`);
+    await shot(page, dev, '8-hold-light');
+  }
+  if (!await waitStage(page, 'reveal', 8000)) throw new Error('かざす工程が終わらない');
 
   // ---- 7. リビール ----
   await sleep(2600);

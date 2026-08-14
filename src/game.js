@@ -14,7 +14,12 @@ const LIGHT = [-0.46, -0.60, 0.66];
 const MAT_TILT = -0.22;        // 抄き枠が奥へ傾いている分の法線の傾き
 const GU = 14, GVA = 16, GV = 46;   // メッシュ分割（GVA までが台に付いた部分）
 
-export const ORDER = ['mix', 'pour', 'spread', 'press', 'dry', 'peel', 'reveal'];
+// ストップモーション。世界は 1/12 秒きざみで動く。
+// ただし「指が触れているもの」だけは毎フレーム追従させる（幼児の操作感を殺さないため）。
+const STEP_HZ = 12;
+const LIGHT_BACK = [-0.30, -0.42, -0.86];   // 光にかざしたときの逆光
+
+export const ORDER = ['mix', 'pour', 'spread', 'press', 'dry', 'peel', 'hold', 'reveal'];
 
 const STAGE_LOOK = {
   // dof = 背景のボケ量。寄る工程ほど強くして、模型を近くで撮っている感じにする。
@@ -24,6 +29,7 @@ const STAGE_LOOK = {
   press: { cam: 'press', persp: 0.95, tilt: 0.99, dof: 0.62 },
   dry: { cam: 'dry', persp: 0.90, tilt: 0.91, dof: 0.34 },
   peel: { cam: 'peel', persp: 0.96, tilt: 1.00, dof: 0.68 },
+  hold: { cam: 'hold', persp: 0.92, tilt: 0.95, dof: 0.52 },
   reveal: { cam: 'reveal', persp: 0.90, tilt: 0.88, dof: 0.30 },
 };
 
@@ -44,7 +50,11 @@ export class Game {
     this.layout = computeLayout(1, 1);
     this.cam = { x: 0, y: 0, scale: 1 };
     this.camReady = false;
-    this.time = 0;
+    this.time = 0;      // 連続時間（指の追従用）
+    this.stime = 0;     // コマ送りの時間（世界のアニメーション用）
+    this.stepAcc = 0;
+    this.jx = 0; this.jy = 0; this.flick = 1;
+    this.backDirty = true;
     this.made = 0;
     this.persp = 0.86;
     this.tilt = 0.8;
@@ -73,6 +83,7 @@ export class Game {
     this.sponge = { x: 0, y: 0, tx: 0, ty: 0, squash: 0, on: 0 };
     this.lever = { pull: 0, spin: 0, grab: false, on: 0 };
     this.peel = { len: 0, pull: 0, t: 0, grab: false, fx: 0, fy: 0, gx: 0, gy: 0, base: 0, speed: 0, free: 0, done: 0 };
+    this.hold = { x: 0, y: 0, tx: 0, ty: 0, px: 0, tilt: 0, beam: 0, t: 0 };
     this.rt = 0;
     this.revealDone = false;
     this._chimed = null;   // これを消さないと2周目でごほうびの音が鳴らない
@@ -113,6 +124,7 @@ export class Game {
         this.sponge.y = this.sponge.ty = this.layout.press.y;
       }
     }
+    this.backDirty = true;
     if (!this.camReady) { this.snapCamera(); this.camReady = true; }
   }
 
@@ -126,6 +138,15 @@ export class Game {
     const r = this.camRect();
     this.cam.x = r.x; this.cam.y = r.y;
     this.cam.scale = fitScale(r, this.sw, this.sh);
+  }
+
+  // 描画用カメラ。微ブレは画面ピクセルで加えるので、入力側の換算には影響しない。
+  drawCam() {
+    return {
+      x: this.cam.x - this.jx / this.cam.scale,
+      y: this.cam.y - this.jy / this.cam.scale,
+      scale: this.cam.scale,
+    };
   }
 
   toWorld(sx, sy) {
@@ -265,17 +286,12 @@ export class Game {
     this.introT += dt;
     if (!this.pointer.down) this.idle += dt; else this.idle = 0;
 
-    const look = STAGE_LOOK[this.stage];
-    this.persp = approach(this.persp, look.persp, 2.6, dt);
-    this.tilt = approach(this.tilt, look.tilt, 2.6, dt);
-    this.dof = approach(this.dof === undefined ? look.dof : this.dof, look.dof, 2.2, dt);
-
-    // カメラ（常に連続移動。カットしない）
-    const r = this.camRect();
-    const rate = 2.6;
-    this.cam.x = approach(this.cam.x, r.x, rate, dt);
-    this.cam.y = approach(this.cam.y, r.y, rate, dt);
-    this.cam.scale = approach(this.cam.scale, fitScale(r, this.sw, this.sh), rate, dt);
+    // --- コマ送り: 世界はここでしか動かない ---
+    this.stepAcc += dt;
+    const q = 1 / STEP_HZ;
+    let guard = 6;
+    while (this.stepAcc >= q && guard-- > 0) { this.stepAcc -= q; this.stepWorld(q); }
+    if (this.stepAcc >= q) this.stepAcc = 0;   // タブ復帰などで溜まった分は捨てる
 
     if (this.beat > 0) {
       this.beat -= dt;
@@ -287,15 +303,41 @@ export class Game {
     // 触っているのに手ごたえがない時間が続いたら、正しい対象を教える
     this.stray = (this.pointer.down && !this.acting && this.beat <= 0) ? this.stray + dt : 0;
 
-    // 枠の登場
-    const wantFrame = ORDER.indexOf(this.stage) >= 1 ? 1 : 0;
-    this.frameIn = approach(this.frameIn, wantFrame, 2.4, dt);
-
-    this.swirl += this.swirlV * dt;
     this.swirlV = approach(this.swirlV, 0, 0.7, dt);
-    this.lever.spin += (0.6 + this.lever.pull * 26) * dt;
-    this.fx.update(dt);
-    if (!this.gl) this.sheet.buildTexture();   // WebGL 経路では状態テクスチャだけ作る
+    // 代替経路では海苔も下層に描くので、コマ送りに任せず毎フレーム描き直す
+    if (!this.gl) { this.backDirty = true; this.sheet.buildTexture(); }   // WebGL 経路では状態テクスチャだけ作る
+  }
+
+  // 1コマぶん世界を進める。カメラ・粒子・演出はすべてここ。
+  stepWorld(q) {
+    this.stime += q;
+    this.backDirty = true;
+
+    const look = STAGE_LOOK[this.stage];
+    this.persp = approach(this.persp, look.persp, 2.6, q);
+    this.tilt = approach(this.tilt, look.tilt, 2.6, q);
+    this.dof = approach(this.dof === undefined ? look.dof : this.dof, look.dof, 2.2, q);
+
+    // カメラ（カットせず、コマ送りで連続移動する）
+    const r = this.camRect();
+    this.cam.x = approach(this.cam.x, r.x, 2.6, q);
+    this.cam.y = approach(this.cam.y, r.y, 2.6, q);
+    this.cam.scale = approach(this.cam.scale, fitScale(r, this.sw, this.sh), 2.6, q);
+
+    const wantFrame = ORDER.indexOf(this.stage) >= 1 ? 1 : 0;
+    this.frameIn = approach(this.frameIn, wantFrame, 2.4, q);
+
+    this.swirl += this.swirlV * q;
+    this.lever.spin += (0.6 + this.lever.pull * 26) * q;
+    this.fx.update(q);
+    if (this.stage === 'reveal') this.stepReveal(q);
+
+    // コマごとに撮り直したような、ごく小さなブレと露出のゆらぎ
+    const h = Math.sin(this.stime * 91.7) * 43758.5453;
+    const h2 = Math.sin(this.stime * 57.3 + 2.1) * 24634.6345;
+    this.jx = ((h - Math.floor(h)) - 0.5) * 0.9;
+    this.jy = ((h2 - Math.floor(h2)) - 0.5) * 0.9;
+    this.flick = 1 + ((h2 - Math.floor(h2)) - 0.5) * 0.045;
   }
 
   complete() {
@@ -335,6 +377,15 @@ export class Game {
       sfx.whoosh();
     }
     if (s === 'dry') sfx.whoosh();
+    if (s === 'hold') {
+      // 剥がし終わりの位置から続ける（手に持ったまま画面が引く）
+      const top = this.sheetQ(0.5, 0);
+      const H = this.hold;
+      H.x = H.tx = H.px = (top.x + this.peel.fx) / 2;
+      H.y = H.ty = (top.y + this.peel.fy) / 2;
+      H.beam = 0; H.t = 0; H.tilt = 0;
+      sfx.whoosh();
+    }
     if (s === 'reveal') { this.rt = 0; this.made++; }
   }
 
@@ -529,8 +580,75 @@ export class Game {
     if (P.done) P.free = clamp(P.free + dt * 1.6, 0, 1);
   }
 
-  // 7. これ知ってる！
-  up_reveal(dt) {
+  // 7. 光にかざす。透過が主役になる、ただ一つの場面。
+  up_hold(dt) {
+    const H = this.hold;
+    const b = this.layout.beam;
+    if (this.pointer.down) { H.tx = this.pointer.x; H.ty = this.pointer.y; }
+    // 迷っても詰まないよう、しばらく放っておくと自分から光へ寄っていく
+    else if (this.stageTime > 6.5) {
+      H.tx = approach(H.tx, b.x, 1.1, dt);
+      H.ty = approach(H.ty, b.y, 1.1, dt);
+    }
+    const bx = H.x;
+    H.x = approach(H.x, H.tx, 11, dt);
+    H.y = approach(H.y, H.ty, 11, dt);
+    H.tilt = approach(H.tilt, clamp((H.x - bx) / Math.max(dt, 1e-3) * 0.0006, -0.30, 0.30), 6, dt);
+
+    const d = dist(H.x, H.y, b.x, b.y);
+    const inB = clamp(1 - (d - b.r * 0.30) / (b.r * 1.15), 0, 1);
+    H.beam = approach(H.beam, inB, 6, dt);
+
+    if (H.beam > 0.30) {
+      this.acting = true;
+      H.t = clamp(H.t + dt * (0.45 + H.beam * 0.55), 0, 1);
+      if (Math.random() < H.beam * 0.3) {
+        this.fx.sparkle(H.x + (Math.random() - 0.5) * this.layout.frame.w,
+          H.y + (Math.random() - 0.5) * this.layout.frame.h * 0.8);
+      }
+      sfx.loop('shine', true, { f: 700 + 1500 * H.t, q: 7, gain: 0.02 + 0.045 * H.beam });
+    } else {
+      sfx.loop('shine', false);
+    }
+    this.p = H.t;
+    if (H.t >= 1) { sfx.loop('shine', false); this.complete(); }
+  }
+
+  // 手に持った一枚のメッシュ
+  holdQuad() {
+    const H = this.hold;
+    const f = this.layout.frame;
+    const w = f.w, h = f.h * 0.92;
+    const c = Math.cos(H.tilt), s2 = Math.sin(H.tilt);
+    const t = this.stime;
+    return (u, v) => {
+      const dx = (u - 0.5) * w;
+      const dy = (v - 0.5) * h + Math.sin(u * 4.0 + t * 1.6) * 9;
+      return { x: H.x + dx * c - dy * s2, y: H.y + dx * s2 + dy * c };
+    };
+  }
+
+  drawHoldSheetGL() {
+    const H = this.hold;
+    const mesh = this.buildQuadMesh(this.holdQuad(), 0.13);
+    const k = H.beam;
+    const light = [
+      lerp(LIGHT[0], LIGHT_BACK[0], k),
+      lerp(LIGHT[1], LIGHT_BACK[1], k),
+      lerp(LIGHT[2], LIGHT_BACK[2], k),
+    ];
+    this.gl.draw(mesh, this.drawCam(), this.sw, this.sh, this.glOpts({
+      shadow: false,
+      light,
+      backlight: 0.5 + 1.4 * k,
+      thinMax: 0.30 + 0.34 * k,
+    }));
+  }
+
+  // 7. これ知ってる！（進行はコマ送り側 stepReveal で）
+  up_reveal() {}
+
+  stepReveal(dt) {
     this.rt += dt;
     const t = this.rt;
     if (!this._chimed) this._chimed = {};
@@ -547,6 +665,7 @@ export class Game {
 
   // 開発・検証用: 任意の工程の見た目をすぐ確認する
   debugJump(stage) {
+    this.pointer.down = false;
     const made = this.made;
     this.reset(false);
     this.made = made;
@@ -559,6 +678,7 @@ export class Game {
     if (i >= 3) { put((k) => { sh.fill[k] = 1; }); }
     if (i >= 4) { put((k) => { sh.wet[k] = 0.08; sh.press[k] = 0.8; }); }
     if (i >= 5) { sh.dryStep(1); }
+    if (i >= 6) { for (let k = 0; k < sh.fill.length; k++) sh.fill[k] = 1; }
     this.stage = stage;
     this.frameIn = i >= 1 ? 1 : 0;
     this.introT = 99;
@@ -566,6 +686,11 @@ export class Game {
     this.tilt = STAGE_LOOK[stage].tilt;
     if (stage === 'pour') { this.ladle.x = this.ladle.tx = this.layout.ladleHome.x; this.ladle.y = this.ladle.ty = this.layout.ladleHome.y; }
     if (stage === 'press') { this.sponge.x = this.sponge.tx = this.layout.press.x; this.sponge.y = this.sponge.ty = this.layout.press.y; }
+    if (stage === 'hold') {
+      const f = this.layout.frame;
+      this.hold.x = this.hold.tx = f.x; this.hold.y = this.hold.ty = f.y;
+      this.hold.beam = 0; this.hold.t = 0;
+    }
     if (stage === 'reveal') { this.made++; this.rt = 0; }
     sh.dirty = true;
     this.snapCamera();
@@ -585,6 +710,7 @@ export class Game {
       case 'press': return { x: this.sponge.x, y: this.sponge.y, r: 130 };
       case 'dry': return { x: L.lever.x, y: L.lever.y - 150, r: 74 };
       case 'peel': { const c = this.sheetQ(0.5, 1.02); return { x: c.x, y: c.y, r: L.frame.w * 0.16 }; }
+      case 'hold': return { x: L.beam.x, y: L.beam.y, r: L.beam.r * 0.8 };
       default: return null;
     }
   }
@@ -595,7 +721,7 @@ export class Game {
   get hintK() {
     return Math.max(smooth(inv(2.2, 3.0, this.idle)), smooth(inv(1.4, 2.1, this.stray)));
   }
-  get wig() { return this.hinting ? Math.sin(this.time * 9) * this.hintK : 0; }
+  get wig() { return this.hinting ? Math.sin(this.stime * 9) * this.hintK : 0; }
 
   // 工房の背景をワールド座標で焼いたキャッシュ。向きが変わったときだけ作り直す。
   bgCache() {
@@ -606,7 +732,7 @@ export class Game {
     const x = c.getContext('2d');
     x.setTransform(S_, 0, 0, S_, -X * S_, -Y * S_);
     S.drawWorkshop(x, { x0: X, y0: Y, x1: X + W, y1: Y + H }, 0,
-      this.layout.horizon, this.layout.props, true);
+      this.layout.horizon, this.layout.props, true, this.layout.window);
 
     // 被写界深度用のボケ版。低解像度に落として戻すだけで十分なぼけになる。
     const b = document.createElement('canvas');
@@ -771,8 +897,8 @@ export class Game {
     const P = this.peel;
     return Object.assign({
       light: LIGHT,
-      wetCol: [0.200, 0.290, 0.190],
-      dryCol: [0.058, 0.105, 0.072],
+      wetCol: [0.200 * this.flick, 0.290 * this.flick, 0.190 * this.flick],
+      dryCol: [0.058 * this.flick, 0.105 * this.flick, 0.072 * this.flick],
       dry: this.sheet.dry,
       backlight: 1.0,
       matPitch: 22,
@@ -798,7 +924,9 @@ export class Game {
 
   // ---- 描画 -----------------------------------------------------------
   render() {
-    this.renderBack();
+    // 下層（工房・枠）はコマ送りでしか変わらないので、その時だけ描き直す。
+    // 中層(海苔)と上層(道具・指の追従)は毎フレーム。
+    if (this.backDirty) { this.renderBack(); this.backDirty = false; }
     this.renderGL();
     this.renderFront();
   }
@@ -810,9 +938,10 @@ export class Game {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0b100e';
     ctx.fillRect(0, 0, this.backCanvas.width, this.backCanvas.height);
-    ctx.setTransform(this.cam.scale * d, 0, 0, this.cam.scale * d,
-      (this.sw / 2 - this.cam.x * this.cam.scale) * d,
-      (this.sh / 2 - this.cam.y * this.cam.scale) * d);
+    const dc = this.drawCam();
+    ctx.setTransform(dc.scale * d, 0, 0, dc.scale * d,
+      (this.sw / 2 - dc.x * dc.scale) * d,
+      (this.sh / 2 - dc.y * dc.scale) * d);
 
     // 背景はワールド空間に焼いたものを貼る。寄るほどボケた版を重ねて
     // 被写界深度を作る（模型を近くで撮っている感じ）。
@@ -825,6 +954,7 @@ export class Game {
 
     ctx.save();
     ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.globalAlpha = clamp(0.92 + (this.flick - 1) * 1.6, 0, 1);
     ctx.drawImage(this.vignette(), 0, 0, this.sw, this.sh);
     ctx.restore();
 
@@ -839,7 +969,7 @@ export class Game {
         ctx.rotate(wig * 0.012);
         ctx.translate(-this.layout.vat.x, -this.layout.vat.y);
       }
-      S.drawVat(ctx, this.layout.vat, this.time, this.swirl, level, this.mixed);
+      S.drawVat(ctx, this.layout.vat, this.stime, this.swirl, level, this.mixed);
       ctx.restore();
     }
 
@@ -849,13 +979,18 @@ export class Game {
       ctx.save();
       this.applyWigCtx(ctx);
       ctx.globalAlpha = clamp(this.frameIn * 1.4, 0, 1) * (1 - revealFade);
-      S.drawFrameBase(ctx, geo, this.time);
+      S.drawFrameBase(ctx, geo, this.stime);
       // WebGL が使えないときはここに 2D のシートを描く
       if (!this.gl && this.stage !== 'reveal') this.drawSheet(ctx);
       ctx.globalAlpha = 1;
       ctx.restore();
     }
 
+    if (this.stage === 'hold') {
+      S.drawLightShaft(ctx, this.layout.window, this.layout.beam,
+        smooth(inv(0.0, 0.7, this.stageTime)));
+      if (!this.gl) this.sheet.drawFlat(ctx, this.holdQuad(), 0, 1);
+    }
     if (this.stage === 'reveal') this.drawRevealBack(ctx);
   }
 
@@ -867,13 +1002,14 @@ export class Game {
     gl.beginFrame(this.dpr);
     gl.uploadState(this.sheet.stateData(), COLS, ROWS);
 
+    if (this.stage === 'hold') { this.drawHoldSheetGL(); return; }
     if (this.stage === 'reveal') {
       this.drawRevealSheetGL();
       return;
     }
     if (this.frameIn <= 0.01) return;
     const mesh = this.buildMesh();
-    gl.draw(mesh, this.cam, this.sw, this.sh, this.glOpts({
+    gl.draw(mesh, this.drawCam(), this.sw, this.sh, this.glOpts({
       shadow: !!this.peelGeom(),
       shadowFrom: GVA * GU * 6,          // 影は剥がれた行だけ
       alpha: clamp(this.frameIn * 1.4, 0, 1),
@@ -886,9 +1022,10 @@ export class Game {
     const d = this.dpr;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.frontCanvas.width, this.frontCanvas.height);
-    ctx.setTransform(this.cam.scale * d, 0, 0, this.cam.scale * d,
-      (this.sw / 2 - this.cam.x * this.cam.scale) * d,
-      (this.sh / 2 - this.cam.y * this.cam.scale) * d);
+    const dc = this.drawCam();
+    ctx.setTransform(dc.scale * d, 0, 0, dc.scale * d,
+      (this.sw / 2 - dc.x * dc.scale) * d,
+      (this.sh / 2 - dc.y * dc.scale) * d);
 
     const wig = this.wig;
     const revealFade = this.revealFade();
@@ -1020,7 +1157,7 @@ export class Game {
   // つまむ場所を示す、少しめくれた角
   drawTab(ctx) {
     const a = this.sheetQ(0.28, 1), b = this.sheetQ(0.72, 1);
-    const lift = 16 + this.wig * 6 + Math.sin(this.time * 2.4) * 4;
+    const lift = 16 + this.wig * 6 + Math.sin(this.stime * 2.4) * 4;
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(a.x, a.y + 2);
@@ -1073,7 +1210,7 @@ export class Game {
     ctx.lineCap = 'round';
     const dir = Math.sign(f.x - fan.x) || -1;
     for (let i = 0; i < 9; i++) {
-      const ph = (this.time * (1.3 + power * 2.4) + i * 0.37) % 1;
+      const ph = (this.stime * (1.3 + power * 2.4) + i * 0.37) % 1;
       const y = fan.y - 130 + i * 32;
       const x0 = fan.x + dir * (60 + ph * 420);
       ctx.globalAlpha = Math.sin(ph * Math.PI) * (0.4 + power * 0.6);
@@ -1161,7 +1298,7 @@ export class Game {
     if (t < 2.05) {
       // 持ち上がった一枚。透過が効くので薄い所が光る。
       const mesh = this.buildQuadMesh(this.revealQuad(), 0.16 * (1 - fly) + 0.05);
-      this.gl.draw(mesh, this.cam, this.sw, this.sh,
+      this.gl.draw(mesh, this.drawCam(), this.sw, this.sh,
         this.glOpts({ shadow: true, shadowOff: [16, 30], backlight: 1.15 }));
       return;
     }
@@ -1174,7 +1311,7 @@ export class Game {
       const dx = (u - 0.5) * R.sheetW, dy = (v - 0.5) * R.sheetH;
       return { x: sx + dx * c - dy * s2, y: sy + dx * s2 + dy * c };
     }, 0.05);
-    this.gl.draw(mesh, this.cam, this.sw, this.sh,
+    this.gl.draw(mesh, this.drawCam(), this.sw, this.sh,
       this.glOpts({ shadow: false, backlight: 0.25 }));
   }
 
@@ -1191,7 +1328,7 @@ export class Game {
     const h = this.hintTarget();
     if (!h) return;
     const k = this.hintK;
-    const ph = (this.time * 0.9) % 1;
+    const ph = (this.stime * 0.9) % 1;
     ctx.save();
     ctx.globalAlpha = k * (1 - ph) * 0.95;
     ctx.beginPath();
@@ -1204,7 +1341,7 @@ export class Game {
     // 指のアイコン（人差し指を立てた手）
     ctx.save();
     ctx.globalAlpha = k * 0.92;
-    const bob = Math.sin(this.time * 3.2) * h.r * 0.1;
+    const bob = Math.sin(this.stime * 3.2) * h.r * 0.1;
     ctx.translate(h.x + h.r * 0.3, h.y + h.r * 0.34 + bob);
     const s = clamp(h.r * 0.0085, 0.32, 1.25);
     ctx.scale(s, s);
@@ -1223,7 +1360,7 @@ export class Game {
   drawHud(ctx) {
     const pad = Math.min(this.sw, this.sh) * 0.055 + 8;
     const r = this.hud * 0.42;
-    const n = 6;
+    const n = ORDER.length - 1;
     const gap = r * 3.6;
     const cx = this.sw / 2, cy = pad;
     const cur = Math.min(ORDER.indexOf(this.stage), n - 1);
@@ -1253,7 +1390,7 @@ export class Game {
 
     if (this.stage === 'reveal' && this.revealDone) {
       const b = this.replayButton();
-      const pulse = 1 + Math.sin(this.time * 3) * 0.045;
+      const pulse = 1 + Math.sin(this.stime * 3) * 0.045;
       ctx.save();
       ctx.translate(b.x, b.y);
       ctx.scale(pulse, pulse);

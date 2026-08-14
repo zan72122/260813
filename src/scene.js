@@ -1,5 +1,5 @@
 // 工房・桶・抄き枠・道具の描画。すべてワールド座標系で描く。
-import { clamp, lerp, TAU, roundRect, makeNoise } from './util.js';
+import { clamp, lerp, TAU, roundRect, makeNoise, rng } from './util.js';
 
 const nz = makeNoise(31);
 
@@ -16,7 +16,7 @@ function gooBuffer() {
 }
 
 // noVignette: 背景をワールド空間のキャッシュへ焼くとき用（周辺減光は画面側で掛ける）
-export function drawWorkshop(ctx, view, t, horizon = 0, props = null, noVignette = false) {
+export function drawWorkshop(ctx, view, t, horizon = 0, props = null, noVignette = false, win = null) {
   const { x0, y0, x1, y1 } = view;
   const W = x1 - x0, H = y1 - y0;
   const g = ctx.createLinearGradient(0, horizon - 1400, 0, horizon);
@@ -53,12 +53,32 @@ export function drawWorkshop(ctx, view, t, horizon = 0, props = null, noVignette
   }
   ctx.restore();
 
-  // 窓あかり
-  const lg = ctx.createRadialGradient(-320, horizon - 780, 30, -320, horizon - 780, 1000);
-  lg.addColorStop(0, 'rgba(255,226,170,0.17)');
-  lg.addColorStop(1, 'rgba(255,226,170,0)');
-  ctx.fillStyle = lg;
-  ctx.fillRect(x0, y0, W, H);
+  // 窓。ここが工房のただ一つの光源で、全素材のキーライトと向きを合わせてある。
+  if (win) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y0, W, Math.max(0, horizon - y0));
+    ctx.clip();
+    const wg = ctx.createLinearGradient(win.x, win.y - win.h / 2, win.x, win.y + win.h / 2);
+    wg.addColorStop(0, '#fff3d2');
+    wg.addColorStop(1, '#e8cf9a');
+    ctx.fillStyle = wg;
+    ctx.fillRect(win.x - win.w / 2, win.y - win.h / 2, win.w, win.h);
+    ctx.strokeStyle = '#6d573a';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(win.x - win.w / 2, win.y - win.h / 2, win.w, win.h);
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(win.x, win.y - win.h / 2); ctx.lineTo(win.x, win.y + win.h / 2);
+    ctx.moveTo(win.x - win.w / 2, win.y); ctx.lineTo(win.x + win.w / 2, win.y);
+    ctx.stroke();
+    ctx.restore();
+    const lg = ctx.createRadialGradient(win.x, win.y, 20, win.x, win.y, 1050);
+    lg.addColorStop(0, 'rgba(255,230,178,0.22)');
+    lg.addColorStop(1, 'rgba(255,230,178,0)');
+    ctx.fillStyle = lg;
+    ctx.fillRect(x0, y0, W, H);
+  }
 
   // 床
   const fy = horizon;
@@ -86,6 +106,39 @@ export function drawVignette(ctx, view) {
   vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   ctx.fillStyle = vg;
   ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+}
+
+// 窓から差し込む光の帯。「ここにかざす」を、文字なしで示す。
+export function drawLightShaft(ctx, win, beam, k) {
+  if (k <= 0.01) return;
+  const dx = beam.x - win.x, dy = beam.y - win.y;
+  const L = Math.max(1, Math.hypot(dx, dy));
+  const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+  const near = win.w * 0.46, far = win.w * 0.46 + beam.r * 1.5;
+  const end = L * 1.95;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(win.x, win.y, win.x + ux * end, win.y + uy * end);
+  g.addColorStop(0, `rgba(255,236,190,${0.26 * k})`);
+  g.addColorStop(0.55, `rgba(255,232,180,${0.13 * k})`);
+  g.addColorStop(1, 'rgba(255,230,175,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(win.x + nx * near, win.y + ny * near);
+  ctx.lineTo(win.x - nx * near, win.y - ny * near);
+  ctx.lineTo(win.x - nx * far + ux * end, win.y - ny * far + uy * end);
+  ctx.lineTo(win.x + nx * far + ux * end, win.y + ny * far + uy * end);
+  ctx.closePath();
+  ctx.fill();
+  // かざす場所
+  const bg = ctx.createRadialGradient(beam.x, beam.y, 0, beam.x, beam.y, beam.r * 1.25);
+  bg.addColorStop(0, `rgba(255,240,200,${0.16 * k})`);
+  bg.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.arc(beam.x, beam.y, beam.r * 1.25, 0, TAU);
+  ctx.fill();
+  ctx.restore();
 }
 
 // 接地影。接触部のきつい暗さ(AO)と、やわらかい落ち影を分けて描く。
@@ -508,13 +561,31 @@ export function drawNoriSheetIcon(ctx, x, y, w, h, rot = 0, alpha = 1, curl = 0)
   ctx.quadraticCurveTo(0, h / 2 + curl * h * 0.12, -w / 2, h / 2);
   ctx.closePath();
   const g = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
-  g.addColorStop(0, '#16271c');
-  g.addColorStop(0.5, '#0e1b13');
-  g.addColorStop(1, '#1a2e20');
+  g.addColorStop(0, '#101d14');
+  g.addColorStop(0.5, '#0a1410');
+  g.addColorStop(1, '#132419');
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(120,150,116,0.22)';
-  ctx.lineWidth = 2;
+  // 繊維の目。WebGL の海苔と素材感を揃えるため、平べったい塗りにしない。
+  ctx.save();
+  ctx.clip();
+  const r = rng(Math.round(w * 31 + h * 7));
+  for (let i = 0; i < 90; i++) {
+    const px = (r() - 0.5) * w, py = (r() - 0.5) * h;
+    const len = (3 + r() * r() * 18) * (w / 300);
+    const a = (r() - 0.5) * 6.283;
+    ctx.strokeStyle = r() < 0.5
+      ? `rgba(150,178,144,${0.05 + r() * 0.10})`
+      : `rgba(0,8,3,${0.06 + r() * 0.12})`;
+    ctx.lineWidth = 0.6 + r() * 1.1;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(120,150,116,0.18)';
+  ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.restore();
 }

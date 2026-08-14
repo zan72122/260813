@@ -44,5 +44,13 @@ for (const t of [1.6, 3.4, 5.4]) {
   await sleep(200);
   await page.screenshot({ path: path.join(dir, `${DEV.name}-reveal-${Math.round(t * 10)}.png`) });
 }
+
+// 光にかざす場面
+for (const k of [0.0, 0.55, 1.0]) {
+  await page.evaluate((v) => window.__nori.setHold(v), k);
+  await sleep(260);
+  await page.screenshot({ path: path.join(dir, `${DEV.name}-hold-${Math.round(k * 100)}.png`) });
+}
+
 await browser.close();
 console.log('preview shots ->', dir);

@@ -110,6 +110,7 @@ window.__nori = {
       wet: +game.sheet.avgWet().toFixed(3),
       dry: +game.sheet.dry.toFixed(3),
       peel: +game.peel.t.toFixed(3),
+      hold: +game.hold.t.toFixed(3),
       made: game.made,
       revealDone: game.revealDone,
     };
@@ -143,6 +144,15 @@ window.__nori = {
   },
   reset() { game.reset(true); game.snapCamera(); },
   jump(stage) { game.debugJump(stage); },
+  // 光にかざす場面の状態を作る（見た目の確認用）
+  setHold(k) {
+    game.debugJump('hold');
+    const b = game.layout.beam;
+    game.hold.x = game.hold.tx = b.x;
+    game.hold.y = game.hold.ty = b.y;
+    game.hold.beam = k;
+    game.hold.t = k;
+  },
   // 剥がしの途中状態を作る（見た目の確認用）
   setPeel(t) {
     const fh = Math.abs(game.sheetQ(0, 1).y - game.sheetQ(0, 0).y);

@@ -36,7 +36,7 @@ function heightMap(w, h, strokes, seed) {
     const dir = r() < 0.62 ? (r() - 0.5) * 1.5 : (r() - 0.5) * 6.283;
     const bend = (r() - 0.5) * len * 0.5;
     const up = r() < 0.55;
-    const a = 0.05 + r() * r() * 0.30;
+    const a = 0.05 + r() * r() * 0.44;
     x.strokeStyle = up ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a * 0.85})`;
     x.lineWidth = (0.7 + r() * r() * 2.6) * S;
     x.beginPath();
@@ -49,12 +49,12 @@ function heightMap(w, h, strokes, seed) {
   }
 
   // ごく小さな穴（薄い所）。透過したときにここが光る。
-  for (let i = 0; i < strokes * 0.03; i++) {
+  for (let i = 0; i < strokes * 0.055; i++) {
     const px = r() * w, py = r() * h;
     const rad = (0.6 + r() * r() * 5) * S;
     x.beginPath();
     x.ellipse(px, py, rad, rad * (0.5 + r()), r() * 6.283, 0, 6.283);
-    x.fillStyle = `rgba(0,0,0,${0.25 + r() * 0.5})`;
+    x.fillStyle = `rgba(0,0,0,${0.35 + r() * 0.6})`;
     x.fill();
   }
   return x.getImageData(0, 0, w, h);

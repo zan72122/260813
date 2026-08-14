@@ -42,6 +42,7 @@ uniform float uShadow;
 uniform float uTier;
 uniform float uBacklight;
 uniform float uMatPitch;
+uniform float uThinMax;   // 透過するとみなす厚みの上限（逆光で広がる）
 uniform float uAlpha;
 uniform sampler2D uNoise;   // 128x128 の繰り返しノイズ（水玉用）
 
@@ -121,6 +122,8 @@ void main() {
   }
 
   vec3 col = base * (0.40 + 0.86 * ndl);
+  // 逆光のときは表側が沈む。透過だけが残るのでシルエットが立つ。
+  col *= 1.0 - clamp(uBacklight - 1.0, 0.0, 1.6) * 0.20;
   // 面が寝てくるほど拡散反射は落ちる。めくれの立体感が出て、
   // 真横を向いた所が白っぽくのっぺりするのを防ぐ。
   col *= 0.52 + 0.48 * abs(N.z);
@@ -147,9 +150,12 @@ void main() {
 
   // --- 透過（持ち上がった所だけ、薄い部分が透けて光る。海苔の決定打） ---
   // 一様に光らせない。厚みの薄い所だけがレース状に抜ける。
-  float thin = smoothstep(0.34, 0.04, thick);
-  float trans = uBacklight * lift * thin * (0.55 + 0.45 * max(dot(-N, L), 0.0));
-  col += vec3(0.46, 0.48, 0.19) * trans;
+  // 3乗して薄い所だけを際立たせる。線形だと面全体が一様に光ってしまう。
+  float th0 = smoothstep(uThinMax, 0.02, thick);
+  float thin = th0 * 0.22 + pow(th0, 3.0) * 0.78;
+  // 逆光でも面全体は光らせない。厚い所は黒いまま残さないとレースにならない。
+  float trans = min(uBacklight * lift * thin * (0.55 + 0.45 * max(dot(-N, L), 0.0)), 1.15);
+  col += vec3(0.54, 0.56, 0.21) * trans;
 
   gl_FragColor = vec4(col, alpha);
 }`;
@@ -215,6 +221,7 @@ export class SheetGL {
       uTier: g.getUniformLocation(p, 'uTier'),
       uBacklight: g.getUniformLocation(p, 'uBacklight'),
       uMatPitch: g.getUniformLocation(p, 'uMatPitch'),
+      uThinMax: g.getUniformLocation(p, 'uThinMax'),
       uAlpha: g.getUniformLocation(p, 'uAlpha'),
       uNoise: g.getUniformLocation(p, 'uNoise'),
     };
@@ -354,6 +361,7 @@ export class SheetGL {
     g.uniform1f(L.uTier, this.tier);
     g.uniform1f(L.uBacklight, opts.backlight);
     g.uniform1f(L.uMatPitch, opts.matPitch);
+    g.uniform1f(L.uThinMax, opts.thinMax === undefined ? 0.34 : opts.thinMax);
     g.uniform1f(L.uAlpha, opts.alpha === undefined ? 1 : opts.alpha);
 
     g.activeTexture(g.TEXTURE0);
