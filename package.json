@@ -1,0 +1,17 @@
+{
+  "name": "nori-koujou",
+  "version": "1.0.0",
+  "description": "ぺちゃっ！ぎゅっ！ぺりっ！ のりこうじょう — 4歳児向けモバイルWebゲーム",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check src/util.js && node --check src/audio.js && node --check src/layout.js && node --check src/fx.js && node --check src/sheet.js && node --check src/scene.js && node --check src/game.js && node --check src/main.js && node --check server.js",
+    "playtest": "node scripts/playtest.mjs",
+    "preview": "node scripts/preview.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
