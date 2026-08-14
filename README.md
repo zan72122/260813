@@ -82,13 +82,14 @@ src/
   fx.js             パーティクル（湯気・きらきら・霧・しずく・泡）
   art.js            器・道具・背景の描画
   natto.js          納豆の材質（塊・接触影・照り・泡・糸・膜）と焼き込み素材
+  scenes/           title / soak / steam / spray / pack / ferment / finale / reveal
 assets/             焼き込み済みスプライト（PNG, 約 2.4MB）
 tools/              焼き込みパイプライン（bake.mjs / gen/*.js）
-  scenes/           title / soak / steam / spray / pack / ferment / finale / reveal
+material.html       質感テストベンチ
 tests/play.mjs      縦横それぞれで一周プレイする自動確認
 ```
 
-- ライブラリ・ビルド・アセットは一切なし。Canvas 2D のみ。
+- ライブラリもビルドもなし。Canvas 2D と、焼き込み済みの PNG だけ。
 - 3D は使わず、**シーン制御型の 2.5D**。自由カメラなし。
 - 糸は物理シミュレーションではなく、**先細りリボン＋たるみ＋ゆらぎ**で「偽装」しています。
   粘りは `sticky`（0→1）というひとつの数値だけで、色・膜・糸の本数・切れにくさ・
