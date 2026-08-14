@@ -13,6 +13,7 @@ import {
 import {
   W, RACK_HALF, BOARD_HALF, GUIDE, resetWorld, setMood, setStrandCount,
   relayout, morphTo, gust, askHint, clearHint,
+  makeProfile, bulgeProfile, relaxProfile,
 } from './world.js';
 import { camera, pointer } from './scene.js';
 import { emit, ring, clearFx, clearRings } from './fx.js';
@@ -98,6 +99,15 @@ function idleHint(x, y, kind = 'tap', ang = 0) {
 // 1. まとめる — gather the scattered white lumps into one
 // =====================================================================
 
+// The board is a shallow disc seen from a low angle, so anything resting on
+// it follows this ellipse. Keeping the lumps *on* it — rather than floating
+// in a ring in front of it — is most of what sells the opening.
+const BENCH_EDGE = 40;                 // where the bench meets the wall
+const BOARD = { cy: 190, rx: 340, squash: 0.34 };
+const seatY = (d, ang) => BOARD.cy + Math.sin(ang) * d * BOARD.squash;
+/** How high a lump of radius r sits when it is resting on the board. */
+const seatLift = (r, flatten) => r * (1 - flatten) * 0.94;
+
 const gather = {
   id: 'gather',
   enter() {
@@ -105,36 +115,46 @@ const gather = {
     W.shopAlpha = 1;
     W.floorAlpha = 1;
     W.boardAlpha = 1;
-    W.ball = { x: 0, y: 40, r: 40, squash: 0, alpha: 1, wob: 0 };
-    W.blobs.length = 0;
+    // The worktop starts above the board's far edge, so the board lies on the
+    // bench instead of hanging on the wall behind it.
+    W.floorY = BENCH_EDGE;
     const rng = W.rng;
+
+    W.ball = {
+      x: 0, y: 0, r: 56, squash: 0.1, alpha: 1, flatten: 0.36, rot: 0,
+      prof: makeProfile(rng, 0.7),
+    };
+    W.ball.y = BOARD.cy - seatLift(W.ball.r, W.ball.flatten);
+
+    W.blobs.length = 0;
     for (let i = 0; i < 6; i++) {
-      const a = -0.6 + (i / 6) * TAU + rr(rng, -0.18, 0.18);
-      const d = rr(rng, 215, 300);
+      // Torn-off pieces: different sizes, different shapes, seated on the
+      // board at their own distance rather than on a tidy circle.
+      const a = -0.55 + (i / 6) * TAU + rr(rng, -0.22, 0.22);
+      const d = rr(rng, 178, 258);
+      const r = rr(rng, 28, 46);
+      const flatten = rr(rng, 0.3, 0.44);
       W.blobs.push({
+        a, d, r, flatten,
         x: Math.cos(a) * d,
-        y: 40 + Math.sin(a) * d * 0.6,
-        r: rr(rng, 34, 48),
-        alpha: 1, squash: 0, seed: rr(rng, 0, 10),
-        state: 'idle', t: 0, sx: 0, sy: 0, cx: 0, cy: 0,
+        y: seatY(d, a) - seatLift(r, flatten),
+        squash: rr(rng, 0.04, 0.14),
+        rot: rr(rng, -0.5, 0.5),
+        prof: makeProfile(rng, 1.5),
+        alpha: 1, state: 'idle', t: 0, a0: a, d0: d, r0: r,
       });
     }
-    camera.fit(0, 46, 700, 700, true);
+    camera.fit(0, 176, 660, 660, true);
     this.merged = 0;
     this.celebrate = -1;
   },
-  view() { camera.fit(0, 46, 700, 700); },
+  view() { camera.fit(0, 176, 660, 660); },
   grab() {
     for (const b of W.blobs) {
       if (b.state !== 'idle') continue;
       if (dist(pointer.x, pointer.y, b.x, b.y) < b.r + 90) {
-        b.state = 'fly';
+        b.state = 'press';
         b.t = 0;
-        b.sx = b.x; b.sy = b.y;
-        // arc the lump towards the ball so it feels thrown, not dragged
-        const mx = (b.x + W.ball.x) / 2, my = (b.y + W.ball.y) / 2;
-        b.cx = mx + (b.y - W.ball.y) * 0.28;
-        b.cy = my - Math.abs(b.x - W.ball.x) * 0.22 - 60;
         ring(b.x, b.y, { color: '#fff6dd', r1: 130 });
         sfx.note(1 + (this.merged % 4), 0.1, 0, 0.35);
       }
@@ -145,37 +165,53 @@ const gather = {
   },
   update(dt) {
     const ball = W.ball;
-    ball.squash = damp(ball.squash, 0, 9, dt);
+    ball.squash = damp(ball.squash, 0.1, 9, dt);
+    // The mass keeps settling between presses; that slow easing back toward
+    // round is what makes it read as dough rather than as a balloon.
+    relaxProfile(ball.prof, dt, 2.6);
+    ball.y = damp(ball.y, BOARD.cy - seatLift(ball.r, ball.flatten), 9, dt);
 
     for (const b of W.blobs) {
-      if (b.state === 'fly') {
-        b.t += dt / 0.42;
-        const k = easeOut(clamp01(b.t));
-        const ik = 1 - k;
-        b.x = ik * ik * b.sx + 2 * ik * k * b.cx + k * k * ball.x;
-        b.y = ik * ik * b.sy + 2 * ik * k * b.cy + k * k * ball.y;
-        b.squash = Math.sin(k * Math.PI) * 0.16;
-        if (b.t >= 1) {
-          b.state = 'gone';
-          b.alpha = 0;
-          this.merged++;
-          // volume-ish growth so the ball never balloons
-          ball.r = Math.min(98, Math.sqrt(ball.r * ball.r + b.r * b.r * 0.78));
-          ball.squash = 0.22;
-          sfx.pop(this.merged);
-          emit('dust', ball.x, ball.y + ball.r * 0.4, { count: 10, color: '#fffaf0', size: 6, speed: 130, life: 0.7 });
-          ring(ball.x, ball.y, { color: '#ffffff', r1: ball.r * 2.4 });
-          camera.kick(4);
-        }
+      if (b.state !== 'press') continue;
+      b.t += dt / 0.5;
+      const k = easeInOut(clamp01(b.t));
+
+      // Slide in along the board instead of flying through the air, and
+      // stretch along the direction of travel the way a soft lump does.
+      const d = lerp(b.d0, ball.r * 0.72, k);
+      b.d = d;
+      b.x = Math.cos(b.a) * d;
+      b.y = seatY(d, b.a) - seatLift(b.r, b.flatten) - Math.sin(k * Math.PI) * b.r * 0.22;
+      b.rot = Math.atan2(seatY(ball.r * 0.72, b.a) - seatY(b.d0, b.a), -Math.cos(b.a) * (b.d0 - ball.r * 0.72));
+      b.squash = 0.08 + Math.sin(k * Math.PI) * 0.3;
+      b.r = b.r0 * (1 - k * 0.18);
+      if (k >= 1) {
+        b.state = 'gone';
+        b.alpha = 0;
+        this.merged++;
+
+        // The mass swells where the piece went in, then settles.
+        const contact = Math.atan2(b.y - ball.y, b.x - ball.x);
+        bulgeProfile(ball.prof, contact, 0.3 + b.r0 / 260, 0.8);
+        ball.r = Math.min(100, Math.sqrt(ball.r * ball.r + b.r0 * b.r0 * 0.8));
+        ball.squash = 0.2;
+
+        sfx.pop(this.merged);
+        emit('dust', b.x, b.y + b.r * 0.5, {
+          count: 12, color: '#fffaf0', size: 5, speed: 150, life: 0.7, spread: b.r * 0.7,
+        });
+        emit('crumb', b.x, b.y, { count: 4, color: '#f6e9d2', size: 3.4, speed: 120, life: 0.6 });
+        camera.kick(4);
       }
     }
 
     if (this.merged >= 6 && this.celebrate < 0) {
       this.celebrate = 0;
-      ball.squash = -0.3;
+      ball.squash = -0.18;
       emit('spark', ball.x, ball.y, { count: 16, color: '#fff3c4', size: 7, speed: 210, life: 0.9 });
+      emit('dust', ball.x, ball.y, { count: 14, color: '#fffaf0', size: 6, speed: 190, life: 0.9, spread: 60 });
       sfx.sparkle(4);
-      next(1.1);
+      next(1.2);
     }
 
     const left = W.blobs.find((b) => b.state === 'idle');
@@ -198,47 +234,66 @@ const stretch1 = {
     const r = W.rope;
     r.ax = W.ball.x; r.ay = W.ball.y;
     r.hx = W.ball.x + W.ball.r * 0.8; r.hy = W.ball.y;
-    r.len = 0; r.thick = 78; r.alpha = 0; r.grabbed = false; r.coil = 0;
+    r.len = 0; r.thick = 82; r.alpha = 0; r.grabbed = false; r.coil = 0;
+    // Uneven thickness along the rope. It evens out as the dough is drawn
+    // out, which is exactly what happens when you pull real dough.
+    r.lumps = [
+      { f: rr(W.rng, 1.6, 2.6), p: rr(W.rng, 0, TAU), a: rr(W.rng, 0.1, 0.19) },
+      { f: rr(W.rng, 3.4, 5.2), p: rr(W.rng, 0, TAU), a: rr(W.rng, 0.05, 0.1) },
+    ];
     this.startR = W.ball.r;
     this.moveT = 0;
     this.speed = 0;
   },
   view() {
     const p = clamp01(W.rope.len / W.rope.maxLen);
-    const w = lerp(700, 1000, p);
-    camera.fit(lerp(-40, 90, p), 60, w, w * 0.86);
+    const w = lerp(660, 1000, p);
+    camera.fit(lerp(-60, 110, p), 168, w, w * 0.86);
   },
   update(dt) {
     const r = W.rope;
-    // slide the dough aside and swap the round board for the long worktop,
-    // so there is room to pull without anything running off the screen
-    this.moveT = clamp01(this.moveT + dt / 0.7);
+    // Slide the mass aside and take the round board away, so there is a clear
+    // run of bench to pull along.
+    this.moveT = clamp01(this.moveT + dt / 0.8);
     const k = easeInOut(this.moveT);
     W.boardAlpha = damp(W.boardAlpha, 0, 3.2, dt);
-    W.floorY = damp(W.floorY, 175, 2.6, dt);
     W.ball.x = lerp(0, -300, k);
-    W.ball.y = W.floorY - W.ball.r * 0.5;
-    r.ax = W.ball.x; r.ay = W.ball.y;
-    if (this.moveT > 0.45) r.alpha = damp(r.alpha, 1, 6, dt);
+    W.ball.y = damp(W.ball.y, BOARD.cy - seatLift(W.ball.r, W.ball.flatten), 6, dt);
+    relaxProfile(W.ball.prof, dt, 2.2);
+    r.ax = W.ball.x + W.ball.r * 0.62;
+    r.ay = W.ball.y + W.ball.r * 0.18;
+    if (this.moveT > 0.4) r.alpha = damp(r.alpha, 1, 6, dt);
 
     const p = clamp01(r.len / r.maxLen);
-    W.ball.r = lerp(this.startR, 42, p);
-    r.thick = lerp(78, 34, p);
+    W.ball.r = lerp(this.startR, 44, p);
+    r.thick = lerp(82, 30, p);
 
     if (r.grabbed && pointer.down) {
-      const tx = clamp(pointer.x, r.ax + 60, r.ax + r.maxLen + 120);
-      const ty = clamp(pointer.y, r.ay - 230, r.ay + 260);
+      const tx = clamp(pointer.x, r.ax + 50, r.ax + r.maxLen + 120);
+      const ty = clamp(pointer.y, r.ay - 80, r.ay + 120);
       const before = r.hx;
       [r.hx, r.hy] = follow(r.hx, r.hy, tx, ty, dt, 11);
       this.speed = damp(this.speed, Math.abs(r.hx - before) / Math.max(dt, 0.001) / 700, 8, dt);
       // length only ever grows: pulling can never be undone
-      r.len = Math.max(r.len, r.hx - r.ax - 60);
-      if (this.speed > 0.06 && Math.random() < 0.5) {
-        emit('dust', r.hx, r.hy, { count: 1, color: '#fff6e2', size: 5, speed: 90, life: 0.6 });
+      r.len = Math.max(r.len, r.hx - r.ax - 50);
+      // The mass is dragged toward the pull and necks down where the rope
+      // leaves it — the clearest sign that the two are one piece of dough.
+      if (this.speed > 0.02) {
+        bulgeProfile(W.ball.prof, Math.atan2(r.hy - W.ball.y, r.hx - W.ball.x),
+          this.speed * 0.5 * dt * 12, 0.55);
+        W.ball.squash = damp(W.ball.squash, 0.1 + this.speed * 0.2, 6, dt);
+      }
+      if (this.speed > 0.05 && Math.random() < 0.7) {
+        // flour shaken loose along the length that is thinning
+        const u = Math.random();
+        emit('dust', lerp(r.ax, r.hx, u), lerp(r.ay, r.hy, u) + r.thick * 0.4, {
+          count: 1, color: '#fff8ec', size: 4, speed: 70, life: 0.8,
+        });
       }
       stretchUpdate(clamp01(r.len / r.maxLen), this.speed);
     } else {
       this.speed = damp(this.speed, 0, 6, dt);
+      W.ball.squash = damp(W.ball.squash, 0.1, 4, dt);
     }
 
     if (r.len >= r.maxLen && advanceIn < 0) {
@@ -264,7 +319,7 @@ const stretch1 = {
   },
   plan() {
     const r = W.rope;
-    return { type: 'drag', x0: r.hx, y0: r.hy, x1: Math.min(r.ax + r.maxLen + 110, r.hx + 320), y1: r.hy - 10, dur: 0.55 };
+    return { type: 'drag', x0: r.hx, y0: r.hy, x1: Math.min(r.ax + r.maxLen + 110, r.hx + 320), y1: r.ay + 18, dur: 0.55 };
   },
 };
 

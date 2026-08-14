@@ -5,7 +5,9 @@ import {
   TAU, clamp, clamp01, lerp, smooth, easeOut, mix, roundRect, strokeThrough,
   makeRng, rr,
 } from './util.js';
-import { W, RACK_HALF, GUIDE, strandPoints, noodleColor } from './world.js';
+import {
+  W, RACK_HALF, GUIDE, strandPoints, noodleColor, PROFILE_N,
+} from './world.js';
 import { screenSize } from './scene.js';
 import { LIGHT, LIT, SHADE, AMBIENT } from './light.js';
 import { texStyle, pattern } from './textures.js';
@@ -15,7 +17,7 @@ import { texStyle, pattern } from './textures.js';
 // grain scale is most of what separates "photographed" from "drawn".
 const SPAN = {
   wall: 620,
-  floor: 560,
+  floor: 430,
   rod: 300,
   board: 460,
   bamboo: 230,    // the woven placemat, where the canes read small
@@ -104,15 +106,31 @@ function ribbon(ctx, spine, widthAt, style) {
   ctx.fill();
 }
 
-function blobPath(ctx, x, y, r, squash, seed, t) {
+/**
+ * Silhouette of a lump of dough.
+ *
+ * Not a circle: the radius comes from the lump's own profile (lopsided where
+ * it was torn, bulging where something was pressed in), the base is flattened
+ * and spread because soft dough slumps against whatever it is resting on,
+ * and the whole thing is slightly wider than tall for the same reason.
+ */
+function doughPath(ctx, x, y, r, prof, squash, flatten = 0.42) {
+  const px = [], py = [];
+  for (let i = 0; i < PROFILE_N; i++) {
+    const t = (i / PROFILE_N) * TAU;
+    const cs = Math.cos(t), sn = Math.sin(t);
+    const rad = r * prof[i];
+    // below the equator the lump settles: shorter, and spread out sideways
+    const down = Math.max(0, sn);
+    const spread = 1 + flatten * 0.34 * down * down;
+    px.push(x + cs * rad * (1 + squash) * spread);
+    py.push(y + sn * rad * (1 - squash) * (1 - flatten * down * down));
+  }
   ctx.beginPath();
-  const steps = 26;
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * TAU;
-    const rr = r * (1 + 0.045 * Math.sin(a * 3 + t * 1.4 + seed) + 0.03 * Math.sin(a * 5 - t + seed * 2));
-    const sx = x + Math.cos(a) * rr * (1 + squash);
-    const sy = y + Math.sin(a) * rr * (1 - squash);
-    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  ctx.moveTo((px[PROFILE_N - 1] + px[0]) / 2, (py[PROFILE_N - 1] + py[0]) / 2);
+  for (let i = 0; i < PROFILE_N; i++) {
+    const j = (i + 1) % PROFILE_N;
+    ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
   }
   ctx.closePath();
 }
@@ -123,14 +141,16 @@ function blobPath(ctx, x, y, r, squash, seed, t) {
  * bright terminator toward the light, a dark rim, and a faint bounce on the
  * shadow side because dough is slightly translucent.
  */
-function doughShape(ctx, x, y, r, squash, seed, alpha = 1) {
+function doughShape(ctx, x, y, r, prof, squash, alpha = 1, flatten = 0.42, rot = 0) {
   if (alpha <= 0.01 || r <= 0.5) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  softShadow(ctx, x, y + r * 0.92, r * 1.15, r * 0.42, 0.85);
+  const rest = y + r * (1 - flatten) * 0.94;
+  softShadow(ctx, x, rest, r * 1.22, r * 0.38, 0.9);
 
   ctx.translate(x, y);
-  blobPath(ctx, 0, 0, r, squash, seed, W.time);
+  if (rot) ctx.rotate(rot);
+  doughPath(ctx, 0, 0, r, prof, squash, flatten);
 
   // fibrous, flour-dusted skin
   ctx.fillStyle = texStyle(ctx, 'dough', SPAN.dough, '#f4e7cd');
@@ -139,11 +159,18 @@ function doughShape(ctx, x, y, r, squash, seed, alpha = 1) {
   // sphere lighting
   const lx = LIT.x * r * 0.42, ly = LIT.y * r * 0.42;
   const g = ctx.createRadialGradient(lx, ly, r * 0.05, 0, 0, r * 1.14);
-  g.addColorStop(0, 'rgba(255,253,244,0.62)');
+  g.addColorStop(0, 'rgba(255,254,248,0.7)');
   g.addColorStop(0.45, 'rgba(255,250,235,0.12)');
-  g.addColorStop(0.84, 'rgba(126,88,44,0.13)');
-  g.addColorStop(1, 'rgba(104,70,32,0.26)');
+  g.addColorStop(0.84, 'rgba(150,108,56,0.08)');
+  g.addColorStop(1, 'rgba(126,88,44,0.17)');
   ctx.fillStyle = g;
+  ctx.fill();
+
+  // occlusion where the lump meets what it is sitting on
+  const oc = ctx.createLinearGradient(0, r * 0.1, 0, r * (1 - flatten));
+  oc.addColorStop(0, 'rgba(104,66,28,0)');
+  oc.addColorStop(1, 'rgba(104,66,28,0.2)');
+  ctx.fillStyle = oc;
   ctx.fill();
 
   // a light dusting of flour, only on lumps big enough to show it
@@ -399,16 +426,28 @@ export function drawFloor(ctx, y = 300, alpha = 1) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = texStyle(ctx, 'floor', SPAN.floor, '#b8834b');
   ctx.fillRect(-2400, y, 4800, 1400);
-  // ambient occlusion where the floor meets the wall, and light spilling
+  // Push it well away from the wall behind. A surface that matches the wall
+  // stops reading as a surface at all, and its front edge starts to look
+  // like a rail hanging in mid-air.
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = 0.52;
+  ctx.fillStyle = '#bd8544';
+  ctx.fillRect(-2400, y, 4800, 1400);
+  ctx.restore();
+  // ambient occlusion where the surface meets the wall, and light spilling
   // forward — the same trick a photographer's bounce card plays
   const g = ctx.createLinearGradient(0, y, 0, y + 900);
-  g.addColorStop(0, 'rgba(52,30,12,0.5)');
-  g.addColorStop(0.22, 'rgba(52,30,12,0.1)');
-  g.addColorStop(1, 'rgba(52,30,12,0.3)');
+  g.addColorStop(0, 'rgba(52,30,12,0.42)');
+  g.addColorStop(0.25, 'rgba(52,30,12,0.06)');
+  g.addColorStop(1, 'rgba(52,30,12,0.26)');
   ctx.fillStyle = g;
   ctx.fillRect(-2400, y, 4800, 1400);
-  ctx.fillStyle = 'rgba(255,242,214,0.28)';
-  ctx.fillRect(-2400, y, 4800, 12);
+  // the far edge: a lit lip with the wall's shadow tucked under it
+  ctx.fillStyle = 'rgba(38,20,6,0.34)';
+  ctx.fillRect(-2400, y - 10, 4800, 10);
+  ctx.fillStyle = 'rgba(255,244,214,0.34)';
+  ctx.fillRect(-2400, y, 4800, 6);
   ctx.restore();
 }
 
@@ -432,8 +471,8 @@ export function drawBoard(ctx, cx, cy, r, alpha = 1) {
   // worked-in flour: two plain fills, heavier in the middle where the dough
   // sits. (A destination-in mask would punch through the opaque canvas.)
   ctx.save();
-  ctx.globalAlpha = alpha * 0.4;
-  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.26, r * 0.72, r * 0.245, 0, 0, TAU);
+  ctx.globalAlpha = alpha * 0.55;
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.26, r * 0.8, r * 0.272, 0, 0, TAU);
   ctx.fillStyle = texStyle(ctx, 'flour', SPAN.flour, 'rgba(255,255,255,0.3)');
   ctx.fill();
   ctx.restore();
@@ -448,69 +487,129 @@ export function drawBoard(ctx, cx, cy, r, alpha = 1) {
 export function drawBlobs(ctx) {
   for (const b of W.blobs) {
     if (b.alpha <= 0.01) continue;
-    doughShape(ctx, b.x, b.y, b.r, b.squash, b.seed, b.alpha);
+    doughShape(ctx, b.x, b.y, b.r, b.prof, b.squash, b.alpha, b.flatten, b.rot);
   }
 }
 
 export function drawBall(ctx) {
   const b = W.ball;
   if (b.alpha <= 0.01 || b.r <= 1) return;
-  doughShape(ctx, b.x, b.y, b.r, b.squash, 1.7, b.alpha);
+  doughShape(ctx, b.x, b.y, b.r, b.prof, b.squash, b.alpha, b.flatten);
 }
 
-const ropeSpine = new Float32Array(28 * 2);
+const ROPE_N = 30;
+const ropeSpine = new Float32Array(ROPE_N * 2);
+const ropeOff = new Float32Array(ROPE_N * 2);
 
+/** Shift a spine sideways by `d` along its own normal. */
+function offsetSpine(src, d, out) {
+  const n = src.length / 2;
+  for (let i = 0; i < n; i++) {
+    const i0 = i > 0 ? i - 1 : 0;
+    const i1 = i < n - 1 ? i + 1 : n - 1;
+    let tx = src[i1 * 2] - src[i0 * 2];
+    let ty = src[i1 * 2 + 1] - src[i0 * 2 + 1];
+    const L = Math.hypot(tx, ty) || 1;
+    tx /= L; ty /= L;
+    out[i * 2] = src[i * 2] - ty * d;
+    out[i * 2 + 1] = src[i * 2 + 1] + tx * d;
+  }
+}
+
+/**
+ * The rope of dough being drawn out of the mass.
+ *
+ * Three things make it read as dough rather than as string: the thickness is
+ * uneven along its length and evens out as it is pulled, the surface carries
+ * lengthwise fibres that thin with it, and the far end tapers to a ragged
+ * point instead of a rounded cap.
+ */
 export function drawRope(ctx) {
   const r = W.rope;
   if (r.alpha <= 0.01) return;
-  const n = 28;
+  const prog = clamp01(r.len / r.maxLen);
   const dx = r.hx - r.ax, dy = r.hy - r.ay;
   const L = Math.hypot(dx, dy) || 1;
-  const sag = clamp(L * 0.13, 0, 90) * (1 - r.coil * 0.8);
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
+  const sag = clamp(L * 0.1, 0, 64) * (1 - r.coil * 0.8);
+
+  for (let i = 0; i < ROPE_N; i++) {
+    const t = i / (ROPE_N - 1);
     const bend = Math.sin(Math.PI * t);
-    ropeSpine[i * 2] = r.ax + dx * t + Math.sin(W.time * 1.6 + t * 3) * 4 * bend;
-    ropeSpine[i * 2 + 1] = r.ay + dy * t + sag * bend + Math.sin(W.time * 2.1 + t * 4) * 3 * bend;
+    ropeSpine[i * 2] = r.ax + dx * t + Math.sin(W.time * 1.4 + t * 3) * 2.5 * bend;
+    // it lies on the bench, so it sags toward the surface and settles
+    ropeSpine[i * 2 + 1] = r.ay + dy * t + sag * bend
+      + Math.sin(W.time * 1.9 + t * 4.6) * 2 * bend;
   }
+
+  // Uneven thickness that evens out as the dough is drawn out.
+  const lumps = r.lumps || [];
+  const rough = 1 - prog * 0.75;
+  const widthAt = (t) => {
+    let m = 1;
+    for (const l of lumps) m += l.a * rough * Math.sin(t * l.f * Math.PI * 2 + l.p);
+    // taper from the mass to a fine point
+    const taper = lerp(1, 0.34, Math.pow(t, 0.8));
+    const tip = t > 0.88 ? Math.pow((1 - t) / 0.12, 0.7) : 1;
+    return r.thick * taper * m * lerp(1, tip, 0.9);
+  };
+
   ctx.save();
   ctx.globalAlpha = r.alpha;
-  const thickHead = r.thick;
-  const thickTail = r.thick * 0.62;
-  const widthAt = (t) => lerp(thickHead, thickTail, easeOut(t)) * (t > 0.97 ? 0.55 : 1);
-  // cast shadow first
+
+  // shadow cast onto the bench
   ctx.save();
-  ctx.translate(SHADE.x * thickHead * 0.5, thickHead * 0.8);
-  ribbon(ctx, ropeSpine, widthAt, 'rgba(84,52,24,0.2)');
+  ctx.translate(SHADE.x * r.thick * 0.35, r.thick * 0.62);
+  ribbon(ctx, ropeSpine, (t) => widthAt(t) * 1.02, 'rgba(88,56,26,0.22)');
   ctx.restore();
 
-  // the rope's own skin, then a proper cylinder gradient across it
-  ribbon(ctx, ropeSpine, widthAt, texStyle(ctx, 'dough', SPAN.dough, '#f0e0c2'));
-  ctx.fillStyle = 'rgba(255,255,255,0)';
-  ctx.beginPath();
-  ctx.arc(r.hx, ropeSpine[(n - 1) * 2 + 1], thickTail * 0.42, 0, TAU);
-  ctx.fillStyle = texStyle(ctx, 'dough', SPAN.dough, '#f0e0c2');
-  ctx.fill();
+  // the dough itself
+  ribbon(ctx, ropeSpine, widthAt, texStyle(ctx, 'dough', SPAN.dough, '#f2e6cd'));
 
-  // The rope runs left to right, so its axis is x and the light's across-
-  // axis component is simply LIT.y.
-  const midY = r.ay;
-  const cg = ctx.createLinearGradient(0, midY - thickHead * 0.62, 0, midY + thickHead * 0.62);
+  // Cylinder shading across the rope. It runs left to right, so the light's
+  // across-axis component is simply LIT.y.
+  const midY = (r.ay + r.hy) / 2;
+  const cg = ctx.createLinearGradient(0, midY - r.thick * 0.66, 0, midY + r.thick * 0.66);
   for (let i = 0; i <= 8; i++) {
     const t = i / 8;
     const nn = t * 2 - 1;
     const nz = Math.sqrt(Math.max(0, 1 - nn * nn));
     const ndl = Math.max(0, nn * LIT.y + nz * LIGHT.z);
     const v = AMBIENT + (1 - AMBIENT) * ndl;
-    cg.addColorStop(t, `rgba(70,44,18,${(1 - v) * 0.5})`);
+    cg.addColorStop(t, `rgba(78,50,20,${(1 - v) * 0.46})`);
   }
   ribbon(ctx, ropeSpine, widthAt, cg);
 
+  // Lengthwise fibres: gluten strands drawn out along the pull. They fan
+  // across the rope and fade toward the tip as it thins.
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = r.alpha * lerp(0.18, 0.42, prog);
+  for (const f of [-0.52, -0.2, 0.16, 0.46]) {
+    offsetSpine(ropeSpine, 0, ropeOff);
+    for (let i = 0; i < ROPE_N; i++) {
+      const t = i / (ROPE_N - 1);
+      const w = widthAt(t) * 0.5 * f;
+      const i0 = i > 0 ? i - 1 : 0, i1 = i < ROPE_N - 1 ? i + 1 : ROPE_N - 1;
+      let tx = ropeSpine[i1 * 2] - ropeSpine[i0 * 2];
+      let ty = ropeSpine[i1 * 2 + 1] - ropeSpine[i0 * 2 + 1];
+      const l = Math.hypot(tx, ty) || 1;
+      ropeOff[i * 2] = ropeSpine[i * 2] - (ty / l) * w;
+      ropeOff[i * 2 + 1] = ropeSpine[i * 2 + 1] + (tx / l) * w;
+    }
+    ctx.strokeStyle = f < 0 ? '#fffdf4' : 'rgba(150,112,62,0.9)';
+    ctx.lineWidth = Math.max(0.8, r.thick * 0.035);
+    strokeThrough(ctx, ropeOff, 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
   // glint along the lit side
   ctx.save();
-  ctx.translate(LIT.x * thickHead * 0.1, LIT.y * thickHead * 0.3);
-  ribbon(ctx, ropeSpine, (t) => widthAt(t) * 0.22, 'rgba(255,252,240,0.75)');
+  ctx.globalAlpha = r.alpha * 0.8;
+  ctx.translate(LIT.x * r.thick * 0.08, LIT.y * r.thick * 0.3);
+  ribbon(ctx, ropeSpine, (t) => widthAt(t) * 0.2, 'rgba(255,252,240,0.85)');
   ctx.restore();
+
   ctx.restore();
 }
 

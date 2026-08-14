@@ -189,6 +189,57 @@ export function relayout() {
   });
 }
 
+
+// --- dough as a deformable shape ---------------------------------------
+//
+// A ball of dough is not a circle. It is lopsided where it was torn, it
+// slumps under its own weight, it bulges where something was pressed into
+// it and then slowly settles again. All of that is a radial profile: one
+// radius multiplier per angle, which can be dented locally and relaxes back
+// toward smooth over a second or so. Twenty-four floats buys the whole
+// behaviour.
+
+export const PROFILE_N = 24;
+
+export function makeProfile(rng, rough = 1) {
+  const a = new Float32Array(PROFILE_N);
+  const h1 = rr(rng, 0, TAU), h2 = rr(rng, 0, TAU), h3 = rr(rng, 0, TAU);
+  const m1 = rr(rng, 0.06, 0.16) * rough;
+  const m2 = rr(rng, 0.04, 0.11) * rough;
+  const m3 = rr(rng, 0.02, 0.06) * rough;
+  for (let i = 0; i < PROFILE_N; i++) {
+    const t = (i / PROFILE_N) * TAU;
+    a[i] = 1 + m1 * Math.sin(t * 2 + h1) + m2 * Math.sin(t * 3 + h2) + m3 * Math.sin(t * 5 + h3);
+  }
+  return a;
+}
+
+/** Press something into the dough at `ang`, leaving a bulge that settles. */
+export function bulgeProfile(prof, ang, amount, width = 1.1) {
+  for (let i = 0; i < PROFILE_N; i++) {
+    const t = (i / PROFILE_N) * TAU;
+    let d = t - ang;
+    while (d > Math.PI) d -= TAU;
+    while (d < -Math.PI) d += TAU;
+    prof[i] += amount * Math.exp(-(d * d) / (2 * width * width));
+  }
+}
+
+const relaxTmp = new Float32Array(PROFILE_N);
+/** Surface tension: neighbours pull level and the whole thing eases to round. */
+export function relaxProfile(prof, dt, rate = 3.2, toward = 1) {
+  const k = 1 - Math.exp(-rate * dt);
+  for (let i = 0; i < PROFILE_N; i++) {
+    const a = prof[(i + PROFILE_N - 1) % PROFILE_N];
+    const b = prof[i];
+    const c = prof[(i + 1) % PROFILE_N];
+    relaxTmp[i] = b + ((a + c) * 0.5 - b) * k;
+  }
+  for (let i = 0; i < PROFILE_N; i++) {
+    prof[i] = relaxTmp[i] + (toward - relaxTmp[i]) * k * 0.35;
+  }
+}
+
 export function gust(strength = 1, originX = -RACK_HALF) {
   W.gusts.push({ t: 0, strength, originX, life: 2.6 });
   if (W.gusts.length > 4) W.gusts.shift();

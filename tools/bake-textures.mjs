@@ -46,11 +46,11 @@ const RECIPES = [
   { out: 'dough', src: 'cloth', size: 256,
     // Map to luminance and re-tint rather than boosting saturation: the
     // carpet has a faint green cast that any saturation boost amplifies.
-    grade: { tint: '#ffe6b4', tintAmt: 1.0, bright: 1.2, contrast: 0.9 } },
+    grade: { tint: '#fff0d2', tintAmt: 1.0, lift: 0.9, gain: 0.78 } },
 
   // Loose flour on the board and in the air.
   { out: 'flour', src: 'snow', size: 192, relief: 0.55,
-    grade: { tint: '#fefdf8', tintAmt: 0.94, bright: 1.08, contrast: 1.1 } },
+    grade: { tint: '#fffdf8', tintAmt: 0.97, lift: 0.87, gain: 0.62 } },
 
   // Ice in the finished bowl.
   { out: 'ice', src: 'snow', size: 192, relief: 1.3,
@@ -185,7 +185,14 @@ async function bake(r) {
 
       // --- grade
       if (tint) {
-        const lum = (0.299 * R + 0.587 * G + 0.114 * B) / 255;
+        let lum = (0.299 * R + 0.587 * G + 0.114 * B) / 255;
+        // Re-centre the luminance instead of scaling it: `lift` sets where the
+        // mean lands and `gain` keeps the relief. Scaling a mid-grey source up
+        // to dough-pale would otherwise flatten the very texture we came for.
+        if (grade.lift !== undefined) {
+          lum = grade.lift + (grade.gain ?? 1) * (lum - 0.5);
+        }
+        lum = Math.max(0, Math.min(1.25, lum));
         const a = grade.tintAmt ?? 1;
         R = R * (1 - a) + tint[0] * lum * a;
         G = G * (1 - a) + tint[1] * lum * a;

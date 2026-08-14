@@ -119,7 +119,7 @@ function render() {
     art.drawSky(g);
     art.drawShop(g, W.shopAlpha);
     art.drawFloor(g, W.floorY, W.floorAlpha);
-    art.drawBoard(g, W.ball.x * 0.6, 60, 340, W.boardAlpha);
+    art.drawBoard(g, W.ball.x * 0.6, 105, 340, W.boardAlpha);
     art.drawCuttingBoard(g, W.cutBoardAlpha);
     if (W.bowlA > 0.01) art.drawRevealTable(g, W.bowlA);
   });
