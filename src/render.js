@@ -2,9 +2,15 @@
 // 水がヒーロー: 青〜水色ではっきり輪郭が見えること、流れの向きが見えることを優先する。
 
 import { W, H, TT, idx, wallCells } from './city.js';
-import { TW2, TH2, HZ, isoX, isoY, MODEL } from './iso.js';
+import { TW2, TH2, isoX, isoY } from './iso.js';
 
 const S = 3; // 水ビットマップの解像度倍率
+
+// 水面のゆらぎ用。1 フレームに何万回も呼ぶので表引きにする。
+const SIN_N = 1024;
+const SIN_TABLE = new Float32Array(SIN_N);
+for (let i = 0; i < SIN_N; i++) SIN_TABLE[i] = Math.sin((i / SIN_N) * Math.PI * 2);
+const fastSin = (x) => SIN_TABLE[((x * (SIN_N / (Math.PI * 2))) | 0) & (SIN_N - 1)];
 
 const C = {
   tableTop: '#7b5836',
@@ -44,7 +50,11 @@ export function createRenderer(canvas) {
     fx: [],
     time: 0,
     quality: 1,
+    prof: null,
   };
+
+  r.bg = document.createElement('canvas');
+  r.vg = document.createElement('canvas');
 
   r.resize = (vw, vh, dpr) => {
     r.vw = vw; r.vh = vh; r.dpr = dpr;
@@ -52,6 +62,14 @@ export function createRenderer(canvas) {
     canvas.height = Math.round(vh * dpr);
     canvas.style.width = vw + 'px';
     canvas.style.height = vh + 'px';
+    // 机と周辺減光は動かないので 1 枚に焼いておく
+    for (const [c, fn] of [[r.bg, drawTable], [r.vg, drawVignette]]) {
+      c.width = canvas.width; c.height = canvas.height;
+      const cc = c.getContext('2d');
+      cc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cc.clearRect(0, 0, vw, vh);
+      fn(cc, vw, vh);
+    }
   };
 
   r.addFx = (type, x, y, opt = {}) => {
@@ -118,34 +136,52 @@ function draw(r, sim, cam, ui) {
   const detail = z / cam.fit;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawTable(ctx, vw, vh, r.time);
+  let tt = r.prof ? performance.now() : 0;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(r.bg, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (r.prof) { r.prof.table = (r.prof.table || 0) + (performance.now() - tt); }
 
   ctx.save();
   ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (vw / 2 - cam.x * z), dpr * (vh / 2 + (cam.biasY || 0) - cam.y * z));
 
+  const P = r.prof;
+  const mark = P ? (k, t0) => { P[k] = (P[k] || 0) + (performance.now() - t0); } : null;
+  let t0 = P ? performance.now() : 0;
+
   drawBoard(ctx);
   drawGround(ctx, city, detail);
+  if (P) { mark('ground', t0); t0 = performance.now(); }
   drawCloudShadow(ctx, sim);
   paintWater(r, sim);
-  drawWater(ctx, r, detail);
+  if (P) { mark('paintWater', t0); t0 = performance.now(); }
+  drawWater(ctx, r);
+  if (P) { mark('drawWater', t0); t0 = performance.now(); }
   drawEntranceFall(ctx, sim, r.time);
-  drawFloaters(ctx, sim, detail);
-  drawDrains(ctx, sim, r.time, ui, detail);
-  drawProps(ctx, city, sim, detail, r.time);
+  drawFloaters(ctx, sim);
+  drawDrains(ctx, sim, r.time, ui);
+  if (P) { mark('floatersDrains', t0); t0 = performance.now(); }
+  drawProps(ctx, city, detail);
+  if (P) { mark('props', t0); t0 = performance.now(); }
   drawFx(ctx, r);
-  drawRain(ctx, sim, r.time);
-  drawCloud(ctx, sim, r.time);
-  if (ui && ui.wallGhost) drawWallGhost(ctx, city, ui.wallGhost, r.time);
+  drawRain(ctx, sim);
+  drawCloud(ctx, sim);
+  if (P) { mark('fxRainCloud', t0); t0 = performance.now(); }
+  if (ui && ui.wallGhost) drawWallGhost(ctx, city, ui.wallGhost);
 
   ctx.restore();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (ui && ui.crossFade > 0.01) drawCrossSection(ctx, vw, vh, ui.crossFade, r.time, ui.crossKind);
-  drawVignette(ctx, vw, vh);
+  tt = r.prof ? performance.now() : 0;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(r.vg, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (ui && ui.crossFade > 0.01) drawCrossSection(ctx, vw, vh, ui.crossFade, r.time);
+  if (r.prof) { r.prof.vignette = (r.prof.vignette || 0) + (performance.now() - tt); }
 }
 
 // ---------- 机 ----------
-function drawTable(ctx, vw, vh, t) {
+function drawTable(ctx, vw, vh) {
   const g = ctx.createLinearGradient(0, 0, 0, vh);
   g.addColorStop(0, C.tableTop);
   g.addColorStop(1, C.tableBot);
@@ -183,7 +219,7 @@ function drawBoard(ctx) {
   ctx.save();
   ctx.globalAlpha = 0.22;
   ctx.fillStyle = '#1a1008';
-  poly(ctx, quadPts(0, 0, W, H).map(([px, py]) => [px + 14, py + TH_B + 12]));
+  poly(ctx, quadPts(0, 0, W, H).map((q) => [q[0] + 14, q[1] + TH_B + 12]));
   ctx.fill();
   ctx.restore();
 
@@ -339,10 +375,10 @@ function drawPlaza(ctx, city, detail) {
     ctx.restore();
   }
 
-  drawEntrance(ctx, city, detail);
+  drawEntrance(ctx, city);
 }
 
-function drawEntrance(ctx, city, detail) {
+function drawEntrance(ctx, city) {
   const e = city.entrance;
   const x0 = e.x0, y0 = e.y0, x1 = e.x1 + 1, y1 = e.y1 + 1;
 
@@ -395,6 +431,7 @@ function drawOutfall(ctx, city) {
 // ---------- 水 ----------
 function paintWater(r, sim) {
   const { d, vx, vy, phase } = sim;
+  const solid = sim.city.solid;
   const data = r.wimg.data;
   const WS = W * S, HS = H * S;
 
@@ -420,7 +457,7 @@ function paintWater(r, sim) {
       let cb = 236 - 48 * deep;
 
       const sp = Math.abs(vx[i]) + Math.abs(vy[i]);
-      const sh = Math.sin(phase[i] * 5.5 + (gx + gy) * 0.85);
+      const sh = fastSin(phase[i] * 5.5 + (gx + gy) * 0.85 + 12.566);
       const add = sh * (5 + 13 * Math.min(1, sp * 0.4));
       cr += add; cg += add; cb += add * 0.4;
 
@@ -428,7 +465,11 @@ function paintWater(r, sim) {
       // 全部の浅い水を白くすると、水ではなく霧に見えてしまう。
       const dry = 0.0016;
       const front = (d[i - 1] < dry || d[i + 1] < dry || d[i - W] < dry || d[i + W] < dry) ? 1 : 0;
-      const f = Math.min(0.4, front * 0.1 + Math.min(0.28, sp * 0.065));
+      let f = Math.min(0.4, front * 0.1 + Math.min(0.28, sp * 0.065));
+      // 壁ぎわは白くあわ立たせる（水が当たって左右へ分かれるのを見せる）
+      if (solid[i - 1] === 2 || solid[i + 1] === 2 || solid[i - W] === 2 || solid[i + W] === 2) {
+        f = Math.min(0.72, f + 0.3);
+      }
       cr += (255 - cr) * f;
       cg += (255 - cg) * f;
       cb += (255 - cb) * f;
@@ -445,39 +486,67 @@ function paintWater(r, sim) {
   r.wctx.putImageData(r.wimg, 0, 0);
 }
 
-function drawWater(ctx, r, detail) {
+function drawWater(ctx, r) {
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  ctx.imageSmoothingQuality = 'medium';
   // グリッド → アイソメ
   ctx.transform(TW2 / S, TH2 / S, -TW2 / S, TH2 / S, 0, 0);
   ctx.drawImage(r.wcan, 0, 0);
   ctx.restore();
 }
 
-// 地下入口へ落ちていく水
+// 地下入口へ落ちていく水（「ここから入っちゃった」の瞬間）
 function drawEntranceFall(ctx, sim, time) {
   const flow = sim.entranceFlow;
-  if (flow < 0.0015) return;
+  if (flow < 0.0012) return;
   const e = sim.city.entrance;
-  const a = Math.min(0.85, flow * 30);
+  const x0 = e.x0, y0 = e.y0, x1 = e.x1 + 1, y1 = e.y1 + 1;
+  const a = Math.min(1, flow * 26);
+
   ctx.save();
+
+  // ふちを越えるところ: 白いすじ
+  ctx.globalAlpha = a * 0.85;
+  ctx.fillStyle = 'rgba(238,252,255,0.95)';
+  poly(ctx, quadPts(x0 - 1, y0 - 1, x1 + 1, y0));
+  ctx.fill();
+  poly(ctx, quadPts(x0 - 1, y0, x0, y1 + 1));
+  ctx.fill();
+
+  // 穴の中を落ちる水
   ctx.globalAlpha = a;
-  const g = ctx.createLinearGradient(0, isoY(e.x0, e.y0) - 10, 0, isoY(e.x1, e.y1) + 20);
-  g.addColorStop(0, 'rgba(190,240,255,0.95)');
-  g.addColorStop(1, 'rgba(60,150,215,0.15)');
-  poly(ctx, quadPts(e.x0, e.y0, e.x1 + 1, e.y1 + 1));
+  const g = ctx.createLinearGradient(
+    isoX(x0, y0), isoY(x0, y0), isoX(x1, y1), isoY(x1, y1));
+  g.addColorStop(0, 'rgba(214,246,255,0.95)');
+  g.addColorStop(0.45, 'rgba(96,180,232,0.8)');
+  g.addColorStop(1, 'rgba(28,86,146,0.5)');
+  poly(ctx, quadPts(x0, y0, x1, y1));
   ctx.fillStyle = g;
   ctx.fill();
-  // しぶき
+
+  // 落ちていくすじとしぶき
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 0.5;
+  for (let k = 0; k < 7; k++) {
+    const px = x0 + 0.5 + ((k * 1.7) % (x1 - x0 - 1));
+    const ph = ((time * 0.055 + k * 0.31) % 1);
+    const ya = y0 + ph * (y1 - y0);
+    const yb = Math.min(y1, ya + 1.6);
+    ctx.globalAlpha = a * (1 - ph) * 0.9;
+    ctx.beginPath();
+    ctx.moveTo(isoX(px, ya), isoY(px, ya));
+    ctx.lineTo(isoX(px, yb), isoY(px, yb));
+    ctx.stroke();
+  }
   ctx.globalAlpha = a * 0.9;
   ctx.fillStyle = '#ffffff';
-  for (let k = 0; k < 10; k++) {
-    const ph = (time * 0.06 + k * 0.37) % 1;
-    const x = e.x0 + 0.5 + ((k * 2.7) % (e.x1 - e.x0));
-    const y = e.y0 + ph * (e.y1 - e.y0 + 1);
+  for (let k = 0; k < 8; k++) {
+    const ph = (time * 0.07 + k * 0.41) % 1;
+    const px = x0 + 0.6 + ((k * 2.3) % (x1 - x0 - 1.2));
+    const py = y0 + ph * (y1 - y0);
     ctx.beginPath();
-    ctx.ellipse(isoX(x, y), isoY(x, y), 1.6, 0.9, 0, 0, 6.2832);
+    ctx.ellipse(isoX(px, py), isoY(px, py), 1.3 * (1 - ph) + 0.4, 0.7, 0, 0, 6.2832);
     ctx.fill();
   }
   ctx.restore();
@@ -488,7 +557,7 @@ const LEAF_COLORS = ['#6cbf5a', '#4ea64a', '#93cf63'];
 const PETAL_COLORS = ['#ffb7d0', '#ffd0e0', '#ff9ec0'];
 const BALL_COLORS = ['#ff7a5c', '#ffd23f', '#5cc9ff'];
 
-function drawFloaters(ctx, sim, detail) {
+function drawFloaters(ctx, sim) {
   for (const f of sim.floaters) {
     const x = isoX(f.x, f.y), y = isoY(f.x, f.y);
     const s = f.size * (f.dead > 0 ? f.dead / 8 : 1);
@@ -523,10 +592,9 @@ function drawFloaters(ctx, sim, detail) {
 }
 
 // ---------- 排水口 ----------
-function drawDrains(ctx, sim, time, ui, detail) {
+function drawDrains(ctx, sim, time, ui) {
   const city = sim.city;
   for (const d of city.drains) {
-    const px = isoX(d.x + 0.5, d.y + 0.5), py = isoY(d.x + 0.5, d.y + 0.5);
     const rr = d.r + 0.6;
 
     // くぼみ
@@ -649,16 +717,19 @@ function drawVortex(ctx, d, flow, time) {
 }
 
 // ---------- 建物・木・壁 ----------
-function drawProps(ctx, city, sim, detail, time) {
+function drawProps(ctx, city, detail) {
   const items = [];
-  for (const b of city.buildings) items.push({ k: 'b', d: b.x0 + b.y0, o: b });
+  for (const b of city.buildings) {
+    if (b.z0 === undefined) b.z0 = groundOf(city, b.x0, b.y0);
+    items.push({ k: 'b', d: b.x0 + b.y0, o: b });
+  }
   for (const t of city.trees) items.push({ k: 't', d: t.x + t.y, o: t });
   for (const w of city.walls) items.push({ k: 'w', d: w.x + w.y, o: w });
   items.push({ k: 'e', d: city.entrance.x0 + city.entrance.y0 - 2, o: city.entrance });
   items.sort((a, b) => a.d - b.d);
 
   for (const it of items) {
-    if (it.k === 'b') drawBuilding(ctx, it.o, city, detail);
+    if (it.k === 'b') drawBuilding(ctx, it.o, detail);
     else if (it.k === 't') drawTree(ctx, it.o, city);
     else if (it.k === 'w') drawWall(ctx, it.o, city, 1);
     else drawCanopy(ctx, city);
@@ -669,8 +740,8 @@ function groundOf(city, x, y) {
   return city.ground[idx(Math.max(0, Math.min(W - 1, x | 0)), Math.max(0, Math.min(H - 1, y | 0)))];
 }
 
-function drawBuilding(ctx, b, city, detail) {
-  const z0 = groundOf(city, b.x0, b.y0);
+function drawBuilding(ctx, b, detail) {
+  const z0 = b.z0;
   const z1 = z0 + b.height;
   const x0 = b.x0, y0 = b.y0, x1 = b.x1 + 1, y1 = b.y1 + 1;
 
@@ -729,6 +800,14 @@ function drawBuilding(ctx, b, city, detail) {
   } else {
     poly(ctx, quadPts(x0, y0, x1, y1, z1));
     ctx.fillStyle = shade(b.roof, 1.05); ctx.fill();
+    if (b.shop) {
+      // お店のひさし（しましま）
+      const az = z0 + b.height * 0.66;
+      for (let k = 0; k < 6; k++) {
+        fillQuad(ctx, x0 + (x1 - x0) * (k / 6), y1, x0 + (x1 - x0) * ((k + 1) / 6), y1 + 1.3,
+          k % 2 ? '#ffffff' : '#e8695c', az);
+      }
+    }
     ctx.save();
     ctx.globalAlpha = 0.5;
     strokeQuad(ctx, x0, y0, x1, y1, shade(b.roof, 0.7), 0.9, z1);
@@ -827,7 +906,7 @@ function drawWall(ctx, wl, city, alpha) {
   ctx.restore();
 }
 
-function drawWallGhost(ctx, city, ghost, time) {
+function drawWallGhost(ctx, city, ghost) {
   ctx.save();
   ctx.globalAlpha = ghost.ok ? 0.72 : 0.32;
   drawWall(ctx, ghost, city, 1);
@@ -860,7 +939,7 @@ function drawCanopy(ctx, city) {
 }
 
 // ---------- 雨・雲 ----------
-function drawRain(ctx, sim, time) {
+function drawRain(ctx, sim) {
   const drops = sim.drops;
   if (!drops.length) return;
   ctx.save();
@@ -894,18 +973,22 @@ function frontOf(sim) {
   return -18 + (sim.tick - 30) * 0.44;
 }
 
-function drawCloud(ctx, sim, time) {
+function drawCloud(ctx, sim) {
   const front = frontOf(sim);
   if (front < -30 || sim.tick > 1040) return;
   const alpha = Math.min(0.55, Math.max(0, (sim.tick - 20) / 60)) * (sim.tick > 950 ? Math.max(0, (1040 - sim.tick) / 90) : 1);
   if (alpha <= 0.01) return;
   ctx.save();
+  // 雲は模型の上だけ。机の上にしみのように散らばらせない。
+  const CZ = 8.2;
+  poly(ctx, quadPts(-2, -2, W + 2, H + 2, CZ));
+  ctx.clip();
   ctx.globalAlpha = alpha;
   const cy = Math.min(front - 10, H + 6);
   for (let k = 0; k < 22; k++) {
     const gx = ((k * 11.7) % (W + 30)) - 15;
     const gy = cy - 34 + ((k * 23) % 52);
-    const x = isoX(gx, gy), y = isoY(gx, gy, 8.2);
+    const x = isoX(gx, gy), y = isoY(gx, gy, CZ);
     const rr = 40 + ((k * 31) % 30);
     const g = ctx.createRadialGradient(x, y - rr * 0.1, rr * 0.1, x, y, rr);
     g.addColorStop(0, 'rgba(252,253,255,0.92)');
@@ -967,7 +1050,7 @@ function drawFx(ctx, r) {
 }
 
 // ---------- 地下の断面 ----------
-function drawCrossSection(ctx, vw, vh, fade, time, kind) {
+function drawCrossSection(ctx, vw, vh, fade, time) {
   const w = Math.min(vw * 0.40, 300);
   const h = w * 0.5;
   const x = vw * 0.035;

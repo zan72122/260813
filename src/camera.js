@@ -1,17 +1,21 @@
 // カメラは演出（ディレクター）が動かす。プレイヤーは動かさない。
 // 水がこまった所へ近づいたら寄る / 排水口をさわるときは接写 / 終わったら引き。
 
+import { W, H } from './city.js';
 import { isoX, isoY, MODEL } from './iso.js';
 
 export function createCamera() {
   return {
     x: 0, y: 0, zoom: 1,
     tx: 0, ty: 0, tzoom: 1,
-    fit: 1,
+    // 見ている場所はグリッド座標でおぼえておく。
+    // 画面の向きが変わって投影が変わっても、同じ場所を見つづけられる。
+    gx: W / 2, gy: H / 2, zrel: 1,
+    fit: 1, wideZ: 1,
     vw: 1, vh: 1,
+    biasY: 0,
     hold: 0,
     priority: 0,
-    biasY: 0,
   };
 }
 
@@ -22,30 +26,33 @@ export function fitCamera(cam, vw, vh) {
   const fw = vw / (MODEL.w * pad);
   const fh = vh / ((MODEL.h * 0.82 + 60) * pad);
   cam.fit = Math.min(fw, fh);
+  // 引きの絵では模型を切らない（「街ぜんたいで行き先が変わった」を見せる絵なので）
+  cam.wideZ = 1.02;
   // 下のボタンに街がかくれないよう、すこし上に寄せる
   cam.biasY = -vh * 0.055;
+  refocus(cam);
   return cam.fit;
+}
+
+// おぼえているグリッド座標から、目標の world 座標を計算しなおす
+export function refocus(cam) {
+  cam.tx = isoX(cam.gx, cam.gy);
+  cam.ty = isoY(cam.gx, cam.gy) - 24;
+  cam.tzoom = cam.fit * cam.zrel;
 }
 
 // z: 1 = ぜんたい, 1.9 = ふつう, 3.4 = 接写
 export function look(cam, gx, gy, z, priority = 0, hold = 0) {
   if (priority < cam.priority && cam.hold > 0) return false;
-  cam.tx = isoX(gx, gy);
-  cam.ty = isoY(gx, gy) - 24;
-  cam.tzoom = cam.fit * z;
+  cam.gx = gx; cam.gy = gy; cam.zrel = z;
   cam.priority = priority;
   cam.hold = hold;
+  refocus(cam);
   return true;
 }
 
 export function lookWide(cam, priority = 0, hold = 0) {
-  if (priority < cam.priority && cam.hold > 0) return false;
-  cam.tx = MODEL.cx;
-  cam.ty = MODEL.cy - 20;
-  cam.tzoom = cam.fit * 1.02;
-  cam.priority = priority;
-  cam.hold = hold;
-  return true;
+  return look(cam, W / 2, H / 2, cam.wideZ, priority, hold);
 }
 
 export function updateCamera(cam, dt = 1) {

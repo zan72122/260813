@@ -1,6 +1,6 @@
 // シミュレーションの調整用。ブラウザなしで走らせて数字を見る。
 //   node tools/probe.mjs [scenario...]
-import { createCity, TT, idx } from '../src/city.js';
+import { createCity, TT } from '../src/city.js';
 import { createSim, resetWater, stepSim, openDrain, setWall, RUN_TICKS, rainRate } from '../src/sim.js';
 
 function landWater(sim) {

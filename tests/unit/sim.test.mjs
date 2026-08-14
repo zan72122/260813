@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createCity, TT, idx, W, H } from '../../src/city.js';
+import { createCity, TT, idx } from '../../src/city.js';
 import { createSim, resetWater, stepSim, openDrain, setWall, RUN_TICKS } from '../../src/sim.js';
 
 function freshCity() {

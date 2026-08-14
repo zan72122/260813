@@ -7,7 +7,7 @@ import { createCity, W, H, idx, TT, canPlaceWall } from './city.js';
 import { createSim, resetWater, stepSim, openDrain, setWall, RUN_TICKS, rainRate } from './sim.js';
 import { createRenderer, drawMinimap } from './render.js';
 import { createCamera, fitCamera, look, lookWide, updateCamera, snapCamera, screenToWorld, worldToScreen } from './camera.js';
-import { unproject, isoX, isoY } from './iso.js';
+import { unproject, isoX, isoY, setProjection } from './iso.js';
 import { createAudio } from './audio.js';
 
 const WALL_LEN = 11;
@@ -40,11 +40,10 @@ export function createGame(root) {
     state: 'dry',           // dry | raining | paused | review
     tool: 'hand',
     runs: [],               // これまでの結果
-    prevMaxd: null,
-    ui: { hintDrain: null, wallGhost: null, crossFade: 0, crossKind: 'open' },
+    ui: { hintDrain: null, wallGhost: null, crossFade: 0 },
     crossTimer: 0,
     autoplayTimer: 0,
-    changedSinceRun: false,
+    pullBackTimer: 0,
     acc: 0,
     last: 0,
     frameMs: 16,
@@ -66,15 +65,19 @@ export function createGame(root) {
   return g;
 }
 
+// 大きな iPad で塗る面積が増えすぎないよう、実ピクセル数に上限をつける
+const MAX_PIXELS = 2_400_000;
+
 function layout(g) {
   const vw = Math.max(320, window.innerWidth);
   const vh = Math.max(320, window.innerHeight);
-  const dpr = Math.min(2, window.devicePixelRatio || 1) * g.scale;
+  const cap = Math.sqrt(MAX_PIXELS / (vw * vh));
+  const dpr = Math.min(2, window.devicePixelRatio || 1, cap) * g.scale;
   g.renderer.resize(vw, vh, dpr);
+  // たて長の画面では見おろす角度を急にして、街を大きく見せる
+  const changed = setProjection(vh > vw * 1.25 ? 13 : 10);
   fitCamera(g.cam, vw, vh);
-  // 目標ズームを新しい fit に合わせなおす
-  const rel = g.cam.tzoom / (g.cam.fit || 1);
-  g.cam.tzoom = g.cam.fit * (isFinite(rel) && rel > 0.2 ? rel : 1.5);
+  if (changed) snapCamera(g.cam);
 }
 
 // ---------- メインループ ----------
@@ -104,14 +107,18 @@ function loop(g, t) {
 
   updateCamera(g.cam);
   g.renderer.draw(g.sim, g.cam, g.ui);
+  updateHint(g);
   adaptQuality(g);
   requestAnimationFrame((tt) => loop(g, tt));
 }
 
 // 重い端末では解像度をすこし落とす（見た目より 60fps を優先）
 function adaptQuality(g) {
-  if (g.frameMs > 26 && g.scale > 0.62) { g.scale -= 0.06; layout(g); }
-  else if (g.frameMs < 15 && g.scale < 1) { g.scale = Math.min(1, g.scale + 0.02); layout(g); }
+  // キャンバスの作りなおしは重い。ゆっくり、少しずつ。
+  g.adaptWait = (g.adaptWait || 0) - 1;
+  if (g.adaptWait > 0) return;
+  if (g.frameMs > 26 && g.scale > 0.6) { g.scale -= 0.08; layout(g); g.adaptWait = 30; }
+  else if (g.frameMs < 13 && g.scale < 1) { g.scale = Math.min(1, g.scale + 0.06); layout(g); g.adaptWait = 120; }
 }
 
 function tickSim(g) {
@@ -184,7 +191,6 @@ function play(g) {
     g.renderer.fx.length = 0;
   }
   g.state = 'raining';
-  g.changedSinceRun = false;
   g.el.play.classList.add('is-playing');
   g.el.play.classList.remove('pulse');
   hideHint(g);
@@ -257,7 +263,6 @@ function tapWorld(g, gx, gy) {
     if (Math.hypot(wl.x - gx, wl.y - gy) < 7) {
       setWall(sim, null);
       g.audio.thud();
-      g.changedSinceRun = true;
       return true;
     }
   }
@@ -283,11 +288,13 @@ function activateDrain(g, d) {
   renderer.addFx('ring', d.x + 0.5, d.y + 0.5, { life: 34, max: 6, color: 'rgba(255,255,255,.9)' });
   audio.suck();
   director(g, 'drain', { x: d.x + 0.5, y: d.y + 0.5 });
+  clearTimeout(g.pullBackTimer);
+  g.pullBackTimer = setTimeout(() => {
+    if (g.state !== 'raining') lookWide(g.cam, 9, 60);
+  }, 5200);
   g.ui.hintDrain = null;
-  g.ui.crossKind = was;
   // まず「うず」を見せてから、地下のようすを出す
   setTimeout(() => { g.crossTimer = 3600; }, 1500);
-  g.changedSinceRun = true;
   hideHint(g);
 }
 
@@ -351,7 +358,7 @@ function bindPointer(g, canvas) {
     g.ui.wallGhost = makeGhost(g, p.x, p.y, dragFrom);
   });
 
-  const end = (e) => {
+  const end = () => {
     if (!dragging) return;
     dragging = false;
     dragFrom = null;
@@ -360,7 +367,6 @@ function bindPointer(g, canvas) {
     if (gh && gh.ok) {
       setWall(g.sim, { x: gh.x, y: gh.y, horizontal: gh.horizontal, len: WALL_LEN });
       g.audio.thud();
-      g.changedSinceRun = true;
       g.renderer.addFx('ring', gh.x, gh.y, { life: 26, max: 7, color: 'rgba(255,220,120,.9)' });
       setTool(g, 'hand');
       hideHint(g);
@@ -383,7 +389,7 @@ function bindUi(g) {
   };
   tap(g.el.play, () => play(g));
   tap(g.el.reset, () => resetCity(g));
-  tap(g.el.again, () => resetCity(g, true));
+  tap(g.el.again, () => resetCity(g));
   tap(g.el.toolWall, () => setTool(g, g.tool === 'wall' ? 'hand' : 'wall'));
   tap(g.el.toolHand, () => setTool(g, 'hand'));
   tap(g.el.sound, () => {
@@ -409,6 +415,19 @@ function hintFor(g) {
 
 function hideHint(g) {
   g.el.hint.classList.add('hidden');
+}
+
+// さわってほしい所へ、ゆびのしるしを重ねる
+function updateHint(g) {
+  const el = g.el.hint;
+  const d = g.ui.hintDrain && g.city.drains.find((x) => x.id === g.ui.hintDrain);
+  if (!d || g.state === 'raining' || g.tool === 'wall') { el.classList.add('hidden'); return; }
+  const p = worldToScreen(g.cam, isoX(d.x + 0.5, d.y + 0.5), isoY(d.x + 0.5, d.y + 0.5));
+  const m = 40;
+  if (p.x < m || p.y < m || p.x > g.cam.vw - m || p.y > g.cam.vh - m) { el.classList.add('hidden'); return; }
+  el.style.left = `${p.x}px`;
+  el.style.top = `${p.y}px`;
+  el.classList.remove('hidden');
 }
 
 // ---------- 結果くらべ ----------
@@ -512,6 +531,16 @@ export function attachTestHooks(g) {
     resultVisible: () => !g.el.result.classList.contains('hidden'),
     setTool: (t) => setTool(g, t),
     fps: () => 1000 / g.frameMs,
+    profile: (frames = 90) => new Promise((res) => {
+      g.renderer.prof = {};
+      let n = 0;
+      const t0 = performance.now();
+      const step = () => (++n < frames) ? requestAnimationFrame(step)
+        : res({ total: (performance.now() - t0) / n, parts: Object.fromEntries(
+            Object.entries(g.renderer.prof).map(([k, v]) => [k, +(v / n).toFixed(2)])) },
+          g.renderer.prof = null);
+      requestAnimationFrame(step);
+    }),
     scale: () => g.scale,
   };
 }

@@ -6,7 +6,6 @@
 
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const FAST = process.env.E2E_FAST === '1';
@@ -69,7 +68,7 @@ async function main() {
 
   // ---------------------------------------------------------------
   console.log('\n▶ 1. さいしょの画面（かわいた街）');
-  let page = await openPage(browser, DEVICES['iPhone 14 (landscape)']);
+  const page = await openPage(browser, DEVICES['iPhone 14 (landscape)']);
   check('JS エラーが出ない', page.__errors.length === 0, page.__errors[0] || '');
   check('canvas が画面いっぱい', await page.evaluate(() => {
     const c = document.getElementById('view');
