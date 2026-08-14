@@ -1,0 +1,13 @@
+{
+  "name": "amai-himitsu",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "4歳児向けモバイルWebゲーム『あまいひみつ』(最後まで正体を隠すプリン工房)",
+  "scripts": {
+    "start": "npx --yes http-server . -p 4173 -c-1 --silent",
+    "test": "node tests/smoke.mjs --out shots",
+    "test:land": "node tests/smoke.mjs --landscape --out shots-landscape",
+    "test:hero": "node tests/moment.mjs --out shots-hero"
+  }
+}
