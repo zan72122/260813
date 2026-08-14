@@ -1,0 +1,16 @@
+{
+  "name": "mushimushi-biyoon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "4歳児向けモバイルWebゲーム（iPhone / iPad、縦横両対応）",
+  "type": "module",
+  "scripts": {
+    "start": "npx http-server -p 8123 -c-1",
+    "serve": "python3 -m http.server 8123",
+    "test": "node tests/play.mjs portrait && node tests/play.mjs landscape && node tests/play.mjs ipad",
+    "test:portrait": "node tests/play.mjs portrait",
+    "test:landscape": "node tests/play.mjs landscape",
+    "test:ipad": "node tests/play.mjs ipad",
+    "lint": "npx eslint src tests"
+  }
+}
