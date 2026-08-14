@@ -49,6 +49,7 @@ export class PackScene extends Scene {
       this.lever = { x: W * 0.66, y: H * 0.2, s: S * 0.085 };
     }
     if (this.cols !== (f.portrait ? 6 : 8)) this.build(f);
+    this.tableY = this.pk.y + this.pk.h * 0.62;
   }
 
   slotPos(b) {
@@ -112,7 +113,7 @@ export class PackScene extends Scene {
   draw(f) {
     const { ctx, W, H, S } = f;
     drawRoom(ctx, W, H, { top: '#fdf0d5', bottom: '#f4cf9b' });
-    drawTable(ctx, W, H, H * 0.86, '#cf9a5c');
+    drawTable(ctx, W, H, this.tableY, '#cf9a5c');
     const p = this.pk;
     glowSpot(ctx, p.x, p.y, p.w * 0.85, 'rgba(255,255,255,0.5)');
 

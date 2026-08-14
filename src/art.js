@@ -221,23 +221,29 @@ export function drawPack(ctx, x, y, w, h, opt = {}) {
   return { iw, ih, iy: h * 0.02 };
 }
 
-/** 木の台 */
-export function drawTable(ctx, W, H, y, color = '#d9a86a') {
+/** 木の台（x0..x1 の帯として描く） */
+export function drawTableRect(ctx, x0, x1, y, yBottom, color = '#d9a86a') {
+  const w = x1 - x0, h = yBottom - y;
+  if (h <= 0 || w <= 0) return;
   ctx.fillStyle = color;
-  ctx.fillRect(0, y, W, H - y);
+  ctx.fillRect(x0, y, w, h);
   ctx.fillStyle = 'rgba(255,255,255,0.16)';
-  ctx.fillRect(0, y, W, Math.max(2, (H - y) * 0.05));
+  ctx.fillRect(x0, y, w, Math.max(2, h * 0.05));
   ctx.globalAlpha = 0.13;
   ctx.strokeStyle = '#7a4c1d';
-  ctx.lineWidth = Math.max(1, W * 0.004);
+  ctx.lineWidth = Math.max(1, w * 0.004);
   for (let i = 0; i < 5; i++) {
-    const yy = y + (H - y) * (0.2 + i * 0.18);
+    const yy = y + h * (0.2 + i * 0.18);
     ctx.beginPath();
-    ctx.moveTo(0, yy);
-    ctx.bezierCurveTo(W * 0.3, yy - 4, W * 0.7, yy + 4, W, yy);
+    ctx.moveTo(x0, yy);
+    ctx.bezierCurveTo(x0 + w * 0.3, yy - 4, x0 + w * 0.7, yy + 4, x1, yy);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
+}
+
+export function drawTable(ctx, W, H, y, color = '#d9a86a') {
+  drawTableRect(ctx, 0, W, y, H, color);
 }
 
 /** ふんわりした背景（工場の壁） */

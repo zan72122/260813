@@ -34,12 +34,11 @@ export class SprayScene extends Scene {
     if (portrait) {
       this.tray = { x: W * 0.52, y: H * 0.62, w: S * 0.82, h: S * 0.34 };
       this.bottle = { x: W * 0.25, y: H * 0.33, s: S * 0.15 };
-      this.tableY = H * 0.78;
     } else {
       this.tray = { x: W * 0.6, y: H * 0.64, w: S * 1.0, h: S * 0.34 };
       this.bottle = { x: W * 0.22, y: H * 0.32, s: S * 0.16 };
-      this.tableY = H * 0.86;
     }
+    this.tableY = this.tray.y + this.tray.h * 0.42;
     // ノズルはいつもバットの中心を向く。ボトル本体は立てたまま少しだけ傾ける。
     const b = this.bottle;
     b.dir = Math.atan2(this.tray.y - b.y, this.tray.x - b.x);

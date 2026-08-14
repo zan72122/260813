@@ -9,10 +9,14 @@ export class TitleScene extends Scene {
   enter(f) {
     this.px = new Particles(60);
     this.beans = [];
+    // 器の底いっぱいに散らす（4x4 のグリッドを少し崩す）
     for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * TAU + rrange(-0.2, 0.2);
-      const rr = rrange(0.15, 0.72);
-      this.beans.push({ ax: Math.cos(a) * rr, ay: Math.sin(a) * rr * 0.55, rot: rrange(0, TAU), ph: rrange(0, TAU) });
+      const col = i % 5, row = (i / 5) | 0;
+      this.beans.push({
+        ax: (col - 2) * 0.42 + (row % 2) * 0.2 + rrange(-0.06, 0.06),
+        ay: (row - 1) * 0.55 + rrange(-0.1, 0.1),
+        rot: rrange(0, TAU), ph: rrange(0, TAU),
+      });
     }
     this.layout(f);
   }
@@ -68,8 +72,10 @@ export class TitleScene extends Scene {
 
     // 乾いた豆
     for (const bn of this.beans) {
-      const y = bn.ay * b.r * 0.9 + Math.sin(this.t * 2 + bn.ph) * S * 0.002;
-      drawBean(ctx, bn.ax * b.r * 0.82, y, S * 0.033, bn.rot, BEAN_LOOK.dry);
+      const yy = bn.ay * 0.45;
+      const y = yy * b.r + Math.sin(this.t * 2 + bn.ph) * S * 0.002;
+      // 上下の列ほど内側に寄せる（器の丸みに沿わせる）
+      drawBean(ctx, bn.ax * b.r * 0.7 * (1 - Math.abs(yy) * 0.6), y, S * 0.042, bn.rot, BEAN_LOOK.dry);
     }
     ctx.restore();
 

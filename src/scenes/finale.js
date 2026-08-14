@@ -4,7 +4,7 @@
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, rand, easeOut, easeOutBack, angleDelta, roundRect, damp } from '../util.js';
 import {
-  drawRoom, drawTable, drawBean, BEAN_LOOK, blendLook, drawPack,
+  drawRoom, drawTableRect, drawBean, BEAN_LOOK, blendLook, drawPack,
   drawStrand, drawStick, glowSpot, drawHandHint, drawRoundButton,
 } from '../art.js';
 import { Particles } from '../fx.js';
@@ -50,9 +50,7 @@ export class FinaleScene extends Scene {
       });
     }
     this.layout(f);
-    this.focusY = this.pk.y;
     this.zoom = MIX_ZOOM;
-    this.rawY = this.pk.y;
     this.tip = { x: this.pk.x, y: this.pk.y - this.pk.h * 0.2 };
     this.tipV = { x: 0, y: 0 };
     this.stickAng = 0.15;
@@ -72,7 +70,9 @@ export class FinaleScene extends Scene {
     }
     this.rimY = this.pk.y - this.pk.h * 0.42;
     this.anchorY = H * 0.5;
-    if (!this.rawY) this.rawY = this.pk.y;
+    // 画面が回っても構図が飛ばないよう、カメラを新しいパック位置に置き直す
+    this.focusY = this.pk.y;
+    this.rawY = (this.rimY - this.pk.y) * MIX_ZOOM + this.anchorY;
   }
 
   /* 画面座標 → ゲーム内座標（カメラの逆変換）。
@@ -169,14 +169,21 @@ export class FinaleScene extends Scene {
   }
 
   spawnWeb(f) {
+    // 近くの豆どうしを結ぶ（長いリボンではなく、短い糸がたくさん出るように）
     const a = (rand() * this.beans.length) | 0;
-    let b = (rand() * this.beans.length) | 0;
-    if (a === b) b = (b + 1) % this.beans.length;
+    const A = this.beanSlot(this.beans[a], f);
+    const near = this.beans
+      .map((bn, i) => ({ i, d: Math.hypot(this.beanSlot(bn, f).x - A.x, this.beanSlot(bn, f).y - A.y) }))
+      .filter((o) => o.i !== a)
+      .sort((p, q) => p.d - q.d)
+      .slice(0, 5);
+    const b = near[(rand() * near.length) | 0].i;
     this.webs.push({
       a, b,
       phase: rand() * TAU,
       w: rrange(0.7, 1.5),
       rest: rrange(0.7, 1.25),
+      over: rand() < 0.45,     // 一部は豆の手前に張って、糸が増えたのを見せる
     });
   }
 
@@ -389,13 +396,19 @@ export class FinaleScene extends Scene {
   draw(f) {
     const { ctx, W, H, S } = f;
     drawRoom(ctx, W, H, { top: '#fff2d8', bottom: '#f0d2a2' });
-    drawTable(ctx, W, H, H * 0.93, '#c78f52');
 
     ctx.save();
     // 混ぜている間は接写、持ち上げるほど引く（カットは割らない）
     ctx.translate(W / 2, this.anchorY);
     ctx.scale(this.zoom, this.zoom);
     ctx.translate(-this.pk.x, -this.focusY);
+
+    // 台もカメラの中で描く（寄り引きしても接地がずれない）
+    const z = this.zoom;
+    drawTableRect(ctx,
+      this.pk.x - (W / 2) / z, this.pk.x + (W / 2) / z,
+      this.pk.y + this.pk.h * 0.68,
+      this.focusY + (H - this.anchorY) / z, '#c78f52');
 
     glowSpot(ctx, this.pk.x, this.pk.y - this.pk.h * 0.1, this.pk.w * 0.8, 'rgba(255,255,255,0.5)');
 
@@ -475,7 +488,7 @@ export class FinaleScene extends Scene {
     const S = f.S;
     for (const w of this.webs) {
       const ba = this.beans[w.a], bb = this.beans[w.b];
-      const isFront = ba.held || bb.held;
+      const isFront = ba.held || bb.held || w.over;
       if (isFront !== front) continue;
       const A = this.beanPos(w.a, f), B = this.beanPos(w.b, f);
       const d = Math.hypot(B.x - A.x, B.y - A.y);
@@ -484,7 +497,7 @@ export class FinaleScene extends Scene {
       // たるみは糸の長さ自体で頭打ちにする（近い豆どうしが大きく垂れないように）
       const sag = Math.min(d * 0.24, S * 0.05) * (1 - tension) + S * 0.004;
       drawStrand(ctx, A.x, A.y, B.x, B.y, {
-        width: S * 0.011 * w.w * (0.6 + this.sticky * 0.6),
+        width: S * 0.0085 * w.w * (0.6 + this.sticky * 0.6),
         sag,
         wobble: S * 0.008 * (1 - tension) * (0.5 + this.sticky),
         phase: w.phase + this.t * 2.2,

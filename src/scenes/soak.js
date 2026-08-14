@@ -8,7 +8,8 @@ import { sfx } from '../audio.js';
 
 export class SoakScene extends Scene {
   enter(f) {
-    this.px = new Particles(120);
+    this.px = new Particles(60);     // 器の外（きらきら）
+    this.pxIn = new Particles(90);   // 器の中（しぶき・泡）— 器でクリップする
     this.fill = 0;          // 0..1 水位
     this.plump = 0;         // 0..1 豆のふくらみ
     this.pouring = false;
@@ -32,12 +33,13 @@ export class SoakScene extends Scene {
   layout(f) {
     const { W, H, S, portrait } = f;
     if (portrait) {
-      this.bowl = { x: W * 0.5, y: H * 0.62, r: S * 0.33 };
-      this.tap = { x: W * 0.5, y: H * 0.18, s: S * 0.13, side: 0 };
+      this.bowl = { x: W * 0.5, y: H * 0.58, r: S * 0.33 };
+      this.tap = { x: W * 0.5, y: H * 0.16, s: S * 0.13, side: 0 };
     } else {
-      this.bowl = { x: W * 0.58, y: H * 0.62, r: S * 0.34 };
-      this.tap = { x: W * 0.24, y: H * 0.24, s: S * 0.16, side: -1 };
+      this.bowl = { x: W * 0.58, y: H * 0.58, r: S * 0.34 };
+      this.tap = { x: W * 0.24, y: H * 0.22, s: S * 0.16, side: -1 };
     }
+    this.tableY = this.rimY() + this.bowl.r * 0.98;
   }
 
   down(p) {
@@ -57,8 +59,8 @@ export class SoakScene extends Scene {
       this.pourT -= dt;
       this.fill = clamp(this.fill + dt * 0.42 * (1 + Math.min(this.taps - 1, 4) * 0.2), 0, 1);
       const surf = this.surfaceY();
-      this.px.splash(this.bowl.x + rrange(-0.2, 0.2) * this.bowl.r, surf, { n: 2, speed: S * 0.5, scale: S * 0.006 });
-      if (Math.random() < 0.5) this.px.bubble(this.bowl.x, surf + this.bowl.r * 0.2, { spread: this.bowl.r * 0.7, scale: S * 0.004 });
+      this.pxIn.splash(this.bowl.x + rrange(-0.2, 0.2) * this.bowl.r, surf, { n: 2, speed: S * 0.4, scale: S * 0.006 });
+      if (Math.random() < 0.5) this.pxIn.bubble(this.bowl.x, surf + this.bowl.r * 0.2, { spread: this.bowl.r * 0.7, scale: S * 0.004 });
     } else {
       this.pouring = false;
     }
@@ -77,17 +79,30 @@ export class SoakScene extends Scene {
       if (this.finishT > 1.3) this.next('steam');
     }
     this.px.update(dt);
+    this.pxIn.update(dt);
   }
+
+  rimY() { return this.bowl.y - this.bowl.r * 0.3; }
 
   surfaceY() {
     const b = this.bowl;
-    return b.y + b.r * 0.42 - this.fill * b.r * 0.78;
+    return lerp(this.rimY() + b.r * 0.92, this.rimY() + b.r * 0.08, this.fill);
+  }
+
+  /** 器の内側（ふちの楕円＋下のおわん）を 1 本のパスにする */
+  innerPath(ctx, k = 0.93) {
+    const b = this.bowl, R = b.r * k, RY = b.r * 0.26 * k, y = this.rimY();
+    ctx.beginPath();
+    ctx.ellipse(b.x, y, R, RY, 0, 0, TAU);
+    ctx.moveTo(b.x - R, y);
+    ctx.bezierCurveTo(b.x - R, y + b.r * 1.16, b.x + R, y + b.r * 1.16, b.x + R, y);
+    ctx.closePath();
   }
 
   draw(f) {
     const { ctx, W, H, S } = f;
     drawRoom(ctx, W, H, { top: '#e8f4ff', bottom: '#ffe6bd' });
-    drawTable(ctx, W, H, H * 0.78, '#d9a86a');
+    drawTable(ctx, W, H, this.tableY, '#d9a86a');
     const b = this.bowl;
     glowSpot(ctx, b.x, b.y, b.r * 2, 'rgba(255,255,255,0.45)');
 
@@ -121,56 +136,72 @@ export class SoakScene extends Scene {
       ctx.restore();
     }
 
-    // ---- ボウル（奥） ----
+    // ---- ボウル ----
+    const rimY = this.rimY();
     ctx.fillStyle = 'rgba(120,80,30,0.2)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + b.r * 0.56, b.r * 1.06, b.r * 0.28, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#b8794170';
-    ctx.save();
     ctx.beginPath();
-    ctx.ellipse(b.x, b.y - b.r * 0.36, b.r, b.r * 0.9, 0, 0, TAU);
-    ctx.clip();
+    ctx.ellipse(b.x, this.tableY + b.r * 0.05, b.r * 0.85, b.r * 0.13, 0, 0, TAU);
+    ctx.fill();
+
+    // 外側
+    const og = ctx.createLinearGradient(b.x - b.r, 0, b.x + b.r, 0);
+    og.addColorStop(0, '#a9713c');
+    og.addColorStop(0.4, '#dda469');
+    og.addColorStop(1, '#a9713c');
+    ctx.fillStyle = og;
+    ctx.beginPath();
+    ctx.moveTo(b.x - b.r, rimY);
+    ctx.bezierCurveTo(b.x - b.r, rimY + b.r * 1.28, b.x + b.r, rimY + b.r * 1.28, b.x + b.r, rimY);
+    ctx.closePath();
+    ctx.fill();
 
     // 内側
-    ctx.fillStyle = '#c58a4e';
-    ctx.fillRect(b.x - b.r, b.y - b.r * 1.3, b.r * 2, b.r * 2.6);
-    ctx.fillStyle = '#a9713c';
-    ctx.beginPath();
-    ctx.ellipse(b.x, b.y + b.r * 0.42, b.r * 0.98, b.r * 0.34, 0, 0, TAU);
-    ctx.fill();
+    ctx.save();
+    this.innerPath(ctx);
+    ctx.clip();
+    ctx.fillStyle = '#8e5c2c';
+    ctx.fillRect(b.x - b.r, rimY - b.r * 0.4, b.r * 2, b.r * 2);
 
     // 水
     if (this.fill > 0.01) {
       const surf = this.surfaceY();
-      ctx.fillStyle = 'rgba(120,205,235,0.55)';
-      ctx.fillRect(b.x - b.r, surf, b.r * 2, b.r * 1.4);
-      ctx.fillStyle = 'rgba(190,240,255,0.75)';
-      ctx.beginPath();
-      ctx.ellipse(b.x, surf + Math.sin(this.t * 4) * S * 0.004, b.r * 0.99, b.r * 0.14, 0, 0, TAU);
-      ctx.fill();
+      ctx.fillStyle = 'rgba(140,215,240,0.34)';
+      ctx.fillRect(b.x - b.r, surf, b.r * 2, b.r * 1.6);
     }
 
-    // 豆
+    // 豆（水につかると、ふくらんで少し浮き上がる）
     const look = blendLook(BEAN_LOOK.dry, BEAN_LOOK.soaked, this.plump);
-    const r0 = S * 0.036, r1 = S * 0.052;
+    const r0 = S * 0.036, r1 = S * 0.05;
     for (const bn of this.beans) {
-      const rise = this.plump * b.r * 0.1;
-      const bx = b.x + bn.bx * b.r * 0.92;
-      const by = b.y + b.r * 0.3 + bn.by * b.r * 0.55 - rise
+      const bx = b.x + bn.bx * b.r * 0.78;
+      const by = rimY + b.r * (0.78 - this.plump * 0.14) + bn.by * b.r * 0.42
         + Math.sin(this.t * 2.2 + bn.ph) * S * 0.004 * this.fill;
       drawBean(ctx, bx, by, lerp(r0, r1, this.plump), bn.rot + Math.sin(this.t + bn.ph) * 0.08 * this.fill, look);
     }
+
+    // 水面（豆の上にうっすら重ねると、水の中に見える）
+    if (this.fill > 0.01) {
+      const surf = this.surfaceY();
+      ctx.fillStyle = 'rgba(150,220,242,0.2)';
+      ctx.fillRect(b.x - b.r, surf, b.r * 2, b.r * 1.6);
+      ctx.fillStyle = 'rgba(200,244,255,0.8)';
+      ctx.beginPath();
+      ctx.ellipse(b.x, surf + Math.sin(this.t * 4) * S * 0.003, b.r * 0.92, b.r * 0.1, 0, 0, TAU);
+      ctx.fill();
+    }
+    this.pxIn.draw(ctx);   // しぶきと泡は器の中だけ
     ctx.restore();
 
-    // ボウルのふち
+    // ふち
     ctx.strokeStyle = '#e6b177';
-    ctx.lineWidth = S * 0.028;
+    ctx.lineWidth = S * 0.026;
     ctx.beginPath();
-    ctx.ellipse(b.x, b.y - b.r * 0.36, b.r, b.r * 0.26, 0, 0, TAU);
+    ctx.ellipse(b.x, rimY, b.r, b.r * 0.26, 0, 0, TAU);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = S * 0.009;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = S * 0.008;
     ctx.beginPath();
-    ctx.ellipse(b.x, b.y - b.r * 0.38, b.r * 0.97, b.r * 0.24, 0, 0, TAU);
+    ctx.ellipse(b.x, rimY - S * 0.004, b.r * 0.98, b.r * 0.25, 0, Math.PI * 1.05, Math.PI * 1.95);
     ctx.stroke();
 
     this.px.draw(ctx);

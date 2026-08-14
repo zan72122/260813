@@ -229,6 +229,20 @@ const run = async () => {
   else ok(`回転しても継続 (${s.w}x${s.h})`);
   await shot('10-rotated');
 
+  /* --- 全シーン × 向き の総当たり（回転で落ちないこと） --- */
+  const scenes = ['title', 'soak', 'steam', 'spray', 'pack', 'ferment', 'finale', 'reveal'];
+  for (const name of scenes) {
+    for (const v of [SIZES.portrait, SIZES.landscape]) {
+      await page.setViewportSize(v);
+      await page.evaluate((n) => window.__natto.goto(n), name);
+      await advance(1.2);
+      await tap(v.width * 0.5, v.height * 0.5);
+      await advance(0.6);
+    }
+  }
+  ok('全シーンを縦横で描画（回転含む）');
+  await page.setViewportSize(size);
+
   const perf = await page.evaluate(() => window.__natto.perf());
   log(`  · 描画コスト（参考／ソフトウェア描画）: ${perf.avgMs.toFixed(2)}ms/frame, ${perf.frames} frames`);
 

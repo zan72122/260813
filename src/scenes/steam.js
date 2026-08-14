@@ -35,6 +35,7 @@ export class SteamScene extends Scene {
       this.pot = { x: W * 0.42, y: H * 0.56, r: S * 0.33 };
       this.lever = { x: W * 0.78, y: H * 0.55, s: S * 0.13 };
     }
+    this.tableY = this.pot.y + this.pot.r * 1.06;
   }
 
   down(p, f) {
@@ -101,7 +102,7 @@ export class SteamScene extends Scene {
   draw(f) {
     const { ctx, W, H, S } = f;
     drawRoom(ctx, W, H, { top: '#ffe9c9', bottom: '#f3c98f' });
-    drawTable(ctx, W, H, H * 0.8, '#cf9a5c');
+    drawTable(ctx, W, H, this.tableY, '#cf9a5c');
     const p = this.pot;
     glowSpot(ctx, p.x, p.y, p.r * 2.1, 'rgba(255,240,200,0.55)');
 
