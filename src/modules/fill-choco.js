@@ -62,7 +62,7 @@ export class FillChoco extends Module {
       this.blob = Math.min(1, this.blob + dt * 4);
       sound.loopSet('pour', { freq: 280 + this.fill * 520, gain: 0.11 });
       if (Math.random() < dt * 10) {
-        world.puff(this.tip.clone(), {
+        world.puff(world.tank.position.clone().add(new THREE.Vector3(0.3, 0.55, 0)), {
           count: 1,
           color: 0x6b3a18,
           spread: 0.22,

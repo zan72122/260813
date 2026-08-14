@@ -652,8 +652,8 @@ export class World {
       new THREE.MeshPhongMaterial({ color: 0x64d2c0, shininess: 60 }),
     );
     this.fan.add(hub, this.fanBlades, ringF);
-    this.fan.position.set(L.heroX - 1.55, L.heroY + 0.15, -0.15);
-    this.fan.rotation.y = 0.5;
+    this.fan.position.set(L.heroX + 0.98, L.heroY + 0.1, 0.25);
+    this.fan.rotation.y = -0.6;
     this.fan.visible = false;
     this.scene.add(this.fan);
 
@@ -692,11 +692,11 @@ export class World {
     });
     const lid = cyl(0.5, 0.5, 0.14, 16, 0xffd35a);
     lid.position.y = 0.46;
-    const spout = cyl(0.1, 0.1, 0.7, 10, 0xffc247);
-    spout.position.set(0.28, 0.5, 0);
-    spout.rotation.z = -0.6;
+    const spout = cyl(0.09, 0.09, 0.8, 10, 0xffc247);
+    spout.position.set(0.3, 0.55, -0.05);
+    spout.rotation.z = -0.7;
     tank.add(jar, glass, lid, spout);
-    tank.position.set(L.heroX - 1.05, L.heroY - 1.5, 0.5);
+    tank.position.set(L.heroX - 1.02, L.heroY - 1.1, -0.55);
     tank.visible = false;
     this.tank = tank;
     this.scene.add(tank);
