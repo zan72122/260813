@@ -58,6 +58,19 @@ body {
   pointer-events: auto;
 }
 
+/*
+ * The panel is a FULL-SCREEN layer. It must be transparent to pointers unless
+ * it is actually up, or it silently eats every tap on the game.
+ * Scoped under #hud on purpose: a bare `.panel { pointer-events: none }` loses
+ * to `#hud [data-ui]` on specificity, which is exactly how that bug happened.
+ */
+#hud .panel {
+  pointer-events: none;
+}
+#hud .panel.show {
+  pointer-events: auto;
+}
+
 /* ---------------------------------------------------------------- prompt */
 .prompt {
   position: absolute;
@@ -232,12 +245,10 @@ body {
   padding: 0 12px calc(var(--safe-b) + 14px);
   background: none;
   opacity: 0;
-  pointer-events: none;
   transition: opacity 0.5s ease;
 }
 .panel.show {
   opacity: 1;
-  pointer-events: auto;
 }
 .panel .card {
   background: var(--paper);

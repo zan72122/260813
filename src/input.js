@@ -19,11 +19,15 @@ export class Pointer {
     this.startX = 0;
     this.startY = 0;
     this.lastActivity = performance.now();
-    /** @type {{onDown?:Function,onMove?:Function,onUp?:Function}} */
+    /** milliseconds held that no frame has consumed yet */
+    this._heldMs = 0;
+    this._heldFrom = 0;
+    /** @type {{onDown?:Function,onMove?:Function,onUp?:Function,onHover?:Function}} */
     this.handlers = {};
 
     const opts = { passive: false };
     this._onDown = (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return; // ignore right/middle
       if (!this._isGameTarget(e)) return;
       e.preventDefault();
       this.id = e.pointerId;
@@ -35,10 +39,20 @@ export class Pointer {
       this.startY = this.y;
       this.dx = this.dy = 0;
       this.lastActivity = performance.now();
+      this._heldFrom = this.lastActivity;
       el.setPointerCapture?.(e.pointerId);
       this.handlers.onDown?.(this);
     };
     this._onMove = (e) => {
+      // A mouse hovers; a finger does not. Following the cursor while no
+      // button is held is what makes the tool feel alive on a laptop.
+      if (!this.down && e.pointerType !== 'touch') {
+        if (!this._isGameTarget(e)) return;
+        this._set(e);
+        this.lastActivity = performance.now();
+        this.handlers.onHover?.(this);
+        return;
+      }
       if (!this.down || e.pointerId !== this.id) return;
       e.preventDefault();
       this.px = this.x;
@@ -55,6 +69,7 @@ export class Pointer {
       this.id = -1;
       this.dx = this.dy = 0;
       this.lastActivity = performance.now();
+      this._heldMs += Math.max(0, this.lastActivity - this._heldFrom);
       this.handlers.onUp?.(this);
     };
 
@@ -84,10 +99,36 @@ export class Pointer {
     return Math.hypot(this.x - this.startX, this.y - this.startY);
   }
 
+  /**
+   * Seconds the pointer has been held since the last call.
+   *
+   * Sampling `down` once per frame loses any press that starts and ends inside
+   * a single frame gap - which is exactly what happens to a quick tap when the
+   * renderer is having a slow moment. Accumulating the time instead means a
+   * short press still pours some juice.
+   */
+  consumeHeld(minWhileDown = 0) {
+    const now = performance.now();
+    let ms = this._heldMs;
+    this._heldMs = 0;
+    if (this.down) {
+      ms += Math.max(0, now - this._heldFrom);
+      this._heldFrom = now;
+    }
+    return Math.max(ms / 1000, this.down ? minWhileDown : 0);
+  }
+
+  /** Throw away unconsumed press time (on entering a stage that uses it). */
+  clearHeld() {
+    this._heldMs = 0;
+    this._heldFrom = performance.now();
+  }
+
   /** Synthetic input, used by the idle-assist and by the E2E harness. */
   inject(type, x, y) {
     if (type === 'down') {
       this.down = true;
+      this._heldFrom = performance.now();
       this.x = this.px = this.startX = x;
       this.y = this.py = this.startY = y;
       this.dx = this.dy = 0;

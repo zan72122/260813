@@ -123,6 +123,18 @@ Everything in `FORGIVE` (`src/config.js`) is an accessibility budget:
   demonstrates the gesture; after `idleAssistMs` (22 s) the game quietly does a
   little of the work itself, every stage, so the child is never stranded.
 * **No reading required.** One short hiragana line, big icons, and sound.
+* **A gesture never runs on into the next stage.** After the flip, the brush
+  waits for the finger to lift before it digs; the tray will not tip while a
+  finger is still held down from pouring; the polishing step will not be blown
+  through by the stroke that finished the reveal.
+
+### On a desktop
+
+The target is a phone and a tablet, but it gets opened on a laptop constantly,
+so a mouse is a first-class input: click to act, and the tool follows the
+cursor while no button is held (a finger cannot hover, a mouse can). Pouring
+counts *held time* rather than sampling a per-frame flag, so a squeeze shorter
+than one frame still delivers juice on a slow renderer.
 
 ## Sound
 
@@ -154,6 +166,13 @@ the four questions the brief asks to check on device:
    touch, on every device in the matrix
 4. is it obviously a gummy too early? → `colorsVisible` must be empty until the
    child acts
+
+`tests/e2e/input.spec.js` is the one that goes through the DOM: real mouse
+clicks, real drags, real taps, plus an `elementFromPoint` check that nothing in
+the HUD is sitting on top of the canvas. The other specs inject straight into
+the pointer handler, which is deterministic but skips hit-testing entirely — so
+a full-screen HUD layer swallowing every tap looked exactly like a passing
+suite until this file existed. It runs on the desktop project too.
 
 ### What these tests cannot tell you
 

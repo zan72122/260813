@@ -150,6 +150,7 @@ export class Game {
     this.pointer = new Pointer(canvas);
     this.pointer.handlers.onDown = () => this.onDown();
     this.pointer.handlers.onMove = () => this.onMove();
+    this.pointer.handlers.onHover = () => this.onHover();
     this.pointer.handlers.onUp = () => this.onUp();
 
     window.addEventListener('resize', () => this.view.resize());
@@ -198,6 +199,7 @@ export class Game {
         this.ui.showChips(JUICE, this.colorId);
         this.ui.setAccent(JUICE[this.colorIndex].hex); // first colour in the world
         this.setTool('nozzle');
+        this.pointer.clearHeld();
         this.view.cutTo('pour', [0, 0, 0]);
         break;
 
@@ -239,6 +241,10 @@ export class Game {
         this.setTool('roller');
         this.view.cutTo('polish');
         this._glossSnap = false;
+        // the brushing stroke that finished the dig usually runs on past the
+        // stage change; wait for a fresh gesture so the child actually sees
+        // this step instead of blowing through it mid-sweep
+        this._polishArmed = false;
         break;
 
       case 'finale':
@@ -301,6 +307,12 @@ export class Game {
 
   onUp() {
     this._lastInteraction = performance.now();
+  }
+
+  /** Mouse only: keep the tool under the cursor between clicks. */
+  onHover() {
+    this._lastInteraction = performance.now();
+    this.updateToolFromPointer(true);
   }
 
   get onMound() {
@@ -543,8 +555,11 @@ export class Game {
     n.position.y = damp(n.position.y, this.pointer.down ? 0.55 : 1.15, 10, dt);
     n.rotation.z = damp(n.rotation.z, this.pointer.down ? -0.42 : 0, 9, dt);
 
-    if (this.pointer.down && this.snapCell) {
-      this.fillCell(this.snapCell, dt * 2.4);
+    // held TIME, not a per-frame boolean: a squeeze shorter than one frame
+    // must still deliver juice, or pouring dies on a slow renderer
+    const held = Math.min(0.3, this.pointer.consumeHeld(dt));
+    if (held > 0 && this.snapCell) {
+      this.fillCell(this.snapCell, held * 2.4);
     }
 
     const filled = this.cells.filter((c) => c.fill >= 1).length;
@@ -812,7 +827,9 @@ export class Game {
     );
     r.rotation.x += this.pointer.down ? dt * 8 : dt;
 
-    if (this.pointer.down) {
+    if (!this._polishArmed && !this.pointer.down) this._polishArmed = true;
+
+    if (this._polishArmed && this.pointer.down) {
       const moved = Math.hypot(this._toolPos.x - this._toolPrev.x, this._toolPos.z - this._toolPrev.z);
       if (moved > 0.01) {
         this.gloss = Math.min(1, this.gloss + moved * 0.055);

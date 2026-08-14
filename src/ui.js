@@ -52,9 +52,11 @@ export class UI {
       this.cb.onSound?.(this.soundOn);
     });
 
+    // NOTE: no data-ui on the panel itself - it covers the whole screen, and
+    // its clickability is controlled by the .show class alone (see style.css).
     this.panel = el('div', 'panel', root);
-    this.panel.setAttribute('data-ui', '');
     this.panelCard = el('div', 'card', this.panel);
+    this.panelCard.setAttribute('data-ui', '');
     this.panelTitle = el('h1', null, this.panelCard);
     this.panelBody = el('p', null, this.panelCard);
     this.panelBtns = el('div', null, this.panelCard);

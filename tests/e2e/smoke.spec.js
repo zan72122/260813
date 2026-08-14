@@ -80,6 +80,7 @@ test.describe('しろい こなの こうじょう', () => {
       .toBe('polish');
 
     await doPolish(page);
+
     await expect
       .poll(async () => (await state(page)).stage, { timeout: 40_000 })
       .toBe('finale');

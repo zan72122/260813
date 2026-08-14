@@ -54,6 +54,12 @@ export default defineConfig({
   // NOTE: the iPhone/iPad device descriptors default to WebKit. We keep their
   // viewport, DPR and user agent but force Chromium, per the cloud profile.
   projects: [
+    // The brief targets phones and tablets, but the thing gets opened on a
+    // laptop constantly - a mouse must work too.
+    {
+      name: 'desktop-chrome',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
+    },
     {
       name: 'iphone-portrait',
       use: { ...devices['iPhone 13'], browserName: 'chromium', isMobile: true, hasTouch: true },
