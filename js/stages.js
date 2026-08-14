@@ -763,6 +763,9 @@ const reveal = {
       W.band.alpha = W.strandAlpha;
       W.glow = damp(W.glow, 0, 3, dt);
       W.cutBoardAlpha = damp(W.cutBoardAlpha, 0, 4, dt);
+      // dim the workshop so only the pot is lit
+      W.floorAlpha = damp(W.floorAlpha, 0, 2.5, dt);
+      W.shopAlpha = damp(W.shopAlpha, 0, 2.5, dt);
     }
     if (T >= 1.75 && T < 4.7) {
       W.potA = damp(W.potA, 1, 4, dt);

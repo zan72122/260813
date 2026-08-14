@@ -1012,7 +1012,8 @@ export function drawHint(ctx) {
 
 function drawFinger(ctx) {
   ctx.save();
-  ctx.translate(16, 30);
+  // offset down-right so the finger points at the target without hiding it
+  ctx.translate(34, 52);
   ctx.rotate(-0.25);
   ctx.fillStyle = 'rgba(60,40,24,0.25)';
   roundRect(ctx, -20 + 6, 6, 46, 104, 23);
