@@ -4,13 +4,17 @@
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, rand, easeOut, easeOutBack, angleDelta, roundRect, damp } from '../util.js';
 import {
-  drawRoom, drawTableRect, drawBean, BEAN_LOOK, blendLook, drawPack,
-  drawStrand, drawStick, glowSpot, drawHandHint, drawRoundButton,
+  drawRoom, drawTableRect, drawPack,
+  drawStick, glowSpot, drawHandHint, drawRoundButton,
 } from '../art.js';
+import {
+  drawBeanBlend, drawStickyMass, drawStickyGlaze, drawContactShadows,
+  drawWetRim, drawThread, drawVeil, BEAN_ATLAS,
+} from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
-const MAX_WEB = 26;
+const MAX_WEB = 42;
 const MIX_ZOOM = 1.2;    // 混ぜている間は接写
 const LIFT_ZOOM = 0.84;  // 持ち上げたら引いて、糸の長さを見せる
 
@@ -37,12 +41,14 @@ export class FinaleScene extends Scene {
     this.showNext = false;
     this.nextPulse = 0;
 
-    // 24 粒。縦画面は 6x4、横画面は 8x3 に組み替える（向きに合わせた再構図）
+    // 36 粒。縦画面は 6x6、横画面は 9x4 に組み替える（向きに合わせた再構図）
     this.beans = [];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 36; i++) {
       this.beans.push({
         idx: i,
-        jitX: rrange(-0.05, 0.05), jitY: rrange(-0.07, 0.07),
+        v: (rand() * BEAN_ATLAS.variants) | 0,
+        sc: rrange(0.86, 1.14),
+        jitX: rrange(-0.16, 0.16), jitY: rrange(-0.20, 0.20),
         rot: rrange(-0.7, 0.7),
         ph: rrange(0, TAU),
         held: false, ox: 0, oy: 0,
@@ -352,7 +358,7 @@ export class FinaleScene extends Scene {
 
   grabClump(f) {
     // 棒の近くの豆が、ねばりでくっついて持ち上がる
-    const n = 2 + Math.round(this.sticky * 6);
+    const n = 3 + Math.round(this.sticky * 8);
     const arr = this.beans
       .map((b, i) => ({ i, d: Math.hypot(this.beanSlot(b, f).x - this.tip.x, this.beanSlot(b, f).y - this.tip.y) }))
       .sort((p, q) => p.d - q.d)
@@ -400,8 +406,8 @@ export class FinaleScene extends Scene {
   beanSlot(b, f) {
     const p = this.pk;
     const portrait = f ? f.portrait : this.game.portrait;
-    const cols = portrait ? 6 : 8;
-    const rows = 24 / cols;
+    const cols = portrait ? 6 : 9;
+    const rows = 36 / cols;
     const c = b.idx % cols, r = (b.idx / cols) | 0;
     const bx = ((c - (cols - 1) / 2) / ((cols - 1) / 2)) * 0.9 + b.jitX;
     const by = ((r - (rows - 1) / 2) / ((rows - 1) / 2)) * 0.84 + b.jitY;
@@ -446,50 +452,44 @@ export class FinaleScene extends Scene {
     drawPack(ctx, p.x, p.y, p.w, p.h);
 
     // ---- パックの中の豆 ----
-    const look = blendLook(BEAN_LOOK.fermented, BEAN_LOOK.mixed, this.sticky);
-    const br = S * 0.044;
+    const br = S * 0.05;
+    const rest = this.beans.filter((b) => !b.held).map((b) => {
+      const q = this.beanSlot(b, f);
+      return { x: q.x, y: q.y, b };
+    });
+    rest.sort((a, b) => a.y - b.y);   // 奥から手前へ
+
+    drawContactShadows(ctx, rest, br, 0.18 + this.sticky * 0.12);
+    drawStickyMass(ctx, rest, br, this.sticky, { scale: 0.75 });
 
     // 糸（豆どうし）は豆の下に敷く
     if (this.phase !== 'open') this.drawWebs(ctx, f, false);
 
-    for (let i = 0; i < this.beans.length; i++) {
-      const b = this.beans[i];
-      if (b.held) continue;
-      const q = this.beanSlot(b, f);
-      drawBean(ctx, q.x, q.y, br, b.rot + b.jx * 0.02, look);
+    for (const q of rest) {
+      drawBeanBlend(ctx, 'fermented', 'mixed', this.sticky, q.b.v,
+        q.x, q.y, br * q.b.sc, 0);
     }
-
-    // ねばりの膜（表面全体のぬめり）
-    if (this.sticky > 0.15) {
-      ctx.save();
-      ctx.globalAlpha = (this.sticky - 0.15) * 0.42;
-      ctx.fillStyle = '#fffaf0';
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, p.w * 0.44, p.h * 0.34, 0, 0, TAU);
-      ctx.fill();
-      ctx.globalAlpha = (this.sticky - 0.15) * 0.5;
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = S * 0.006;
-      for (let i = 0; i < 5; i++) {
-        const a = this.t * 0.6 + i * 1.3;
-        ctx.beginPath();
-        ctx.ellipse(p.x + Math.cos(a) * p.w * 0.16, p.y + Math.sin(a) * p.h * 0.1,
-          p.w * 0.12, p.h * 0.07, a, 0, TAU);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
+    drawWetRim(ctx, rest, br, this.sticky);
+    drawStickyGlaze(ctx, this.sticky, { foam: 30, foamR: br * 0.10 });
 
     if (this.phase !== 'open') {
       // 手前の糸（持ち上げた分がここで伸びる＝主役）
       this.drawWebs(ctx, f, true);
       this.drawTipThreads(ctx, f);
 
-      // 持ち上がっている豆
-      for (const i of this.held) {
-        const b = this.beans[i];
-        const q = this.beanPos(i, f);
-        drawBean(ctx, q.x, q.y, br, b.rot, look);
+      // 持ち上がっている豆（棒の先の塊）
+      if (this.held.length) {
+        const clump = this.held.map((i) => {
+          const q = this.beanPos(i, f);
+          return { x: q.x, y: q.y, b: this.beans[i] };
+        });
+        drawStickyMass(ctx, clump, br, Math.max(0.5, this.sticky), { scale: 0.75 });
+        for (const q of clump) {
+          drawBeanBlend(ctx, 'fermented', 'mixed', this.sticky, q.b.v,
+            q.x, q.y, br * q.b.sc, 0);
+        }
+        drawWetRim(ctx, clump, br, this.sticky);
+        drawStickyGlaze(ctx, this.sticky, { foam: 10, foamR: br * 0.1 });
       }
 
       // 棒
@@ -526,15 +526,21 @@ export class FinaleScene extends Scene {
       const tension = clamp((d - rest * 0.5) / (rest * 1.1), 0, 1);
       // たるみは糸の長さ自体で頭打ちにする（近い豆どうしが大きく垂れないように）
       const sag = Math.min(d * 0.24, S * 0.05) * (1 - tension) + S * 0.004;
-      drawStrand(ctx, A.x, A.y, B.x, B.y, {
-        width: S * 0.0085 * w.w * (0.6 + this.sticky * 0.6),
-        sag,
-        wobble: S * 0.008 * (1 - tension) * (0.5 + this.sticky),
-        phase: w.phase + this.t * 2.2,
-        alpha: 0.55 + this.sticky * 0.4,
-        tension,
-        segs: f.fast ? 8 : 14,
-      });
+      // 端は粒の中心ではなく、相手側の表面あたりから出す
+      const k = 0.24;
+      const ex = B.x - A.x, ey = B.y - A.y;
+      drawThread(ctx,
+        A.x + ex * k, A.y + ey * k - S * 0.01,
+        B.x - ex * k, B.y - ey * k - S * 0.01, {
+          width: S * 0.008 * w.w * w.w * (0.6 + this.sticky * 0.6),
+          sag: sag * 0.5 + d * 0.13,
+          wobble: S * 0.006 * (1 - tension) * (0.5 + this.sticky),
+          phase: w.phase + this.t * 2.2,
+          alpha: 0.5 + this.sticky * 0.4,
+          tension, curl: 0.4, halo: !f.fast && w.w > 1.2,
+          shadow: front, beads: w.w > 1.25 && tension < 0.5 ? 1 : 0,
+          segs: f.fast ? 10 : 18,
+        });
     }
   }
 
@@ -547,15 +553,16 @@ export class FinaleScene extends Scene {
       const rest = S * (0.12 + this.sticky * 0.9);
       const tension = clamp((d - rest * 0.5) / (rest * 1.2), 0, 1);
       const sag = Math.min(d * 0.28, rest * 0.2) * (1 - tension) + S * 0.006 * (1 - tension * 0.7);
-      drawStrand(ctx, A.x, A.y, B.x, B.y, {
-        width: S * 0.012 * th.w * (0.6 + this.sticky * 0.7),
-        sag,
-        wobble: S * 0.01 * (1 - tension * 0.6),
+      drawThread(ctx, A.x, A.y - S * 0.012, B.x, B.y, {
+        width: S * 0.011 * th.w * th.w * (0.6 + this.sticky * 0.7),
+        sag: sag * 0.7,
+        wobble: S * 0.008 * (1 - tension * 0.6),
         phase: th.phase + this.t * 2.6,
-        alpha: 0.6 + this.sticky * 0.38,
-        tension,
-        curl: 0.5,
-        segs: f.fast ? 8 : 16,
+        alpha: 0.55 + this.sticky * 0.4,
+        tension, curl: 0.6,
+        halo: !f.fast && th.w > 1.1,
+        beads: th.w > 1.3 && tension < 0.6 ? 1 : 0,
+        segs: f.fast ? 12 : 22,
       });
     }
   }

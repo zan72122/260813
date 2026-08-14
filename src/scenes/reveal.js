@@ -2,9 +2,13 @@
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, rand, easeOut, easeIn, roundRect } from '../util.js';
 import {
-  drawRoom, drawTable, drawBean, BEAN_LOOK, drawStrand, drawPack,
+  drawRoom, drawTable, drawPack,
   glowSpot, drawHandHint, drawRoundButton,
 } from '../art.js';
+import {
+  drawBeanAuto, drawStickyMass, drawStickyGlaze, drawContactShadows,
+  drawWetRim, drawThread, BEAN_ATLAS,
+} from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -22,6 +26,8 @@ export class RevealScene extends Scene {
     for (let i = 0; i < 22; i++) {
       const a = rand() * TAU, r = Math.sqrt(rand());
       this.beans.push({
+        v: (i * 5) % BEAN_ATLAS.variants,
+        sc: rrange(0.86, 1.14),
         bx: Math.cos(a) * r, by: Math.sin(a) * r * 0.55,
         rot: rrange(-0.7, 0.7), ph: rrange(0, TAU), delay: rand() * 0.5,
       });
@@ -172,23 +178,54 @@ export class RevealScene extends Scene {
     }
 
     // ---- 納豆（ごはんの上）----
+    const br = S * 0.042;
+    const landed = [];
     for (let i = 0; i < this.beans.length; i++) {
       const q = this.beanPos(i, f);
-      const b = this.beans[i];
-      drawBean(ctx, q.x + jitter, q.y, S * 0.04, b.rot, BEAN_LOOK.mixed);
+      landed.push({ x: q.x + jitter, y: q.y, b: this.beans[i], drop: q.drop });
+    }
+    landed.sort((a, b) => a.y - b.y);
+    const onRice = landed.filter((q) => q.drop > 0.3);
+    if (onRice.length) {
+      drawContactShadows(ctx, onRice, br, 0.24);
+      drawStickyMass(ctx, onRice, br, 0.95, { scale: 0.75 });
+    }
+    for (const q of landed) {
+      drawBeanAuto(ctx, 'mixed', q.b.v, q.x, q.y, br * q.b.sc);
+    }
+    if (onRice.length) {
+      drawWetRim(ctx, onRice, br, 0.95);
+      drawStickyGlaze(ctx, 0.95, { foam: 22, foamR: br * 0.1 });
     }
     // 糸は豆の上に重ねる（ここが「見たことある！」の決め手）
     for (const w of this.webs) {
       const A = this.beanPos(w.a, f), B = this.beanPos(w.b, f);
       if (A.drop < 0.3 || B.drop < 0.3) continue;
-      drawStrand(ctx, A.x + jitter, A.y, B.x - jitter, B.y, {
-        width: S * 0.011 * w.w,
-        sag: S * 0.012,
-        wobble: S * 0.005,
-        phase: w.ph + this.t * 2,
-        alpha: 0.85,
-        segs: f.fast ? 8 : 12,
-      });
+      const ex = B.x - A.x, ey = B.y - A.y;
+      const d = Math.hypot(ex, ey) || 1;
+      drawThread(ctx, A.x + ex * 0.24 + jitter, A.y + ey * 0.24 - br * 0.2,
+        B.x - ex * 0.24 - jitter, B.y - ey * 0.24 - br * 0.2, {
+          width: S * 0.009 * w.w * w.w,
+          sag: d * 0.15 + br * 0.04,
+          wobble: S * 0.004,
+          phase: w.ph + this.t * 2,
+          alpha: 0.8, curl: 0.4,
+          beads: w.w > 1.2 ? 1 : 0,
+          segs: f.fast ? 12 : 18,
+        });
+    }
+    // 宙に立つ糸
+    if (this.tip > 0.6) {
+      for (let i = 0; i < 10; i++) {
+        const q = onRice[(i * 3) % Math.max(1, onRice.length)];
+        if (!q) break;
+        const up = br * (1.2 + ((i * 7) % 5) * 0.5);
+        drawThread(ctx, q.x, q.y - br * 0.5, q.x + ((i % 3) - 1) * br * 0.9, q.y - br * 0.5 - up, {
+          width: S * 0.0045, sag: -up * 0.12, wobble: br * 0.12,
+          phase: i * 1.7 + this.t, alpha: 0.65, tension: 0.35,
+          segs: 14, curl: 0.9, halo: false,
+        });
+      }
     }
     // たれのてかり
     if (this.tare > 0.01) {

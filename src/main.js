@@ -1,4 +1,6 @@
 import { Game } from './game.js';
+import { loadAssets, setBeanFallback } from './natto.js';
+import { drawBean, BEAN_LOOK } from './art.js';
 import { TitleScene } from './scenes/title.js';
 import { SoakScene } from './scenes/soak.js';
 import { SteamScene } from './scenes/steam.js';
@@ -10,6 +12,13 @@ import { RevealScene } from './scenes/reveal.js';
 
 const canvas = document.getElementById('stage');
 const game = new Game(canvas);
+
+// 焼き込みスプライトは非同期で届く。届くまではベクターで代替するので、
+// 読み込み待ちの画面を挟まずにそのまま遊べる。
+setBeanFallback((ctx, state, x, y, r, rot) => {
+  drawBean(ctx, x, y, r, rot, BEAN_LOOK[state] || BEAN_LOOK.dry);
+});
+loadAssets('./assets/');
 
 game.register('title', TitleScene);
 game.register('soak', SoakScene);

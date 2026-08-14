@@ -52,8 +52,25 @@ export function drawBeanSprite(ctx, state, variant, x, y, r, rot = 0, alpha = 1)
 
 /** 2 つの状態をまたぐ豆（発酵 → 混ぜた）。sticky で重ねる。 */
 export function drawBeanBlend(ctx, from, to, t, variant, x, y, r, rot = 0) {
-  drawBeanSprite(ctx, from, variant, x, y, r, rot, 1);
+  if (!drawBeanSprite(ctx, from, variant, x, y, r, rot, 1)) {
+    drawBeanFallback(ctx, from, x, y, r, rot);
+    return;
+  }
   if (t > 0.01) drawBeanSprite(ctx, to, variant, x, y, r, rot, clamp(t, 0, 1));
+}
+
+/** スプライトがまだ届いていないあいだのつなぎ（起動直後の数百 ms） */
+let fallbackFn = null;
+export function setBeanFallback(fn) { fallbackFn = fn; }
+function drawBeanFallback(ctx, state, x, y, r, rot) {
+  if (fallbackFn) fallbackFn(ctx, state, x, y, r, rot);
+}
+
+/** スプライトがあればそれを、なければベクターで描く */
+export function drawBeanAuto(ctx, state, variant, x, y, r, rot = 0) {
+  if (!drawBeanSprite(ctx, state, variant, x, y, r, rot, 1)) {
+    drawBeanFallback(ctx, state, x, y, r, rot);
+  }
 }
 
 /* ------------------------------------------------------------------ */

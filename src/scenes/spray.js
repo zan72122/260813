@@ -1,7 +1,8 @@
 // 3. しゅっ：何かをかけると、豆がきらっとする（説明はしない）
 import { Scene } from '../game.js';
 import { TAU, clamp, rrange, roundRect } from '../util.js';
-import { drawRoom, drawTable, drawBean, BEAN_LOOK, blendLook, glowSpot, drawHandHint } from '../art.js';
+import { drawRoom, drawTable, glowSpot, drawHandHint } from '../art.js';
+import { drawBeanAuto, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -20,6 +21,7 @@ export class SprayScene extends Scene {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         this.beans.push({
+          v: (this.beans.length * 5) % BEAN_ATLAS.variants,
           bx: (c - (cols - 1) / 2) / ((cols - 1) / 2),
           by: (r - (rows - 1) / 2) / ((rows - 1) / 2),
           rot: rrange(-0.7, 0.7), ph: rrange(0, TAU),
@@ -115,11 +117,10 @@ export class SprayScene extends Scene {
     ctx.fill();
 
     // ---- 豆 ----
-    const look = blendLook(BEAN_LOOK.steamed, BEAN_LOOK.steamed, 0);
     for (const b of this.beans) {
       const x = t.x + b.bx * t.w * 0.39;
       const y = t.y + b.by * t.h * 0.26 + Math.sin(this.t * 2 + b.ph) * S * 0.002;
-      drawBean(ctx, x, y, S * 0.046, b.rot, look);
+      drawBeanAuto(ctx, 'steamed', b.v, x, y, S * 0.046);
       // 菌の粒（きらっ）
       if (this.dust > 0.01) {
         const k = clamp(this.dust, 0, 1);

@@ -1,7 +1,8 @@
 // タイトル：完成品名もパッケージも見せない。乾いた豆と「さわってね」だけ。
 import { Scene } from '../game.js';
 import { TAU, rrange } from '../util.js';
-import { drawRoom, drawTable, drawBean, BEAN_LOOK, glowSpot, drawHandHint, drawRoundButton } from '../art.js';
+import { drawRoom, drawTable, glowSpot, drawHandHint, drawRoundButton } from '../art.js';
+import { drawBeanAuto, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -13,6 +14,7 @@ export class TitleScene extends Scene {
     for (let i = 0; i < 14; i++) {
       const col = i % 5, row = (i / 5) | 0;
       this.beans.push({
+        v: (i * 5) % BEAN_ATLAS.variants,
         ax: (col - 2) * 0.42 + (row % 2) * 0.2 + rrange(-0.06, 0.06),
         ay: (row - 1) * 0.55 + rrange(-0.1, 0.1),
         rot: rrange(0, TAU), ph: rrange(0, TAU),
@@ -75,7 +77,7 @@ export class TitleScene extends Scene {
       const yy = bn.ay * 0.45;
       const y = yy * b.r + Math.sin(this.t * 2 + bn.ph) * S * 0.002;
       // 上下の列ほど内側に寄せる（器の丸みに沿わせる）
-      drawBean(ctx, bn.ax * b.r * 0.7 * (1 - Math.abs(yy) * 0.6), y, S * 0.042, bn.rot, BEAN_LOOK.dry);
+      drawBeanAuto(ctx, 'dry', bn.v, bn.ax * b.r * 0.7 * (1 - Math.abs(yy) * 0.6), y, S * 0.042);
     }
     ctx.restore();
 

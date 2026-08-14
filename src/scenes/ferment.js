@@ -2,7 +2,8 @@
 // 「待つ」ではなく「回すと進む」＝子どもの操作で時間が動く。
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, easeOut, angleDelta, roundRect, mixHex } from '../util.js';
-import { drawRoom, drawTable, drawPack, drawBean, BEAN_LOOK, glowSpot, drawHandHint } from '../art.js';
+import { drawRoom, drawTable, drawPack, glowSpot, drawHandHint } from '../art.js';
+import { drawBeanAuto, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -171,7 +172,7 @@ export class FermentScene extends Scene {
     for (let i = 0; i < 10; i++) {
       const x = ((i % 5) - 2) * pw * 0.17;
       const y = (((i / 5) | 0) - 0.5) * ph * 0.3;
-      drawBean(ctx, x, y, S * 0.026, i * 0.9, warm > 0.5 ? BEAN_LOOK.fermented : BEAN_LOOK.steamed);
+      drawBeanAuto(ctx, warm > 0.5 ? 'fermented' : 'steamed', i % BEAN_ATLAS.variants, x, y, S * 0.026);
     }
     ctx.globalAlpha = 1;
     ctx.restore();

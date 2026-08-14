@@ -2,7 +2,8 @@
 // まだ何になるかは見せない。「さわると変わる」だけを教える工程。
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, easeOut } from '../util.js';
-import { drawRoom, drawTable, drawBean, BEAN_LOOK, blendLook, glowSpot, drawHandHint } from '../art.js';
+import { drawRoom, drawTable, glowSpot, drawHandHint } from '../art.js';
+import { drawBeanBlend, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -21,6 +22,7 @@ export class SoakScene extends Scene {
     for (let i = 0; i < N; i++) {
       const col = i % 4, row = (i / 4) | 0;
       this.beans.push({
+        v: (i * 5) % BEAN_ATLAS.variants,
         bx: (col - 1.5) * 0.32 + rrange(-0.05, 0.05),
         by: (row - 1.5) * 0.19 + rrange(-0.04, 0.04),
         rot: rrange(-0.6, 0.6),
@@ -170,13 +172,12 @@ export class SoakScene extends Scene {
     }
 
     // 豆（水につかると、ふくらんで少し浮き上がる）
-    const look = blendLook(BEAN_LOOK.dry, BEAN_LOOK.soaked, this.plump);
     const r0 = S * 0.036, r1 = S * 0.05;
     for (const bn of this.beans) {
       const bx = b.x + bn.bx * b.r * 0.78;
       const by = rimY + b.r * (0.78 - this.plump * 0.14) + bn.by * b.r * 0.42
         + Math.sin(this.t * 2.2 + bn.ph) * S * 0.004 * this.fill;
-      drawBean(ctx, bx, by, lerp(r0, r1, this.plump), bn.rot + Math.sin(this.t + bn.ph) * 0.08 * this.fill, look);
+      drawBeanBlend(ctx, 'dry', 'soaked', this.plump, bn.v, bx, by, lerp(r0, r1, this.plump));
     }
 
     // 水面（豆の上にうっすら重ねると、水の中に見える）

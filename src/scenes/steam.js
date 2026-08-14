@@ -1,7 +1,8 @@
 // 2. むす：豆を釜に入れて、レバーを下ろすと もくもく
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, easeOut, easeOutBack, roundRect } from '../util.js';
-import { drawRoom, drawTable, drawBean, BEAN_LOOK, blendLook, glowSpot, drawHandHint } from '../art.js';
+import { drawRoom, drawTable, glowSpot, drawHandHint } from '../art.js';
+import { drawBeanBlend, drawBeanAuto, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -18,6 +19,7 @@ export class SteamScene extends Scene {
     this.beans = [];
     for (let i = 0; i < 18; i++) {
       this.beans.push({
+        v: (i * 5) % BEAN_ATLAS.variants,
         bx: rrange(-0.78, 0.78), by: rrange(-0.3, 0.3),
         rot: rrange(0, TAU), ph: rrange(0, TAU),
         dropDelay: i * 0.045,
@@ -151,7 +153,6 @@ export class SteamScene extends Scene {
     ctx.clip();
     ctx.fillStyle = '#3d5764';
     ctx.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
-    const look = blendLook(BEAN_LOOK.soaked, BEAN_LOOK.steamed, this.cook);
     const br = lerp(S * 0.05, S * 0.056, this.cook);
     for (let i = 0; i < this.beans.length; i++) {
       const b = this.beans[i];
@@ -163,7 +164,7 @@ export class SteamScene extends Scene {
         by = lerp(p.y - p.r * 2.2, by, easeOutBack(u) * 0.98 + u * 0.02);
       }
       by += Math.sin(this.t * 6 + b.ph) * S * 0.003 * (this.phase === 'steam' ? 1 : 0.2);
-      drawBean(ctx, bx, by, br, b.rot, look);
+      drawBeanBlend(ctx, 'soaked', 'steamed', this.cook, b.v, bx, by, br);
     }
     ctx.restore();
 
@@ -174,7 +175,7 @@ export class SteamScene extends Scene {
         if (u <= 0 || u >= 1) continue;
         const by = lerp(p.y - p.r * 2.2, p.y - p.r * 0.42 + b.by * p.r * 0.34, easeOut(u));
         if (by < p.y - p.r * 0.6) {
-          drawBean(ctx, p.x + b.bx * p.r * 0.8, by, S * 0.05, b.rot + u * 4, BEAN_LOOK.soaked);
+          drawBeanAuto(ctx, 'soaked', b.v, p.x + b.bx * p.r * 0.8, by, S * 0.05);
         }
       }
     }

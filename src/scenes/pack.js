@@ -1,7 +1,8 @@
 // 4. パックへ入れる：ぽとぽと落ちて、きちんと並ぶ気持ちよさ
 import { Scene } from '../game.js';
 import { TAU, clamp, lerp, rrange, easeOut, easeIn, roundRect } from '../util.js';
-import { drawRoom, drawTable, drawBean, BEAN_LOOK, drawPack, glowSpot, drawHandHint } from '../art.js';
+import { drawRoom, drawTable, drawPack, glowSpot, drawHandHint } from '../art.js';
+import { drawBeanAuto, BEAN_ATLAS } from '../natto.js';
 import { Particles } from '../fx.js';
 import { sfx } from '../audio.js';
 
@@ -24,6 +25,7 @@ export class PackScene extends Scene {
       for (let c = 0; c < this.cols; c++) {
         this.beans.push({
           col: c, row: r,
+          v: (this.beans.length * 5) % BEAN_ATLAS.variants,
           state: 'wait',       // wait → fly → set
           t: 0, dur: 0.55,
           sx: 0, sy: 0,
@@ -142,8 +144,7 @@ export class PackScene extends Scene {
     for (const b of this.beans) {
       if (b.state !== 'set') continue;
       const s = this.slotPos(b);
-      const sq = 1 + b.land * 0.28;
-      drawBean(ctx, s.x, s.y + b.land * S * 0.004, S * 0.043, b.rot, BEAN_LOOK.steamed, { squash: sq });
+      drawBeanAuto(ctx, 'steamed', b.v, s.x, s.y + b.land * S * 0.004, S * 0.043 * (1 + b.land * 0.12));
     }
     ctx.restore();
 
@@ -154,7 +155,7 @@ export class PackScene extends Scene {
       const s = this.slotPos(b);
       const x = lerp(b.sx, s.x, easeOut(u));
       const y = lerp(b.sy, s.y, easeIn(u) * 0.85 + u * 0.15);
-      drawBean(ctx, x, y, S * 0.043, b.rot + u * 5, BEAN_LOOK.steamed);
+      drawBeanAuto(ctx, 'steamed', b.v, x, y, S * 0.043);
     }
 
     this.px.draw(ctx);
@@ -202,7 +203,7 @@ export class PackScene extends Scene {
     for (let i = 0; i < 12; i++) {
       const col = i % 4, row = (i / 4) | 0;
       const x = (col - 1.5) * h.s * 0.62 + (row % 2) * h.s * 0.3;
-      drawBean(ctx, x, top + row * h.s * 0.42, S * 0.038, i * 0.7, BEAN_LOOK.steamed);
+      drawBeanAuto(ctx, 'steamed', i % BEAN_ATLAS.variants, x, top + row * h.s * 0.42, S * 0.038);
     }
     ctx.restore();
     // ふち
