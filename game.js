@@ -73,6 +73,9 @@
   var G = 1500;              // 投雪の重力
   var TRUCK_CAP = 380;       // ダンプ満杯
   var AIM_MIN = -340, AIM_MAX = 250;
+  var TANK_MAX = 22000;      // チャージタンク容量 (食べた雪 px²)
+  var BURST_MIN = 5200;      // これ未満のタンクでは放出しない
+  var VOL_UNIT = 260;        // 雪1粒ぶんの体積 (px²)
 
   // ---------------------------------------------------------------- world state
   var snowH = new Float32Array(NCOL);   // 雪壁ハイトフィールド
@@ -83,6 +86,49 @@
 
   var houses = [], polesBack = [], powerPoles = [], mountainsFar = [], mountainsMid = [];
   var bankBackPhase = [], bankFrontPhase = [];
+
+  // 雪の届け先: 型 (完成すると遊び場になる) とハプニング対象
+  var MOLD_KINDS = [
+    { k: 'rabbit',   need: 70,  w: 96 },   // ゆきうさぎ
+    { k: 'snowman',  need: 120, w: 110 },  // ゆきだるま
+    { k: 'jump',     need: 130, w: 150 },  // ジャンプ台
+    { k: 'kamakura', need: 160, w: 150 },  // かまくら
+    { k: 'slide',    need: 170, w: 170 },  // すべり台
+    { k: 'castle',   need: 200, w: 170 }   // 雪のお城
+  ];
+  var molds = [];       // {x,kind,need,w,got,done,doneT,seed,revealed,bounce}
+  var happenings = [];  // {x,type:'laundry'|'car',hitT,seed}
+  var dog = null;       // {x,shakeT,phase,flip}
+  var runCount = 0;
+
+  function genMolds() {
+    molds.length = 0; happenings.length = 0;
+    var r = mulberry32(SEED ^ (0xB01D + runCount * 0x9E37));
+    // 型の順番はシャッフルして全種入り
+    var deck = MOLD_KINDS.slice();
+    for (var i = deck.length - 1; i > 0; i--) {
+      var j = (r() * (i + 1)) | 0;
+      var tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+    }
+    var di = 0;
+    var x = WALL_START + 300 + r() * 120;
+    var slot = 0;
+    while (x < GOAL_X - 260) {
+      if (slot > 0 && slot % 4 === 3 && happenings.length < 3) {
+        happenings.push({ x: x, type: (happenings.length % 2 === 0) ? 'laundry' : 'car', hitT: 0, seed: r() * 7 });
+      } else {
+        var kind = deck[di % deck.length]; di++;
+        molds.push({
+          x: x, kind: kind.k, need: kind.need, w: kind.w,
+          got: 0, done: false, doneT: 0, seed: r() * 7,
+          revealed: false, bounce: 0
+        });
+      }
+      slot++;
+      x += 360 + r() * 240;
+    }
+    dog = { x: 60, shakeT: 0, phase: r() * 7, flip: 1 };
+  }
 
   function genScenery() {
     houses.length = 0; powerPoles.length = 0; polesBack.length = 0;
@@ -188,8 +234,14 @@
       finishT: 0,
       frontierI: 0,
       shake: 0,
-      sparkT: 0
+      sparkT: 0,
+      // チャージ投雪
+      tank: 0, charging: false, demoCharge: false, fullPing: false,
+      burstLeft: 0, burstTotal: 0, burstAim: 0, burstAcc: 0, burstCount: 0,
+      moldsDone: 0, vignX: null, burstEver: false
     };
+    genMolds();
+    runCount++;
     genSnow();
     flows.length = 0; chunks.length = 0; poofs.length = 0; sparkles.length = 0;
     cam.cx = 1500; cam.cy = 300; cam.zoom = 0.28;
@@ -226,6 +278,9 @@
       return { x: 950 + Math.sin(S.t * 0.07) * 110, roadFrac: 0.72, bw: 1300, bh: 900, rate: 1.2 };
     }
     if (mode === 'closeup') {
+      if (S.vignX !== null) {
+        return { x: S.vignX, roadFrac: 0.8, bw: 660, bh: 520, rate: 2.6 };
+      }
       if (S.closeupTruck && S.truck.state !== 'gone') {
         return { x: S.truck.x + 30, roadFrac: 0.82, bw: 700, bh: 520, rate: 2.6 };
       }
@@ -319,12 +374,12 @@
     resume: function () {
       try { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); } catch (e) {}
     },
-    set: function (speed, eat, flow) {
+    set: function (speed, eat, flow, charge) {
       if (!this.ok) return;
       try {
         var t = this.ctx.currentTime;
-        this.engineGain.gain.setTargetAtTime(0.10 + speed * 0.0016, t, 0.1);
-        this.engineOsc.frequency.setTargetAtTime(50 + speed * 0.35, t, 0.15);
+        this.engineGain.gain.setTargetAtTime(0.10 + speed * 0.0016 + charge * 0.06, t, 0.1);
+        this.engineOsc.frequency.setTargetAtTime(50 + speed * 0.35 + charge * 46, t, 0.15);
         this.augerGain.gain.setTargetAtTime(Math.min(0.4, eat * 0.00005), t, 0.08);
         this.chuteGain.gain.setTargetAtTime(Math.min(0.22, flow * 0.00003), t, 0.1);
       } catch (e) {}
@@ -346,6 +401,19 @@
     chime: function () {
       var ns = [523, 659, 784, 1047];
       for (var i = 0; i < ns.length; i++) this.tone(ns[i], 0.34, i * 0.16, 'sine', 0.18);
+    },
+    burst: function () {
+      this.tone(70, 0.35, 0, 'triangle', 0.3);
+      this.tone(120, 0.25, 0.02, 'sine', 0.24);
+      this.tone(45, 0.4, 0.04, 'sine', 0.26);
+    },
+    moldJingle: function () {
+      var ns = [784, 988, 1319];
+      for (var i = 0; i < ns.length; i++) this.tone(ns[i], 0.26, i * 0.11, 'sine', 0.16);
+    },
+    bark: function () {
+      this.tone(620, 0.07, 0, 'square', 0.1);
+      this.tone(840, 0.09, 0.1, 'square', 0.1);
     }
   };
 
@@ -378,17 +446,41 @@
     }
     S.touching = true;
     S.idleT = 0;
-    S.aimOff = lerp(S.aimOff, pointerToAim(px), 0.5);
+    if (!pointerOverPlow(px, py)) S.aimOff = lerp(S.aimOff, pointerToAim(px), 0.5);
   }
   function onMove(px, py) {
     S.pointerX = px; S.pointerY = py;
     if (S.touching && S.mode === 'play') {
-      S.aimOff = pointerToAim(px);
+      if (!pointerOverPlow(px, py)) S.aimOff = pointerToAim(px);
       S.idleT = 0;
     }
   }
   function onUp() {
     S.touching = false;
+    // 溜めていたら、指を離した瞬間にドバーン
+    if (S.mode === 'play') doBurst();
+  }
+
+  // 除雪車の上に指があるか (スクリーン座標)
+  function pointerOverPlow(px, py) {
+    var x0 = W2SX(S.plow.x - 215, 1), x1 = W2SX(S.plow.x + 45, 1);
+    var y0 = W2SY(BASE_Y - 215, 1), y1 = W2SY(BASE_Y + 20, 1);
+    var m = 30; // 幼児の指向けマージン
+    return px > x0 - m && px < x1 + m && py > y0 - m && py < y1 + m;
+  }
+
+  function doBurst() {
+    if (S.tank < BURST_MIN) return false;
+    S.burstTotal = S.burstLeft = S.tank;
+    S.tank = 0;
+    S.fullPing = false;
+    S.burstAim = S.aimOff;
+    S.burstAcc = 0;
+    S.burstCount++;
+    S.burstEver = true;
+    S.shake = 4;
+    sfx.burst();
+    return true;
   }
 
   canvas.addEventListener('pointerdown', function (e) {
@@ -424,51 +516,124 @@
     return { cx: t.x - 46 * t.flip, halfW: 70, topY: BASE_Y - 120 };
   }
 
-  function spawnFlow(counting) {
-    var tip = chuteTip();
+  // やさしい吸着: 狙いの近くの届け先 (ダンプ荷台 / 未完成の型) へ寄せる
+  function resolveAim(aimOff) {
+    var aimX = S.plow.x + aimOff;
+    var best = null, bestD = 1e9;
     var bed = bedInfo();
-    var aimX = S.plow.x + S.aimOff;
-    // やさしい吸着: ダンプ近くを狙っていたら荷台へ寄せる
-    var landY = BASE_Y - 12;
-    if (S.truck.state === 'follow' && Math.abs(aimX - bed.cx) < 135) {
-      aimX = lerp(aimX, bed.cx, 0.8);
-      landY = bed.topY;
+    if (S.truck.state === 'follow') {
+      var d = Math.abs(aimX - bed.cx);
+      if (d < 120 && d < bestD) { bestD = d; best = { x: bed.cx, y: bed.topY }; }
     }
-    var dx = aimX - tip.x;
+    for (var i = 0; i < molds.length; i++) {
+      var m = molds[i];
+      if (m.done || !m.revealed) continue;
+      var d2 = Math.abs(aimX - m.x);
+      if (d2 < 95 && d2 < bestD) { bestD = d2; best = { x: m.x, y: ROAD_Y + 14 }; }
+    }
+    if (best) return { x: lerp(aimX, best.x, 0.85), y: best.y };
+    return { x: aimX, y: BASE_Y - 12 };
+  }
+
+  function spawnFlow(counting, burst) {
+    var tip = chuteTip();
+    var aim = resolveAim(burst ? S.burstAim : S.aimOff);
+    var dx = aim.x - tip.x;
     var T = clamp(0.75 + Math.abs(dx) / 620, 0.75, 1.3);
-    var dy = landY - tip.y;
+    var dy = aim.y - tip.y;
     var vx = dx / T;
     var vy = (dy - 0.5 * G * T * T) / T;
-    var jx = (rng() - 0.5) * 60, jy = (rng() - 0.5) * 70;
+    var jm = burst ? 0.6 : 1; // バーストはまとまって飛ぶ
+    var jx = (rng() - 0.5) * 60 * jm, jy = (rng() - 0.5) * 70 * jm;
     flows.push({
       x: tip.x + (rng() - 0.5) * 8, y: tip.y + (rng() - 0.5) * 8,
       vx: vx + jx, vy: vy + jy,
-      r: counting ? 5 + rng() * 6 : 2.5 + rng() * 3.5,
-      count: counting, life: 2.2
+      r: burst ? 7 + rng() * 6 : (counting ? 5 + rng() * 6 : 2.5 + rng() * 3.5),
+      count: counting, vol: burst ? 3 : 1, life: 2.2
     });
   }
 
+  function moldAt(x) {
+    for (var i = 0; i < molds.length; i++) {
+      var m = molds[i];
+      if (!m.done && m.revealed && Math.abs(x - m.x) < m.w / 2 + 12) return m;
+    }
+    return null;
+  }
+
+  function moldComplete(m) {
+    m.done = true;
+    m.doneT = 0;
+    m.bounce = 1;
+    S.moldsDone++;
+    sfx.moldJingle();
+    // 完成の粉雪ときらきら
+    for (var i = 0; i < (FAST ? 6 : 16); i++) {
+      sparkles.push({
+        x: m.x + (rng() - 0.5) * m.w * 1.4,
+        y: ROAD_Y - 30 - rng() * 90,
+        vy: 20 + rng() * 30, t: 0, life: 1.2 + rng() * 0.8, ph: rng() * 7
+      });
+    }
+    // ちょい寄りカメラ
+    if (S.camMode === 'follow') {
+      S.camMode = 'closeup'; S.vignX = m.x; S.closeupTimer = 1.8;
+    }
+  }
+
   function landFlow(p) {
+    var vol = p.vol || 1;
     var bed = bedInfo();
     var t = S.truck;
     if (t.state === 'follow' && p.y > bed.topY - 6 && Math.abs(p.x - bed.cx) < bed.halfW) {
       if (p.count) {
-        t.load = Math.min(TRUCK_CAP, t.load + 1);
+        t.load = Math.min(TRUCK_CAP, t.load + vol);
         t.bounce = 1;
         if (t.load >= TRUCK_CAP) truckFull();
       }
       poofs.push({ x: p.x, y: bed.topY - 10 - (t.load / TRUCK_CAP) * 44, r: 4 + rng() * 5, life: 0.35, t: 0 });
       return;
     }
-    // 地面 or 雪壁の上
+    // 雪壁の上
     var ci = clamp((p.x / COL_W) | 0, 0, NCOL - 1);
     if (snowH[ci] > 6) {
       poofs.push({ x: p.x, y: ROAD_Y + 40 - snowH[ci], r: 4 + rng() * 4, life: 0.3, t: 0 });
       return;
     }
+    // 型に注ぐ
+    var m = moldAt(p.x);
+    if (m) {
+      if (p.count) {
+        m.got += vol;
+        m.bounce = Math.min(1, m.bounce + 0.25);
+        if (m.got >= m.need) moldComplete(m);
+      }
+      poofs.push({ x: p.x, y: ROAD_Y + 6 - (m.got / m.need) * 40, r: 4 + rng() * 4, life: 0.3, t: 0 });
+      return;
+    }
+    // ハプニング対象
+    for (var hi = 0; hi < happenings.length; hi++) {
+      var hp = happenings[hi];
+      if (snowH[clamp((hp.x / COL_W) | 0, 0, NCOL - 1)] > 6) continue;
+      if (Math.abs(p.x - hp.x) < 75) {
+        if (p.count && hp.hitT <= 0) {
+          hp.hitT = hp.type === 'laundry' ? 3.4 : 2.6;
+          if (hp.type === 'car') sfx.tone(740, 0.09, 0, 'square', 0.1);
+        }
+        poofs.push({ x: p.x, y: ROAD_Y + 4, r: 5 + rng() * 4, life: 0.3, t: 0 });
+        return;
+      }
+    }
+    // 犬にかかった!
+    if (dog && S.mode !== 'title' && Math.abs(p.x - dog.x) < 48 && p.count) {
+      if (dog.shakeT <= 0) { dog.shakeT = 1.1; sfx.bark(); }
+      poofs.push({ x: p.x, y: BASE_Y - 24, r: 5, life: 0.3, t: 0 });
+      return;
+    }
+    // 地面: 自由な雪山になる
     if (p.count) {
       var pi = clamp((p.x / PILE_W) | 0, 0, NPILE - 1);
-      pileH[pi] = Math.min(64, pileH[pi] + 3.2);
+      pileH[pi] = Math.min(96, pileH[pi] + 3.2 * vol);
     }
     poofs.push({ x: p.x, y: BASE_Y - 6, r: 5 + rng() * 5, life: 0.35, t: 0 });
   }
@@ -490,12 +655,30 @@
     S.t += dt;
     var p = S.plow;
 
-    // デモ入力
+    // デモ入力: 走る→型を狙って流す→ためて→ドバーン のループ
     if (DEMO) {
       if (S.mode === 'title' && S.t > 0.4) { S.mode = 'play'; S.camMode = 'follow'; S.touching = true; }
       if (S.mode === 'play') {
-        S.touching = true;
-        S.aimOff = Q.aim !== undefined ? parseFloat(Q.aim) : (-285 + Math.sin(S.t * 0.45) * 70);
+        var demoMold = null, demoBest = 1e9;
+        for (var dm = 0; dm < molds.length; dm++) {
+          var mm = molds[dm];
+          if (mm.done || !mm.revealed) continue;
+          var off = mm.x - p.x;
+          if (off > AIM_MIN + 20 && off < -40 && Math.abs(off) < demoBest) { demoBest = Math.abs(off); demoMold = mm; }
+        }
+        var demoAim = Q.aim !== undefined ? parseFloat(Q.aim)
+          : (demoMold ? clamp(demoMold.x - p.x, AIM_MIN, AIM_MAX) : -285);
+        var cyc = S.t % 11;
+        if (cyc < 6.2) {
+          S.touching = true; S.demoCharge = false;
+          S.aimOff = demoAim;
+        } else if (cyc < 8.6) {
+          S.touching = true; S.demoCharge = true; // 機体を押さえて溜める
+          S.aimOff = demoAim;
+        } else {
+          S.demoCharge = false;
+          if (S.touching) { S.touching = false; doBurst(); } // 離してドバーン
+        }
       }
     }
 
@@ -505,23 +688,28 @@
       if (S.closeupTimer <= 0 && S.camMode === 'closeup') {
         S.camMode = S.mode === 'finish' ? 'finish' : 'follow';
         S.closeupTruck = false;
+        S.vignX = null;
       }
     }
 
     if (S.mode === 'play') {
       if (!S.touching) S.idleT += dt; else S.idleT = 0;
 
+      // ---- チャージ判定: 機体を押さえている間は踏ん張って頬張る
+      S.charging = S.touching &&
+        (S.demoCharge || (!DEMO && pointerOverPlow(S.pointerX, S.pointerY)));
+
       // ---- 前進と食い込み
       var faceX = p.x + 4;
       var fi = clamp((faceX / COL_W) | 0, 0, NCOL - 1);
       var hFace = Math.max(snowH[fi], snowH[Math.min(fi + 1, NCOL - 1)], snowH[Math.min(fi + 2, NCOL - 1)]);
       var targetSpeed = 0;
-      if (S.touching) targetSpeed = clamp(118 - hFace * 0.34, 48, 100);
+      if (S.touching && !S.charging) targetSpeed = clamp(118 - hFace * 0.34, 48, 100);
       p.speed = lerp(p.speed, targetSpeed, 1 - Math.exp(-dt * 4));
       p.x += p.speed * dt;
       p.trackPhase += p.speed * dt * 0.06;
 
-      // 食べる
+      // 食べる (チャージ中はタンクへ、通常はシュートへ)
       var eaten = 0;
       if (S.touching) {
         var weights = [1, 0.95, 0.7, 0.4, 0.15];
@@ -534,10 +722,55 @@
             eaten += bite * COL_W;
           }
         }
+        if (S.charging && eaten <= 0) {
+          // 壁が無ければ足元の雪山を吸い直す
+          var pc = clamp((p.x / PILE_W) | 0, 0, NPILE - 1);
+          for (var pk = -2; pk <= 3; pk++) {
+            var ppi = clamp(pc + pk, 0, NPILE - 1);
+            if (pileH[ppi] > 0.5) {
+              var take = Math.min(pileH[ppi], dt * 26);
+              pileH[ppi] -= take;
+              eaten += take * PILE_W * 2.4;
+            }
+          }
+        }
+      }
+      if (S.charging) {
+        var before = S.tank;
+        S.tank = Math.min(TANK_MAX, S.tank + eaten);
+        if (S.tank >= TANK_MAX && before < TANK_MAX && !S.fullPing) {
+          S.fullPing = true;
+          sfx.tone(1180, 0.22, 0, 'sine', 0.14);
+          sfx.tone(1570, 0.3, 0.1, 'sine', 0.12);
+        }
       }
       p.eatRate = eaten / Math.max(dt, 1e-4);
-      p.eatSm = lerp(p.eatSm, p.eatRate, 1 - Math.exp(-dt * 5));
+      p.eatSm = lerp(p.eatSm, S.charging ? 0 : p.eatRate, 1 - Math.exp(-dt * 5));
       updateFrontier();
+
+      // ---- 型の出現チェック (壁が削れて姿を見せる)
+      for (var mi = 0; mi < molds.length; mi++) {
+        var mo = molds[mi];
+        if (!mo.revealed && snowH[clamp((mo.x / COL_W) | 0, 0, NCOL - 1)] < 6 && frontierX() > mo.x + mo.w / 2) {
+          mo.revealed = true;
+          mo.bounce = 1;
+          sfx.tone(880, 0.14, 0, 'sine', 0.1);
+          poofs.push({ x: mo.x, y: ROAD_Y - 20, r: 14, life: 0.5, t: 0 });
+        }
+        mo.bounce = Math.max(0, mo.bounce - dt * 2.5);
+        if (mo.done) mo.doneT += dt;
+      }
+      for (var hi2 = 0; hi2 < happenings.length; hi2++) {
+        if (happenings[hi2].hitT > 0) happenings[hi2].hitT -= dt;
+      }
+
+      // ---- 犬: 除雪車のあとを楽しそうについてくる
+      if (dog) {
+        var dogTarget = p.x - 470 + Math.sin(S.t * 0.6 + dog.phase) * 70;
+        dog.flip = dogTarget > dog.x ? 1 : -1;
+        dog.x += (dogTarget - dog.x) * Math.min(1, dt * 1.4);
+        dog.shakeT = Math.max(0, dog.shakeT - dt);
+      }
 
       if (p.eatRate > 2000) {
         S.shake = Math.min(2.6, S.shake + dt * 24);
@@ -579,6 +812,21 @@
       while (S.mistAcc >= 1) {
         S.mistAcc -= 1;
         if (nMist < maxMist) { spawnFlow(false); nMist++; }
+      }
+
+      // ---- バースト放出 (タンクの中身を0.5秒で一気に)
+      if (S.burstLeft > 0) {
+        var burstRate = S.burstTotal / 0.5;               // px²/s
+        S.burstAcc += dt * burstRate / (VOL_UNIT * 3);    // 粒あたり3vol
+        while (S.burstAcc >= 1 && S.burstLeft > 0) {
+          S.burstAcc -= 1;
+          spawnFlow(true, true);
+          S.flowTotal++;
+          if (rng() < 0.7) spawnFlow(false, true);
+          S.burstLeft -= VOL_UNIT * 3;
+        }
+        S.shake = Math.max(S.shake, 2.2);
+        if (S.burstLeft <= 0) { S.burstLeft = 0; S.burstTotal = 0; }
       }
 
       // 初回の投雪接写
@@ -677,10 +925,10 @@
     }
 
     updateCamera(dt);
-    sfx.set(S.plow.speed, S.plow.eatSm ? S.plow.eatRate : 0, S.plow.eatSm);
+    sfx.set(S.plow.speed, S.plow.eatRate, S.plow.eatSm, S.charging ? S.tank / TANK_MAX : 0);
     if (Q.dbg) {
       document.title = S.mode + ' cam=' + S.camMode + ' fr=' + (frontierX() | 0) +
-        ' trucks=' + S.truckCount + ' load=' + S.truck.load + ' flow=' + S.flowTotal + ' eatSm=' + (S.plow.eatSm | 0) + ' nfl=' + flows.length + ' aim=' + (S.aimOff | 0) + ' spd=' + (S.plow.speed | 0);
+        ' trucks=' + S.truckCount + ' load=' + S.truck.load + ' flow=' + S.flowTotal + ' molds=' + S.moldsDone + '/' + molds.length + ' tank=' + (S.tank | 0) + ' bursts=' + S.burstCount + ' eatSm=' + (S.plow.eatSm | 0) + ' nfl=' + flows.length + ' aim=' + (S.aimOff | 0) + ' spd=' + (S.plow.speed | 0);
     }
   }
 
@@ -1245,6 +1493,433 @@
     }
   }
 
+  // ---------------------------------------------------------------- 型 (雪でつくる遊び場)
+  function drawMiniKid(x, y, s, coat, hat) {
+    ctx.fillStyle = coat;
+    rr(x - 7 * s, y - 24 * s, 14 * s, 19 * s, 5 * s); ctx.fill();
+    ctx.fillStyle = '#ffe0c2';
+    ctx.beginPath(); ctx.arc(x, y - 30 * s, 7 * s, 0, 6.284); ctx.fill();
+    ctx.fillStyle = hat;
+    ctx.beginPath(); ctx.arc(x, y - 33 * s, 7 * s, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y - 40 * s, 2.6 * s, 0, 6.284); ctx.fill();
+  }
+
+  function moldH0(kind) {
+    return kind === 'rabbit' ? 62 : kind === 'snowman' ? 100 :
+      kind === 'jump' ? 64 : kind === 'kamakura' ? 92 :
+      kind === 'slide' ? 104 : 116;
+  }
+
+  function moldBodyPath(kind, w) {
+    // 白い本体のパス (基準: 底辺y=0、上へ負)
+    ctx.beginPath();
+    if (kind === 'rabbit') {
+      ctx.ellipse(0, -26, w * 0.42, 26, 0, 0, 6.284);
+      ctx.moveTo(w * 0.28 + 14, -40);
+      ctx.ellipse(w * 0.28, -40, 16, 15, 0, 0, 6.284);
+    } else if (kind === 'snowman') {
+      ctx.arc(0, -32, 34, 0, 6.284);
+      ctx.moveTo(24, -78);
+      ctx.arc(0, -78, 24, 0, 6.284);
+    } else if (kind === 'jump') {
+      ctx.moveTo(-w * 0.5, 0);
+      ctx.lineTo(w * 0.34, -64);
+      ctx.quadraticCurveTo(w * 0.5, -66, w * 0.5, -46);
+      ctx.lineTo(w * 0.5, 0);
+      ctx.closePath();
+    } else if (kind === 'kamakura') {
+      ctx.moveTo(-w * 0.48, 0);
+      ctx.quadraticCurveTo(-w * 0.5, -86, 0, -90);
+      ctx.quadraticCurveTo(w * 0.5, -86, w * 0.48, 0);
+      ctx.closePath();
+    } else if (kind === 'slide') {
+      ctx.moveTo(-w * 0.5, 0);
+      ctx.lineTo(-w * 0.5, -14);
+      ctx.quadraticCurveTo(-w * 0.1, -30, w * 0.16, -76);
+      ctx.lineTo(w * 0.42, -100);
+      ctx.lineTo(w * 0.5, -100);
+      ctx.lineTo(w * 0.5, 0);
+      ctx.closePath();
+    } else { // castle
+      var tw = w * 0.22;
+      ctx.moveTo(-w * 0.5, 0);
+      ctx.lineTo(-w * 0.5, -74);
+      ctx.lineTo(-w * 0.5 + tw * 0.33, -74); ctx.lineTo(-w * 0.5 + tw * 0.33, -86);
+      ctx.lineTo(-w * 0.5 + tw * 0.66, -86); ctx.lineTo(-w * 0.5 + tw * 0.66, -74);
+      ctx.lineTo(-w * 0.5 + tw, -74);
+      ctx.lineTo(-tw * 0.7, -74);
+      ctx.lineTo(-tw * 0.7, -104);
+      ctx.lineTo(-tw * 0.35, -104); ctx.lineTo(-tw * 0.35, -116); ctx.lineTo(tw * 0.35, -116); ctx.lineTo(tw * 0.35, -104);
+      ctx.lineTo(tw * 0.7, -104);
+      ctx.lineTo(tw * 0.7, -74);
+      ctx.lineTo(w * 0.5 - tw, -74);
+      ctx.lineTo(w * 0.5 - tw * 0.66, -74); ctx.lineTo(w * 0.5 - tw * 0.66, -86);
+      ctx.lineTo(w * 0.5 - tw * 0.33, -86); ctx.lineTo(w * 0.5 - tw * 0.33, -74);
+      ctx.lineTo(w * 0.5, -74);
+      ctx.lineTo(w * 0.5, 0);
+      ctx.closePath();
+    }
+  }
+
+  function drawMoldDetails(m) {
+    var w = m.w, t = S.t, seed = m.seed;
+    if (m.kind === 'rabbit') {
+      var hop = Math.abs(Math.sin(t * 2.6 + seed)) * 7;
+      ctx.save(); ctx.translate(0, -hop);
+      // 葉っぱの耳
+      ctx.fillStyle = '#5f9e57';
+      ctx.beginPath(); ctx.ellipse(w * 0.24, -62, 5, 15, -0.3, 0, 6.284); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(w * 0.36, -60, 5, 14, 0.25, 0, 6.284); ctx.fill();
+      // 赤い実の目
+      ctx.fillStyle = '#d8362a';
+      ctx.beginPath(); ctx.arc(w * 0.24, -42, 3, 0, 6.284); ctx.fill();
+      ctx.beginPath(); ctx.arc(w * 0.34, -42, 3, 0, 6.284); ctx.fill();
+      ctx.restore();
+    } else if (m.kind === 'snowman') {
+      ctx.fillStyle = '#4a90d9';
+      ctx.beginPath();
+      ctx.moveTo(-13, -96); ctx.lineTo(13, -96); ctx.lineTo(9, -112); ctx.lineTo(-9, -112);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#333';
+      ctx.beginPath(); ctx.arc(-7, -82, 2.4, 0, 6.284); ctx.fill();
+      ctx.beginPath(); ctx.arc(7, -82, 2.4, 0, 6.284); ctx.fill();
+      ctx.fillStyle = '#f28c28';
+      ctx.beginPath(); ctx.moveTo(0, -78); ctx.lineTo(13, -74); ctx.lineTo(0, -72); ctx.closePath(); ctx.fill();
+      // 小鳥
+      var bb = Math.sin(t * 3 + seed) * 2;
+      ctx.fillStyle = '#e8b13a';
+      ctx.beginPath(); ctx.ellipse(4, -118 + bb, 6, 4.6, 0, 0, 6.284); ctx.fill();
+      ctx.beginPath(); ctx.arc(9, -121 + bb, 3.2, 0, 6.284); ctx.fill();
+      ctx.fillStyle = '#333';
+      ctx.beginPath(); ctx.arc(10, -122 + bb, 0.9, 0, 6.284); ctx.fill();
+    } else if (m.kind === 'jump') {
+      // そりの子が跳ぶ!
+      var cyc = ((t * 0.45 + seed) % 1);
+      var kx, ky, rot = 0;
+      if (cyc < 0.45) { var q0 = cyc / 0.45; kx = -w * 0.9 + q0 * (w * 1.24); ky = -q0 * 64; rot = -0.35; }
+      else if (cyc < 0.75) {
+        var q1 = (cyc - 0.45) / 0.3;
+        kx = w * 0.34 + q1 * w * 0.72;
+        ky = -64 - Math.sin(q1 * Math.PI) * 46 + q1 * 62;
+        rot = -0.3 + q1 * 0.7;
+      } else { kx = w * 1.1; ky = 0; rot = 0; }
+      ctx.save(); ctx.translate(kx, ky - 4); ctx.rotate(rot);
+      ctx.fillStyle = '#c9542e';
+      rr(-15, -3, 30, 6, 3); ctx.fill();
+      drawMiniKid(0, -2, 0.85, '#3a7de8', '#ffd23d');
+      ctx.restore();
+    } else if (m.kind === 'kamakura') {
+      // 入口と中のあかり
+      var glow = 0.75 + Math.sin(t * 2.2 + seed) * 0.25;
+      var gg = ctx.createRadialGradient(0, -26, 2, 0, -26, 40);
+      gg.addColorStop(0, 'rgba(255,200,110,' + (0.9 * glow) + ')');
+      gg.addColorStop(1, 'rgba(255,200,110,0)');
+      ctx.fillStyle = '#37302c';
+      ctx.beginPath(); ctx.ellipse(0, -20, 20, 26, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = gg;
+      ctx.beginPath(); ctx.arc(0, -26, 40, 0, 6.284); ctx.fill();
+      // のぞく子
+      drawMiniKid(0, -8, 0.8, '#e8443a', '#7ce085');
+    } else if (m.kind === 'slide') {
+      ctx.strokeStyle = '#bfd8f2';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.46, -12);
+      ctx.quadraticCurveTo(-w * 0.1, -28, w * 0.18, -76);
+      ctx.stroke();
+      // すべる子 (のぼって→しゅーっ)
+      var cyc2 = ((t * 0.4 + seed) % 1);
+      var kx2, ky2;
+      if (cyc2 < 0.4) { var qa = cyc2 / 0.4; kx2 = w * 0.44; ky2 = -qa * 96; }
+      else { var qb = (cyc2 - 0.4) / 0.6; kx2 = lerp(w * 0.16, -w * 0.48, qb); ky2 = lerp(-76, -10, qb * qb); }
+      drawMiniKid(kx2, ky2, 0.85, '#e8443a', '#ffd23d');
+    } else { // castle
+      // はた
+      var fw = Math.sin(t * 4 + seed) * 4;
+      ctx.strokeStyle = '#8a6a4f';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.moveTo(0, -116); ctx.lineTo(0, -142); ctx.stroke();
+      ctx.fillStyle = '#e8443a';
+      ctx.beginPath();
+      ctx.moveTo(0, -142); ctx.quadraticCurveTo(14 + fw, -138, 24 + fw, -134);
+      ctx.quadraticCurveTo(12 + fw, -132, 0, -128);
+      ctx.closePath(); ctx.fill();
+      // 窓とのぞく子
+      ctx.fillStyle = '#37302c';
+      rr(-8, -104, 16, 18, 7); ctx.fill();
+      var peek = Math.sin(t * 1.8 + seed) > 0.2 ? 0 : 14;
+      ctx.save();
+      ctx.beginPath(); rr(-8, -104, 16, 18, 7); ctx.clip();
+      drawMiniKid(0, -88 + peek, 0.7, '#3a7de8', '#ffd23d');
+      ctx.restore();
+    }
+  }
+
+  function drawMolds() {
+    var l = viewL(1), r = viewR(1);
+    for (var i = 0; i < molds.length; i++) {
+      var m = molds[i];
+      if (m.x + m.w < l || m.x - m.w > r) continue;
+      // まだ雪の中
+      if (snowH[clamp((m.x / COL_W) | 0, 0, NCOL - 1)] > 6) continue;
+      var z = cam.zoom;
+      var sx = W2SX(m.x, 1);
+      var by = W2SY(ROAD_Y + 26, 1);
+      var frac = clamp(m.got / m.need, 0, 1);
+      var pop = 1 + m.bounce * 0.1 +
+        (m.done && m.doneT < 0.6 ? Math.sin(m.doneT * 14) * 0.12 * (1 - m.doneT / 0.6) : 0);
+      var H0 = moldH0(m.kind);
+
+      ctx.save();
+      ctx.translate(sx, by);
+      ctx.scale(z * pop, z * pop);
+
+      if (!m.done) {
+        // ゴースト枠 (これから作れるよ)
+        var pulse = 0.5 + Math.sin(S.t * 2.6 + m.seed) * 0.2;
+        ctx.fillStyle = 'rgba(205,228,255,0.18)';
+        moldBodyPath(m.kind, m.w);
+        ctx.fill();
+        ctx.setLineDash([7, 7]);
+        ctx.lineDashOffset = -S.t * 14;
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.45 + pulse * 0.4) + ')';
+        ctx.lineWidth = 2.6;
+        moldBodyPath(m.kind, m.w);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (frac > 0.02 || m.done) {
+        // 下から実体化
+        ctx.save();
+        if (!m.done) {
+          ctx.beginPath();
+          ctx.rect(-m.w, -H0 * frac - 2, m.w * 2, H0 * frac + 30);
+          ctx.clip();
+        }
+        var mg = ctx.createLinearGradient(0, -H0, 0, 6);
+        mg.addColorStop(0, '#ffffff');
+        mg.addColorStop(1, '#d7e3f5');
+        ctx.fillStyle = mg;
+        moldBodyPath(m.kind, m.w);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(160,185,225,0.5)';
+        ctx.lineWidth = 2;
+        moldBodyPath(m.kind, m.w);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (m.done) drawMoldDetails(m);
+
+      // ゆきほしいバブル
+      if (!m.done && m.revealed && S.mode === 'play') {
+        var bob = Math.sin(S.t * 3 + m.seed) * 5;
+        var byb = -H0 - 34 + bob;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.beginPath(); ctx.arc(0, byb, 17, 0, 6.284); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-5, byb + 14); ctx.lineTo(5, byb + 14); ctx.lineTo(0, byb + 23);
+        ctx.closePath(); ctx.fill();
+        // 雪の結晶
+        ctx.strokeStyle = '#5b9bd9';
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        for (var sf = 0; sf < 3; sf++) {
+          var an = sf * Math.PI / 3 + Math.PI / 6;
+          ctx.beginPath();
+          ctx.moveTo(-Math.cos(an) * 9, byb - Math.sin(an) * 9);
+          ctx.lineTo(Math.cos(an) * 9, byb + Math.sin(an) * 9);
+          ctx.stroke();
+        }
+        // 進みゲージ (バブルの下のちいさな白丸)
+        if (frac > 0.02) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = 3.4;
+          ctx.beginPath();
+          ctx.arc(0, byb, 21, -Math.PI / 2, -Math.PI / 2 + frac * 6.283);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawHappenings() {
+    var l = viewL(1), r = viewR(1);
+    for (var i = 0; i < happenings.length; i++) {
+      var hp = happenings[i];
+      if (hp.x < l - 200 || hp.x > r + 200) continue;
+      if (snowH[clamp((hp.x / COL_W) | 0, 0, NCOL - 1)] > 6) continue;
+      var z = cam.zoom;
+      var sx = W2SX(hp.x, 1);
+      var by = W2SY(ROAD_Y + 22, 1);
+      ctx.save();
+      ctx.translate(sx, by);
+      ctx.scale(z, z);
+      if (hp.type === 'laundry') drawLaundry(hp);
+      else drawCar(hp);
+      ctx.restore();
+    }
+  }
+
+  function drawLaundry(hp) {
+    var hit = hp.hitT > 0;
+    // 物干し竿
+    ctx.strokeStyle = '#8a6a4f';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-66, 0); ctx.lineTo(-66, -84); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(66, 0); ctx.lineTo(66, -84); ctx.stroke();
+    ctx.strokeStyle = '#5c554e';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(-66, -78); ctx.quadraticCurveTo(0, -70, 66, -78); ctx.stroke();
+    // 洗濯物 (雪をかぶると白いかたまりに)
+    var items = [
+      { x: -38, w: 26, h: 34, c: '#e8443a' },
+      { x: 0, w: 30, h: 40, c: '#4a90d9' },
+      { x: 40, w: 24, h: 30, c: '#ffd23d' }
+    ];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var sway = Math.sin(S.t * 1.6 + i * 1.3 + hp.seed) * (hit ? 1 : 4);
+      ctx.save();
+      ctx.translate(it.x, -74 + Math.abs(it.x) * 0.08);
+      ctx.rotate(sway * 0.03);
+      if (hit) {
+        ctx.fillStyle = '#f4f8ff';
+        ctx.beginPath();
+        ctx.ellipse(0, it.h / 2, it.w * 0.75, it.h * 0.62, 0, 0, 6.284);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = it.c;
+        rr(-it.w / 2, 0, it.w, it.h, 5); ctx.fill();
+      }
+      ctx.restore();
+    }
+    // おばあちゃんが払いにくる
+    if (hit && hp.hitT < 2.6) {
+      var gx = 96 - Math.min(1, (2.6 - hp.hitT) / 0.8) * 28;
+      var sweep = Math.sin(S.t * 9) * 0.5;
+      ctx.save();
+      ctx.translate(gx, 0);
+      ctx.fillStyle = '#9a7ba8';
+      rr(-10, -34, 20, 30, 8); ctx.fill();
+      ctx.fillStyle = '#ffe0c2';
+      ctx.beginPath(); ctx.arc(0, -42, 9, 0, 6.284); ctx.fill();
+      ctx.fillStyle = '#d8dde5';
+      ctx.beginPath(); ctx.arc(0, -48, 8, Math.PI, 0); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -50, 3.4, 0, 6.284); ctx.fill();
+      // ほうきで払う腕
+      ctx.strokeStyle = '#9a7ba8';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-6, -26);
+      ctx.lineTo(-20 - sweep * 8, -34 - sweep * 6);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawCar(hp) {
+    var hit = hp.hitT > 0;
+    // ちいさな軽自動車
+    ctx.fillStyle = '#7fb2d9';
+    rr(-52, -40, 104, 30, 10); ctx.fill();
+    ctx.fillStyle = '#a8cfe8';
+    rr(-34, -58, 62, 24, 9); ctx.fill();
+    ctx.fillStyle = '#2c3540';
+    rr(-28, -54, 24, 18, 5); ctx.fill();
+    rr(2, -54, 22, 18, 5); ctx.fill();
+    ctx.fillStyle = '#22262d';
+    ctx.beginPath(); ctx.arc(-32, -8, 10, 0, 6.284); ctx.fill();
+    ctx.beginPath(); ctx.arc(32, -8, 10, 0, 6.284); ctx.fill();
+    ctx.fillStyle = '#8b93a0';
+    ctx.beginPath(); ctx.arc(-32, -8, 4.4, 0, 6.284); ctx.fill();
+    ctx.beginPath(); ctx.arc(32, -8, 4.4, 0, 6.284); ctx.fill();
+    // 屋根の雪 (もともと少し + 当たるとどっさり)
+    var snow = hit ? Math.min(1, hp.hitT / 1.6) : 0.3;
+    ctx.fillStyle = '#f7faff';
+    ctx.beginPath();
+    ctx.moveTo(-36, -56);
+    ctx.quadraticCurveTo(0, -56 - 20 * snow, 30, -56);
+    ctx.quadraticCurveTo(0, -52, -36, -56);
+    ctx.fill();
+    if (hit) {
+      // ワイパーがシュッシュ
+      var wa = -1.2 + Math.abs(Math.sin(S.t * 7)) * 1.1;
+      ctx.strokeStyle = '#2c3540';
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(10, -38);
+      ctx.lineTo(10 + Math.cos(wa) * 16, -38 + Math.sin(wa) * 16);
+      ctx.stroke();
+      // ヘッドライトぱちぱち
+      if (Math.sin(S.t * 10) > 0) {
+        ctx.fillStyle = '#ffe08a';
+        ctx.beginPath(); ctx.arc(50, -30, 4.6, 0, 6.284); ctx.fill();
+      }
+    }
+  }
+
+  function drawDog() {
+    if (!dog || S.mode === 'title') return;
+    var z = cam.zoom;
+    var sx = W2SX(dog.x, 1);
+    if (sx < -120 || sx > W + 120) return;
+    var by = W2SY(BASE_Y, 1);
+    var run = Math.abs(Math.sin(S.t * 7 + dog.phase));
+    ctx.save();
+    ctx.translate(sx, by - run * 3 * z);
+    ctx.scale(dog.flip * z, z);
+    if (dog.shakeT > 0) ctx.rotate(Math.sin(S.t * 42) * 0.16);
+    // しっぽ (くるん)
+    ctx.strokeStyle = '#d9924a';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(-26, -30, 8, 2.4 + Math.sin(S.t * 9) * 0.4, 5.2);
+    ctx.stroke();
+    // 体
+    ctx.fillStyle = '#d9924a';
+    ctx.beginPath(); ctx.ellipse(0, -20, 26, 15, 0, 0, 6.284); ctx.fill();
+    // あし
+    ctx.fillStyle = '#c07f3c';
+    ctx.fillRect(-18, -10, 6, 10 - run * 3);
+    ctx.fillRect(12, -10, 6, 10 - run * 3 * 0.5);
+    // 頭
+    ctx.fillStyle = '#d9924a';
+    ctx.beginPath(); ctx.arc(24, -34, 13, 0, 6.284); ctx.fill();
+    ctx.fillStyle = '#f5e8d8';
+    ctx.beginPath(); ctx.ellipse(30, -30, 7, 5.4, 0.3, 0, 6.284); ctx.fill();
+    // 耳
+    ctx.fillStyle = '#b3752f';
+    ctx.beginPath();
+    ctx.moveTo(16, -44); ctx.lineTo(22, -52); ctx.lineTo(26, -43);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(28, -44); ctx.lineTo(34, -51); ctx.lineTo(37, -41);
+    ctx.closePath(); ctx.fill();
+    // 目と鼻
+    ctx.fillStyle = '#333';
+    ctx.beginPath(); ctx.arc(26, -36, 1.8, 0, 6.284); ctx.fill();
+    ctx.beginPath(); ctx.arc(36, -31, 2.4, 0, 6.284); ctx.fill();
+    // 雪をかぶってブルブル
+    if (dog.shakeT > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      for (var d2 = 0; d2 < 6; d2++) {
+        var an2 = S.t * 30 + d2 * 1.05;
+        ctx.beginPath();
+        ctx.arc(Math.cos(an2) * (24 + dog.shakeT * 14), -26 + Math.sin(an2) * 18, 3.2, 0, 6.284);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#f4f8ff';
+      ctx.beginPath(); ctx.ellipse(0, -32, 20, 7, 0, 0, 6.284); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawPlaza() {
     // ゴール広場: 最初から見えている (雪壁の切れ目の先)
     var P = 1;
@@ -1557,6 +2232,77 @@
     ctx.fillStyle = hlg;
     ctx.beginPath(); ctx.arc(-50, -96, 30, 0, 6.284); ctx.fill();
 
+    // ---------- 雪タンク (チャージゲージ)
+    var tf = S.tank / TANK_MAX;
+    var full = tf >= 1;
+    var gaugePulse = S.charging ? Math.sin(S.t * 10) * 0.08 : 0;
+    ctx.save();
+    ctx.translate(-100, -74);
+    ctx.scale(1 + gaugePulse, 1 + gaugePulse);
+    if (full || S.charging) {
+      var gg2 = ctx.createRadialGradient(0, 0, 4, 0, 0, 42);
+      gg2.addColorStop(0, 'rgba(190,230,255,' + (full ? 0.55 : 0.3) + ')');
+      gg2.addColorStop(1, 'rgba(190,230,255,0)');
+      ctx.fillStyle = gg2;
+      ctx.beginPath(); ctx.arc(0, 0, 42, 0, 6.284); ctx.fill();
+    }
+    ctx.fillStyle = '#fdfdff';
+    rr(-18, -28, 36, 56, 10); ctx.fill();
+    ctx.fillStyle = '#31435c';
+    rr(-13, -23, 26, 46, 7); ctx.fill();
+    if (tf > 0.02) {
+      var fh = 46 * tf;
+      ctx.fillStyle = full ? '#ffffff' : '#e8f2ff';
+      rr(-13, -23 + (46 - fh), 26, fh, 7); ctx.fill();
+      // 雪のもこもこ上面
+      ctx.beginPath();
+      ctx.ellipse(0, -23 + (46 - fh), 12, 4.4, 0, 0, 6.284);
+      ctx.fill();
+    }
+    ctx.strokeStyle = '#b9c6d8';
+    ctx.lineWidth = 2.4;
+    rr(-18, -28, 36, 56, 10); ctx.stroke();
+    // 雪の結晶マーク (空のときに見える)
+    if (tf < 0.5) {
+      ctx.strokeStyle = 'rgba(160,200,240,0.9)';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (var sfl = 0; sfl < 3; sfl++) {
+        var sfa = sfl * Math.PI / 3;
+        ctx.beginPath();
+        ctx.moveTo(-Math.cos(sfa) * 7, -8 - Math.sin(sfa) * 7);
+        ctx.lineTo(Math.cos(sfa) * 7, -8 + Math.sin(sfa) * 7);
+        ctx.stroke();
+      }
+    }
+    if (full) {
+      // まんたん! きらっ
+      var twk = Math.sin(S.t * 6);
+      if (twk > 0) {
+        ctx.fillStyle = 'rgba(255,255,255,' + twk + ')';
+        ctx.beginPath();
+        ctx.moveTo(8, -20); ctx.lineTo(11, -14); ctx.lineTo(17, -11);
+        ctx.lineTo(11, -8); ctx.lineTo(8, -2); ctx.lineTo(5, -8);
+        ctx.lineTo(-1, -11); ctx.lineTo(5, -14);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // チャージ中: オーガへ吸い込む渦と踏ん張り
+    if (S.charging) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      for (var sw = 0; sw < 3; sw++) {
+        var swa = S.t * 6 + sw * 2.09;
+        var swr = 52 + Math.sin(S.t * 8 + sw) * 8;
+        ctx.beginPath();
+        ctx.arc(14, -62, swr, swa, swa + 1.1);
+        ctx.stroke();
+      }
+    }
+
     // ---------- シュート (指で左右に動く)
     var a = p.chuteA;
     ctx.save();
@@ -1644,23 +2390,18 @@
     var z = cam.zoom;
 
     // 太い噴流バンド (ドバーッの主役)
-    var flow = p.eatSm;
+    var bursting = S.burstLeft > 0;
+    var flow = bursting ? 26000 : p.eatSm;
     if (flow > 900 && S.mode !== 'title') {
       var tip = chuteTip();
-      var bed = bedInfo();
-      var aimX = S.plow.x + S.aimOff;
-      var landY = BASE_Y - 12;
-      if (S.truck.state === 'follow' && Math.abs(aimX - bed.cx) < 135) {
-        aimX = lerp(aimX, bed.cx, 0.8);
-        landY = bed.topY;
-      }
-      var dx = aimX - tip.x;
+      var aim = resolveAim(bursting ? S.burstAim : S.aimOff);
+      var dx = aim.x - tip.x;
       var T = clamp(0.75 + Math.abs(dx) / 620, 0.75, 1.3);
-      var dy = landY - tip.y;
+      var dy = aim.y - tip.y;
       var vx0 = dx / T;
       var vy0 = (dy - 0.5 * G * T * T) / T;
-      var alpha = Math.min(0.55, (flow - 900) / 9000);
-      var widthMax = Math.min(30, 8 + flow / 700);
+      var alpha = Math.min(bursting ? 0.75 : 0.55, (flow - 900) / 9000);
+      var widthMax = Math.min(bursting ? 44 : 30, 8 + flow / 700);
       var N = 16;
       for (var pass = 0; pass < 2; pass++) {
         ctx.strokeStyle = pass === 0 ? 'rgba(235,244,255,' + alpha + ')' : 'rgba(255,255,255,' + (alpha * 0.9) + ')';
@@ -1676,6 +2417,15 @@
         }
         ctx.lineWidth = (pass === 0 ? widthMax : widthMax * 0.45) * z;
         ctx.stroke();
+      }
+      // ドバーンの発射フラッシュ
+      if (bursting) {
+        var tipSX = W2SX(tip.x, 1), tipSY = W2SY(tip.y, 1);
+        var fg = ctx.createRadialGradient(tipSX, tipSY, 2, tipSX, tipSY, 70 * z);
+        fg.addColorStop(0, 'rgba(255,255,255,0.85)');
+        fg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = fg;
+        ctx.beginPath(); ctx.arc(tipSX, tipSY, 70 * z, 0, 6.284); ctx.fill();
       }
     }
 
@@ -1795,6 +2545,20 @@
       ctx.closePath(); ctx.fill();
     }
 
+    if (S.mode === 'play' && !S.burstEver && !S.charging && S.t > 20) {
+      // 「きかいを おさえてみて」ヒント: 機体の上で脈打つ指マーク
+      var hpx = W2SX(S.plow.x - 100, 1);
+      var hpy = W2SY(BASE_Y - 90, 1);
+      var hpl = 0.5 + Math.sin(S.t * 3) * 0.5;
+      ctx.globalAlpha = 0.35 + hpl * 0.45;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(hpx, hpy, (30 + hpl * 16), 0, 6.284); ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(hpx, hpy, 13 - hpl * 4, 0, 6.284); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     if (S.mode === 'play' && S.idleT > 2.6) {
       // 指を動かすヒント: 白い丸が左右へ
       var hx = W / 2 + Math.sin(S.t * 2.2) * mins * 0.16;
@@ -1855,9 +2619,12 @@
     drawBackBank();
     drawRoad();
     drawPiles();
+    drawMolds();
+    drawHappenings();
     drawPlaza();
     drawWall();
     drawTruck();
+    drawDog();
     drawChunks();
     drawPlow();
     drawFlow();
@@ -1901,6 +2668,10 @@
     get truckLoad() { return S.truck.load; },
     get flowTotal() { return S.flowTotal; },
     get camMode() { return S.camMode; },
+    get moldsDone() { return S.moldsDone; },
+    get moldsTotal() { return molds.length; },
+    get tank() { return S.tank; },
+    get bursts() { return S.burstCount; },
     step: function (sec) {
       var n = Math.round(sec * 120);
       for (var i = 0; i < n; i++) update(1 / 120);

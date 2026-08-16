@@ -30,9 +30,13 @@ check "t=10 投雪が出ている(flow>100)"   "$s10" 'flow=([1-9][0-9]{2,})'
 
 s30="$(state 30)"
 check "t=30 ダンプに雪が積まれる"       "$s30" 'load=[1-9][0-9]*|trucks=[1-9]'
+check "t=30 チャージ放出が発生"         "$s30" 'bursts=[1-9]'
+check "t=30 型が完成しはじめる"         "$s30" 'molds=[1-9]/'
 
-s90="$(state 90)"
-check "t=90 ゴール到達"                "$s90" '^finish cam=finish'
-check "t=90 ダンプ満杯が発生済み"       "$s90" 'trucks=[1-9]'
+s120="$(state 120)"
+check "t=120 ゴール到達"               "$s120" '^finish cam=finish'
+check "t=120 ダンプ満杯が発生済み"      "$s120" 'trucks=[1-9]'
+check "t=120 型が複数完成"             "$s120" 'molds=[2-9]/'
+check "t=120 放出が複数回"             "$s120" 'bursts=([2-9]|[1-9][0-9])'
 
 exit $fail
