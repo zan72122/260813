@@ -2,6 +2,7 @@ import * as THREE from '../lib/three.module.js';
 import { buildWorld } from './world.js';
 import { buildTargets } from './targets.js';
 import { buildAnimals } from './animals.js';
+import { buildProps } from './props.js';
 import { Garden } from './garden.js';
 import { Sponge } from './sponge.js';
 import { FX } from './fx.js';
@@ -24,7 +25,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
 
 const world = buildWorld(scene, rng);
-const targets = [...buildTargets(scene), ...buildAnimals(scene)];
+const targets = [...buildTargets(scene), ...buildAnimals(scene), ...buildProps(scene)];
 const sponge = new Sponge();
 scene.add(sponge.group);
 const fx = new FX(scene, rng);
@@ -90,6 +91,7 @@ window.__game = {
     return {
       stage: game.stage,
       dye: { r: avg.r, b: avg.b, y: avg.y },
+      concentration: sponge.concentration(),
       mixEvent: sponge.mixEvent,
       liquid: `#${liquid.getHexString()}`,
       sponge: {

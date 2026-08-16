@@ -37,10 +37,13 @@ export function mixDye(amounts, out) {
   // stay vivid instead of muddy. Even red+blue+yellow lands on a warm
   // cocoa rather than a punishing grey.
   _c.getHSL(_hsl);
-  const strength = clamp(total, 0, 1);
-  const l = 0.68 - 0.26 * strength; // fuller sponge -> deeper colour
+  // Shade comes from concentration: a light dip gives an airy pastel, a
+  // long deep soak gives a rich saturated colour — same hue, new shade.
+  const maxc = Math.max(r, b, y);
+  const strength = clamp(maxc + (total - maxc) * 0.25, 0, 1);
+  const l = 0.78 - 0.42 * strength;
   const s = clamp(_hsl.s * 1.5 + 0.3, 0, 0.98);
-  out.setHSL(_hsl.h, s, clamp(l, 0.3, 0.82));
+  out.setHSL(_hsl.h, s, clamp(l, 0.34, 0.85));
   return strength;
 }
 

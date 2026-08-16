@@ -17,8 +17,8 @@ export const SPECIES = [
   'green', 'blue', 'purple', 'magenta', 'cocoa',
 ];
 
-// amounts: {r,b,y} (any positive scale — only ratios matter).
-export function classifySpecies(amounts) {
+// amounts: {r,b,y} (any positive scale — only ratios matter) -> hue name.
+export function classifyHue(amounts) {
   const total = amounts.r + amounts.b + amounts.y;
   if (total < 1e-4) return null;
   const pr = amounts.r / total, pb = amounts.b / total, py = amounts.y / total;
@@ -34,6 +34,19 @@ export function classifySpecies(amounts) {
   if (hasR) return 'red';
   if (hasB) return 'blue';
   return 'yellow';
+}
+
+// Concentration (0..1) -> shade band. With the shade system every hue
+// exists as pastel / normal / deep — up to 30 distinct spirit species.
+export function classifyShade(conc) {
+  return conc < 0.34 ? 'pastel' : conc > 0.74 ? 'deep' : 'normal';
+}
+
+export function classifySpecies(amounts, conc = 0.5) {
+  const hue = classifyHue(amounts);
+  if (!hue) return null;
+  const shade = classifyShade(conc);
+  return shade === 'normal' ? hue : `${hue}-${shade}`;
 }
 
 // ------------------------------------------------------------------ spirit
@@ -300,7 +313,8 @@ export class SpiritManager {
       const data = JSON.parse(raw);
       if (!Array.isArray(data)) return;
       data.forEach((entry, i) => {
-        if (!SPECIES.includes(entry.species) || this.discovered.has(entry.species)) return;
+        const hue = String(entry.species || '').split('-')[0];
+        if (!SPECIES.includes(hue) || this.discovered.has(entry.species)) return;
         const color = new THREE.Color(entry.color);
         const a = (i / Math.max(1, data.length)) * Math.PI * 2 + 0.7;
         const pos = new THREE.Vector3(
@@ -334,7 +348,8 @@ export class SpiritManager {
     this.scene.add(spirit.group);
     this.spirits.push(spirit);
     this.discovered.set(species, `#${color.getHexString()}`);
-    const dot = this.house.dots.get(species);
+    // The cap dot belongs to the hue; the freshest shade tints it.
+    const dot = this.house.dots.get(species.split('-')[0]);
     if (dot) {
       dot.material.color.copy(color);
       dot.material.opacity = 1;
@@ -343,11 +358,11 @@ export class SpiritManager {
   }
 
   // Called for every squeezed drip that lands. Births a new spirit the
-  // first time a species is squeezed out.
-  noteLiquid(amounts, color, landPos) {
+  // first time a (hue, shade) combination is squeezed out.
+  noteLiquid(amounts, color, landPos, conc = 0.5) {
     const total = amounts.r + amounts.b + amounts.y;
-    if (total < 0.25) return null;
-    const species = classifySpecies(amounts);
+    if (total < 0.2) return null;
+    const species = classifySpecies(amounts, conc);
     if (!species || this.discovered.has(species)) return null;
     const pos = new THREE.Vector3(
       clamp(landPos.x + (this.rng() - 0.5) * 0.4, -6.2, 6.2),

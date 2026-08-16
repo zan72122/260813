@@ -151,7 +151,7 @@ export class Sponge {
 
   // Inject dye near a local-space contact point (colour visibly enters
   // from where the sponge touched the water).
-  inject(channel, localPoint, dt, rate = 4.2, radius = 1.0) {
+  inject(channel, localPoint, dt, rate = 1.9, radius = 0.9) {
     const arr = channel === 'r' ? this.dyeR : channel === 'b' ? this.dyeB : this.dyeY;
     const r2 = radius * radius;
     let injected = 0;
@@ -237,14 +237,22 @@ export class Sponge {
     return a.r + a.b + a.y;
   }
 
-  // Amounts of what gets squeezed out. Normalised so the strongest channel
-  // is always vivid: how MUCH you soaked changes how much liquid there is,
-  // never how pretty the colour comes out (no punishing pale results).
+  // How saturated with dye the sponge is (0 = clean, 1 = fully soaked).
+  // Drives the SHADE of the squeezed liquid: quick dip -> pastel, long
+  // soak -> deep rich colour, a light rinse walks it back toward pastel.
+  concentration() {
+    return clamp(this.totalDye() * 2.0, 0, 1);
+  }
+
+  // Amounts of what gets squeezed out. Hue keeps the sponge's dye RATIOS;
+  // overall amount follows concentration, floored so even the faintest
+  // squeeze is a pretty pastel, never a punishing grey.
   liquidAmounts() {
     const a = this.averages();
     const m = Math.max(a.r, a.b, a.y);
     if (m < 1e-5) return { r: 0, b: 0, y: 0 };
-    const scale = Math.min(9, 0.92 / m);
+    const c = this.concentration();
+    const scale = (0.3 + 0.68 * c) / m;
     return {
       r: Math.min(1, a.r * scale),
       b: Math.min(1, a.b * scale),
@@ -254,9 +262,8 @@ export class Sponge {
 
   // Colour of the liquid that would come out if squeezed right now.
   liquidColor(out) {
-    const total = this.totalDye();
     mixDye(this.liquidAmounts(), out);
-    return clamp(total * 3.4, 0, 1);
+    return this.concentration();
   }
 
   updateColors() {

@@ -172,12 +172,49 @@ test('colour spirits are born from newly created colours', async ({ page }) => {
   s = await api(page, () => window.__game.state());
   expect(s.spirits.count).toBe(2);
   const species = Object.keys(s.spirits.discovered);
-  expect(species.some((k) => k === 'purple' || k === 'magenta')).toBe(true);
+  expect(species.some((k) => k.startsWith('purple') || k.startsWith('magenta'))).toBe(true);
 
-  // Same mixture again -> no duplicate spirit.
+  // A colour (hue + shade) already discovered -> no duplicate spirit.
+  await dragTo(page, WASH, 1.4);
+  await api(page, () => window.__game.step(8));
+  await soak(page, 'red', 2.4);
   await squeezeAt(page, [1.0, 1.6], 2.5);
   s = await api(page, () => window.__game.state());
   expect(s.spirits.count).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test('shade system: quick dip paints pastel, long soak paints deep', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Quick touch of red -> low concentration -> pastel.
+  await dragTo(page, POOLS.red, 1.0);
+  let s = await api(page, () => window.__game.state());
+  const concQuick = s.concentration;
+  await squeezeAt(page, [-2.2, 2.1], 3.5); // white stone prop
+  await api(page, () => window.__game.step(3));
+  s = await api(page, () => window.__game.state());
+  const pastelStone = s.targets.find((t) => t.id === 'stone-4');
+  expect(pastelStone.colored).toBe(true);
+  expect(Object.keys(s.spirits.discovered)).toContain('red-pastel');
+
+  // Rinse fully, then a long deep soak -> deep shade.
+  await dragTo(page, WASH, 1.4);
+  await api(page, () => window.__game.step(8));
+  await soak(page, 'red', 8);
+  s = await api(page, () => window.__game.state());
+  expect(s.concentration).toBeGreaterThan(concQuick + 0.3);
+  await squeezeAt(page, [1.95, 1.9], 3.5); // another stone
+  await api(page, () => window.__game.step(3));
+  s = await api(page, () => window.__game.state());
+  const deepStone = s.targets.find((t) => t.id === 'stone-5');
+  expect(deepStone.colored).toBe(true);
+  expect(Object.keys(s.spirits.discovered)).toContain('red-deep');
+
+  // Same hue, different shades: the pastel stone is clearly lighter.
+  const lum = (hex) =>
+    [1, 3, 5].reduce((sum, i) => sum + parseInt(hex.slice(i, i + 2), 16), 0);
+  expect(lum(pastelStone.color)).toBeGreaterThan(lum(deepStone.color) + 60);
   expect(errors).toEqual([]);
 });
 

@@ -37,6 +37,7 @@ export class Game {
     this.dripTimer = 0;
     this.absorbFxTimer = 0;
     this.washFxTimer = 0;
+    this._squeezeSession = null; // {conc, painted} — locked per squeeze hold
     this.mixFocus = 0;      // seconds left of "watch the colours blend" zoom
     this.mixSeen = false;
     this.rewardFocus = null; // {point, timer}
@@ -240,11 +241,20 @@ export class Game {
       if (this.washHint > 0) this.washHint = 0.01; // hint done
     }
 
-    // --- squeezing (hold still, not in water)
+    // --- squeezing (hold still, not in water, sponge actually arrived —
+    // travelling toward a far-away finger must not leak dye en route)
+    const arrived =
+      Math.hypot(this.dragTarget.x - pos.x, this.dragTarget.z - pos.z) < 0.35;
     const canSqueeze =
-      this.dragging && !this.activePool && !inWash &&
+      this.dragging && !this.activePool && !inWash && arrived &&
       this.holdStill > 0.32 && sponge.totalDye() > 0.015;
     this.squeezing = canSqueeze;
+    // One squeeze session = one shade: lock concentration when it starts
+    // so a long squeeze doesn't drift through several spirit species.
+    if (canSqueeze && !this._squeezeSession) {
+      this._squeezeSession = { conc: sponge.concentration(), painted: null };
+    }
+    if (!canSqueeze) this._squeezeSession = null;
     this.squeeze += ((canSqueeze ? 1 : 0) - this.squeeze) * damp(canSqueeze ? 5 : 7, dt);
     if (this.squeeze > 0.25 && canSqueeze) {
       this.dripTimer -= dt;
@@ -255,19 +265,25 @@ export class Game {
           const from = this._v1.set(pos.x, pos.y - SPONGE_HALF_Y * (1 - 0.4 * this.squeeze) - 0.05, pos.z);
           const over = this.hoverTarget;
           const amounts = sponge.liquidAmounts();
+          // Drips carry their session: one paint per session (even for
+          // late-landing tail drips), and one locked shade per session.
+          const session = this._squeezeSession;
+          const conc = session ? session.conc : strength;
           const dripColor = this._liquid.clone();
           if (over) {
             over.focusPoint(this._v2);
             const floorY = this._v2.y - 0.15;
             this.fx.drip(from, dripColor, floorY, (landPos) => {
-              over.paint(dripColor);
+              if (session && session.painted !== over && over.paint(dripColor)) {
+                session.painted = over;
+              }
               this.fx.sparkleBurst(landPos, dripColor, 3);
-              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc);
             });
           } else {
             this.fx.drip(from, dripColor, 0.02, (landPos, c) => {
               this.fx.splat(landPos, c);
-              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc);
             });
           }
           sponge.drain(dt * 6.5, 0.5);
