@@ -181,6 +181,30 @@ test('colour spirits are born from newly created colours', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('animals can be painted alive and the garden grows in stages', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Paint the white rabbit yellow -> it comes alive; the paint + the
+  // yellow spirit birth push the garden to level 1 (butterflies).
+  await soak(page, 'yellow', 2.4);
+  await squeezeAt(page, [2.3, -3.7], 4);
+  await api(page, () => window.__game.step(4));
+  let s = await api(page, () => window.__game.state());
+  const rabbit = s.targets.find((t) => t.id === 'rabbit');
+  expect(rabbit.colored).toBe(true);
+  expect(s.garden.level).toBeGreaterThanOrEqual(1);
+  expect(s.garden.butterflies).toBeGreaterThan(0);
+
+  // Fast-forward growth via the debug hook: rainbow -> tree -> blossoms.
+  await api(page, () => { window.__game.grow(6); window.__game.step(1); });
+  s = await api(page, () => window.__game.state());
+  expect(s.garden.level).toBe(3);
+  await api(page, () => { window.__game.grow(4); window.__game.step(6); });
+  s = await api(page, () => window.__game.state());
+  expect(s.garden.level).toBe(4);
+  expect(errors).toEqual([]);
+});
+
 test('real pointer input drags the sponge', async ({ page }) => {
   const errors = await boot(page);
   const canvas = page.locator('canvas');

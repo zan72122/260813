@@ -1,6 +1,8 @@
 import * as THREE from '../lib/three.module.js';
 import { buildWorld } from './world.js';
 import { buildTargets } from './targets.js';
+import { buildAnimals } from './animals.js';
+import { Garden } from './garden.js';
 import { Sponge } from './sponge.js';
 import { FX } from './fx.js';
 import { SpiritManager } from './spirits.js';
@@ -22,13 +24,15 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
 
 const world = buildWorld(scene, rng);
-const targets = buildTargets(scene);
+const targets = [...buildTargets(scene), ...buildAnimals(scene)];
 const sponge = new Sponge();
 scene.add(sponge.group);
 const fx = new FX(scene, rng);
 const spirits = new SpiritManager(scene, fx, rng, { persist: !E2E });
+const garden = new Garden(scene, rng, { persist: !E2E });
+garden.setScore(garden.paintCount + spirits.discovered.size, true); // restore saved growth silently
 
-const game = new Game({ scene, camera, renderer, sponge, world, targets, fx, spirits });
+const game = new Game({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden });
 game.attachInput(renderer.domElement);
 
 function resize() {
@@ -77,6 +81,8 @@ window.__game = {
   press(x, z) { game.pointerDown(x, z); },
   move(x, z) { game.pointerMove(x, z); },
   release() { game.pointerUp(); },
+  // Debug/test-only: add paint credit to fast-forward garden growth.
+  grow(n = 1) { garden.paintCount += n; },
   state() {
     const avg = sponge.averages();
     const liquid = new THREE.Color();
@@ -103,6 +109,11 @@ window.__game = {
       spirits: {
         count: spirits.spirits.length,
         discovered: Object.fromEntries(spirits.discovered),
+      },
+      garden: {
+        level: garden.level,
+        paintCount: garden.paintCount,
+        butterflies: garden.butterflies.length,
       },
     };
   },

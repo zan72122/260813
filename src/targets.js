@@ -9,7 +9,7 @@ import { clamp, lerp } from './util.js';
 // outward, jelly fills from the bottom up, wings from the body out.
 // Targets can be repainted endlessly with new mixtures — that is the game.
 
-class Paintable {
+export class Paintable {
   constructor(mesh, tFn) {
     this.mesh = mesh;
     const geo = mesh.geometry;
@@ -55,7 +55,7 @@ class Paintable {
   }
 }
 
-class Target {
+export class Target {
   constructor(id, group, focus = new THREE.Vector3(0, 1, 0)) {
     this.id = id;
     this.group = group;

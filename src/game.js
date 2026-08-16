@@ -17,7 +17,7 @@ const PLAY = { minX: -6.4, maxX: 6.6, minZ: -4.9, maxZ: 4.6 };
 const SPONGE_HALF_Y = 0.42;
 
 export class Game {
-  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits }) {
+  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -26,6 +26,7 @@ export class Game {
     this.targets = targets;
     this.fx = fx;
     this.spirits = spirits;
+    this.garden = garden;
 
     this.time = 0;
     this.dragging = false;
@@ -295,6 +296,15 @@ export class Game {
     this.world.update(dt, this.time);
     for (const t of this.targets) t.update(dt, this.time);
     if (this.spirits) this.spirits.update(dt, pos);
+    if (this.garden) {
+      const ev = this.garden.setScore(this._gardenScore());
+      if (ev) {
+        // A garden level-up: linger on the new wonder.
+        this.rewardFocus = { point: ev.focus, timer: 2.8 };
+        this.fx.sparkleBurst(ev.focus, new THREE.Color(0xfff2b8), 26);
+      }
+      this.garden.update(dt, this.time);
+    }
     this.fx.update(dt);
     if (this.rewardFocus) {
       this.rewardFocus.timer -= dt;
@@ -376,6 +386,11 @@ export class Game {
     target.focusPoint(this._v1);
     this.fx.sparkleBurst(this._v1, target.color, 30);
     this.rewardFocus = { point: this._v1.clone(), timer: 2.1 };
+    if (this.garden) this.garden.notePaint();
+  }
+
+  _gardenScore() {
+    return this.garden.paintCount + (this.spirits ? this.spirits.discovered.size : 0);
   }
 
   // ------------------------------------------------------------ camera
