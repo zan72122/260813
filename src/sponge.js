@@ -237,25 +237,26 @@ export class Sponge {
     return a.r + a.b + a.y;
   }
 
-  // Colour of the liquid that would come out if squeezed right now.
-  liquidColor(out) {
-    const a = this.averages();
-    const boost = 3.4;
-    return mixDye(
-      { r: Math.min(1, a.r * boost), b: Math.min(1, a.b * boost), y: Math.min(1, a.y * boost) },
-      out
-    );
-  }
-
-  // Amounts (normalised) of what gets squeezed out, for painting targets.
+  // Amounts of what gets squeezed out. Normalised so the strongest channel
+  // is always vivid: how MUCH you soaked changes how much liquid there is,
+  // never how pretty the colour comes out (no punishing pale results).
   liquidAmounts() {
     const a = this.averages();
-    const boost = 3.4;
+    const m = Math.max(a.r, a.b, a.y);
+    if (m < 1e-5) return { r: 0, b: 0, y: 0 };
+    const scale = Math.min(9, 0.92 / m);
     return {
-      r: Math.min(1, a.r * boost),
-      b: Math.min(1, a.b * boost),
-      y: Math.min(1, a.y * boost),
+      r: Math.min(1, a.r * scale),
+      b: Math.min(1, a.b * scale),
+      y: Math.min(1, a.y * scale),
     };
+  }
+
+  // Colour of the liquid that would come out if squeezed right now.
+  liquidColor(out) {
+    const total = this.totalDye();
+    mixDye(this.liquidAmounts(), out);
+    return clamp(total * 3.4, 0, 1);
   }
 
   updateColors() {

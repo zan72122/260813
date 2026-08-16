@@ -160,14 +160,18 @@ class Flower extends Target {
     this.pivots = [];
     const PETALS = 9;
     for (let i = 0; i < PETALS; i++) {
-      const pivot = new THREE.Group();
-      pivot.rotation.y = (i / PETALS) * Math.PI * 2;
+      // Nested groups: outer spins the petal around the head (Y), inner
+      // tilts it up/down (X) — kept separate so the bud really closes.
+      const around = new THREE.Group();
+      around.rotation.y = (i / PETALS) * Math.PI * 2;
+      const tilt = new THREE.Group();
+      around.add(tilt);
       const geo = petalGeoProto.clone();
       const petal = new THREE.Mesh(geo, petalMat.clone());
       petal.castShadow = true;
-      pivot.add(petal);
-      this.head.add(pivot);
-      this.pivots.push(pivot);
+      tilt.add(petal);
+      this.head.add(around);
+      this.pivots.push(tilt);
       this.paintables.push(new Paintable(petal, (v) => v.z));
     }
     const center = new THREE.Mesh(
@@ -324,8 +328,10 @@ class Butterfly extends Target {
   idle(dt, t) {
     const speed = this.flying ? 11 : 2.2;
     this.flap += dt * speed;
-    const amp = this.flying ? 1.0 : 0.55;
-    const a = Math.sin(this.flap) * amp;
+    // Resting: wings held up, slow breathing flutter. Flying: full beats.
+    const a = this.flying
+      ? Math.sin(this.flap) * 0.85
+      : 0.65 + Math.sin(this.flap) * 0.3;
     for (const pivot of this.wingPivots) pivot.rotation.z = a * pivot.userData.dir;
     if (this.colored && !this.flying && this.reward > 0.4) this.flying = true;
     if (this.flying) {
