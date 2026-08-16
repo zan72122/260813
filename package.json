@@ -1,0 +1,13 @@
+{
+  "name": "kamakura-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "4歳児向け かまくら作りモバイルWebゲーム",
+  "scripts": {
+    "serve": "python3 -m http.server 8347",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
