@@ -1,0 +1,17 @@
+{
+  "name": "pechanko-field",
+  "version": "1.0.0",
+  "description": "ぺちゃんこフィールド — 4歳向けモバイルWeb 3Dゲーム",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
