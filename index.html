@@ -65,6 +65,7 @@ const baseArrow = new Int8Array(W * H);     // 最初からある一方通行 (-
 const userArrow = new Int8Array(W * H);     // 子どもが描いた矢印 (-1=なし)
 const arrowBorn = new Float32Array(W * H);  // 矢印出現時刻(アニメ用)
 const costMul = new Float32Array(W * H);
+const carvedSet = new Set();                // 子どもが掘ったバイパス
 cellColor.fill(-1); baseArrow.fill(-1); userArrow.fill(-1); costMul.fill(1);
 
 // 発送口: 赤=上壁 青=右壁 黄=下壁 (mdx/mdy=口が向く方向)
@@ -373,7 +374,16 @@ function stepAgv(a, dt) {
     } else {
       const goal = a.state === S_TOPICK ? a.order.face
         : ID(CHUTES[a.carrying].dropX, CHUTES[a.carrying].dropY);
-      if (!planTo(a, goal)) { a.retryT = 1.5; return; }
+      if (!planTo(a, goal)) {
+        // 取り出し面へ行けない → 同色の別の棚へ再割当。どこにも無ければ注文スキップ
+        if (a.state === S_TOPICK && !reassignShelf(a)) {
+          delivered++; deliveredColors.push(a.order.color); updateBar();
+          a.order = null; a.state = S_WAIT;
+          if (delivered >= orders.length && !completed) { completed = true; celebrate(); }
+          return;
+        }
+        a.retryT = 1.5; return;
+      }
     }
   }
 
@@ -436,6 +446,19 @@ function stepAgv(a, dt) {
       if (alt && alt.length - 1 <= cap) { a.path = alt; a.pi = 0; }
     }
   }
+}
+
+function reassignShelf(a) {
+  const cands = shelvesOf(a.order.color)
+    .map(s => [Math.abs(CX(s) - CX(a.cell)) + Math.abs(CY(s) - CY(a.cell)), s])
+    .sort((p, q) => p[0] - q[0]);
+  for (const [, s] of cands) {
+    const f = faceOf(s);
+    if (f < 0) continue;
+    const p = astar(a.cell, f);
+    if (p) { a.order.shelf = s; a.order.face = f; a.path = p; a.pi = 0; a.goal = f; return true; }
+  }
+  return false;
 }
 
 function nudgeSleeper(b, blocker) {
@@ -655,6 +678,7 @@ function buildStatic() {
     const corridor = (y <= 2 || y >= 12 || y === CENTER_ROW || x >= 15);
     g.fillStyle = ((x + y) & 1) ? (corridor ? '#e9eef5' : '#e2e8f1') : (corridor ? '#e4eaf2' : '#dde4ee');
     if (costMul[i] < 1) g.fillStyle = ((x + y) & 1) ? '#eef0f2' : '#e9ebee';   // つるつる中央通路
+    if (carvedSet.has(i)) g.fillStyle = ((x + y) & 1) ? '#f2f5ea' : '#ecf0e2'; // 掘りたての新しい床
     g.fillRect(x, y, 1.002, 1.002);
   }
   // 床の目地
@@ -865,6 +889,15 @@ function drawAgv(a) {
   }
   ctx.restore();
 
+  // 道が見つからないロボットは「?」で困り顔
+  if ((a.state === S_TOPICK || a.state === S_TODROP) && !a.path && a.next < 0 && a.retryT > 0) {
+    ctx.save(); ctx.translate(x + 0.3, y - 0.75); ctx.scale(1, 1 / SQ);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(0, 0, 0.26, 0, 6.28); ctx.fill();
+    ctx.fillStyle = '#4e8cff'; ctx.font = 'bold 0.36px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', 0, 0.02);
+    ctx.restore();
+  }
   // 吹き出し「!」/ 💤
   if (a.moved && a.blockedT > 2) {
     const k = Math.min(1, (a.blockedT - 2));
@@ -949,6 +982,7 @@ function finishDrag(d, w) {
   for (const c of d.cells) {
     if (cellT[c] === SHELF) {                            // バイパスを掘る
       cellT[c] = FLOOR; cellColor[c] = -1;
+      costMul[c] = 0.6; carvedSet.add(c);                // 新しい床はつるつる(みんな使いたがる)
       spawnPoof(CX(c) + 0.5, CY(c) + 0.5);
       carved = true; floorCells.push(c);
     } else if (cellT[c] === FLOOR) floorCells.push(c);
@@ -1129,19 +1163,37 @@ window.game = {
              maxBlockT, playing, agvs: agvs.length, completed };
   },
   agvState() { return agvs.map(a => ({ x: a.fx, y: a.fy, st: a.state, blocked: a.blockedT })); },
-  debugDump() {
+  debugDump(all) {
     const lines = [];
     const stName = ['WAIT', 'TOPICK', 'PICK', 'TODROP', 'DROP', 'HOME', 'SLEEP', '?', 'DOCK'];
     for (const a of agvs) {
-      if (a.blockedT < 2) continue;
+      if (!all && a.blockedT < 2) continue;
       const nxt = a.path ? a.path[a.pi + 1] : -1;
-      lines.push(`agv${a.id} ${stName[a.state]} @(${CX(a.cell)},${CY(a.cell)}) -> ` +
+      lines.push(`agv${a.id} ${stName[a.state]}${a.docked ? '(docked)' : ''} @(${CX(a.cell)},${CY(a.cell)}) -> ` +
         (nxt >= 0 ? `(${CX(nxt)},${CY(nxt)}) occBy=${occ[nxt]}` : 'nopath') +
-        ` goal=(${CX(a.goal)},${CY(a.goal)}) carry=${a.carrying} blockedT=${a.blockedT.toFixed(1)}`);
+        ` goal=(${CX(a.goal)},${CY(a.goal)}) carry=${a.carrying} blockedT=${a.blockedT.toFixed(1)} retryT=${a.retryT.toFixed(1)}`);
     }
     return lines.join('\n');
   },
   arrows() { const out = []; for (let i = 0; i < W * H; i++) if (userArrow[i] >= 0) out.push([CX(i), CY(i), userArrow[i]]); return out; },
+  probe(id) {
+    const a = agvs[id];
+    const o = a.order;
+    const face = o ? o.face : -1;
+    return {
+      cell: [CX(a.cell), CY(a.cell)], state: a.state,
+      order: o ? { color: o.color, shelf: [CX(o.shelf), CY(o.shelf)], face: [CX(face), CY(face)] } : null,
+      faceWalk: face >= 0 ? walk(face) : null,
+      pathToFace: face >= 0 ? !!astar(a.cell, face) : null,
+      shelfIsShelf: o ? cellT[o.shelf] === SHELF : null,
+    };
+  },
+  worldToScreen(wx, wy) {
+    const s = fitS * camZ;
+    let x = (wx - camX) * s, y = (wy - camY) * s * SQ;
+    if (portrait) { const t = x; x = -y; y = t; }
+    return { x: x + vw / 2, y: y + vh / 2 - 8 };
+  },
   draw,
 };
 </script>
