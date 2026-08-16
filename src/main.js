@@ -823,6 +823,7 @@ class Prop {
     this.hopVy = 0;      // スライダー接近時のぴょん
     this.hopY = 0;
     this.hopCool = 0;
+    this.rideY = 0;      // スライダーの背中に乗り上げる高さ
     this.tilt = 0; this.tiltVel = 0;
     this.dir = 1;
     this.wobbleTime = 0;
@@ -886,14 +887,17 @@ class Prop {
   }
 
   updateStanding(dt) {
-    // スライダーが下を通るときは、ぴょんと跳ねてよける
+    // スライダーが下を通るとき：素早い通過ならぴょんと跳ね、
+    // ゆっくり／停止中は背中に乗り上げる（めり込ませない）
     this.hopCool -= dt;
-    const overlap =
-      Math.abs(zipper.sliderZ - this.zc) < this.footL / 2 + 1.5 &&
-      Math.abs(this.root.position.x) < 1.6;
-    if (overlap && this.hopY <= 0 && this.hopCool <= 0 && zipper.activity > 0.05) {
-      this.hopVy = 5.5;
-      this.hopCool = 0.55;
+    const dz = Math.abs(zipper.sliderZ - this.zc);
+    const reach = this.footL / 2 + 1.6;
+    const pen = clamp(1 - dz / reach, 0, 1);
+    const rideTarget = 0.62 * clamp(pen * 2.5, 0, 1);
+    this.rideY = lerp(this.rideY, rideTarget, Math.min(1, dt * 8));
+    if (pen > 0 && this.hopY <= 0 && this.hopCool <= 0 && zipper.activity > 0.4) {
+      this.hopVy = 5.0;
+      this.hopCool = 0.6;
       this.sink = 0;
       Sound.pop();
     }
@@ -905,7 +909,7 @@ class Prop {
         this.squash(0.85);
       }
     }
-    this.root.position.y = this.hopY;
+    this.root.position.y = Math.max(this.hopY, this.rideY);
 
     const s = this.sampleHole();
     const stuck = s.halfFrac >= 0.55 && !s.widthOK; // 長さはあるのに幅が足りない＝引っ掛かり
