@@ -15,7 +15,10 @@
     touch-action: none;
     user-select: none; -webkit-user-select: none;
   }
-  #scene { position: absolute; inset: 0; display: block; }
+  /* Explicit CSS size is required: the renderer sets only the drawing-buffer
+     size (window size x devicePixelRatio), so without this the canvas is
+     displayed at buffer size and overflows on any DPR > 1 screen. */
+  #scene { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 
   /* ---- message bubble ---- */
   #bubble {
