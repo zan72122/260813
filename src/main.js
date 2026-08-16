@@ -486,6 +486,7 @@ function initAudio() {
 }
 function beep(freq, dur, delay = 0, type = 'sine', gain = 0.12) {
   if (!audio) return;
+  if (audio.state === 'suspended') audio.resume();
   const t = audio.currentTime + delay;
   const o = audio.createOscillator();
   const g = audio.createGain();
