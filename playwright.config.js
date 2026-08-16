@@ -10,6 +10,7 @@ module.exports = defineConfig({
   retries: 1,
   maxFailures: 1,
   use: {
+    baseURL: 'http://127.0.0.1:8347',
     browserName: 'chromium',
     headless: true,
     viewport: { width: 390, height: 844 },

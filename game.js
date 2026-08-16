@@ -158,6 +158,14 @@ const SHOTS = {
   front: { x: 500, y: 512, w: 620, h: 440 },
   hole:  { x: 500, y: 556, w: 150, h: 110 }
 };
+/* 縦持ち用：被写体を大きく見せる構図 */
+const SHOTS_PORTRAIT = {
+  wide:  { x: 500, y: 462, w: 760, h: 900 },
+  mound: { x: 500, y: 505, w: 600, h: 760 },
+  front: { x: 500, y: 520, w: 470, h: 640 },
+  hole:  { x: 500, y: 556, w: 150, h: 110 }
+};
+function shotSet() { return ch > cw * 1.15 ? SHOTS_PORTRAIT : SHOTS; }
 
 /* ---------- ゲーム状態 ---------- */
 const G = {
@@ -221,13 +229,14 @@ function fadeTo(phase, color, d) {
 
 /* ---------- カメラ ---------- */
 function currentShot() {
+  const S = shotSet();
   switch (G.phase) {
-    case 'title': case 'gather': return SHOTS.wide;
-    case 'pat': return SHOTS.mound;
-    case 'tofront': case 'dig': case 'enter': return SHOTS.front;
-    case 'goin': return SHOTS.hole;
-    case 'reveal': case 'toreveal': return SHOTS.wide;
-    default: return SHOTS.wide;
+    case 'title': case 'gather': return S.wide;
+    case 'pat': return S.mound;
+    case 'tofront': case 'dig': case 'enter': return S.front;
+    case 'goin': return S.hole;
+    case 'reveal': case 'toreveal': return S.wide;
+    default: return S.wide;
   }
 }
 function camScale() { return Math.min(cw / G.camNow.w, ch / G.camNow.h); }
@@ -337,7 +346,7 @@ function onDrag(x, y, dx, dy) {
       const mound = worldToScreen(MX, MB);
       const toward = (dragStartX < mound.x) ? dx : -dx;
       if (toward > 0) dragAcc += toward;
-      const step = Math.max(70, cw * 0.16);
+      const step = Math.max(55, Math.min(cw, ch) * 0.16);
       if (dragAcc > step) {
         dragAcc -= step;
         doPush(dragStartX < mound.x ? 'L' : 'R');
@@ -442,7 +451,7 @@ function startGoIn() {
 /* ---------- 行動：内部を削る ---------- */
 function interiorGeom() {
   const M = Math.min(cw, ch);
-  return { cx: cw / 2, cy: ch * 0.46, M, baseR: M * 0.295, extraR: M * 0.27 };
+  return { cx: cw / 2, cy: ch * 0.45, M, baseR: M * 0.335, extraR: M * 0.29 };
 }
 function interiorAvg() {
   const IN = G.IN;
@@ -1148,10 +1157,10 @@ function drawExterior(dusk, lit) {
   // キャラクター
   if (G.phase === 'title') {
     drawKid(390, 604, 1, 'idle', false);
-    drawAdult(860, 600, 1, 'idle', true);
+    drawAdult(828, 600, 1, 'idle', true);
   } else if (G.phase === 'gather') {
     if (G.balls.length === 0) drawKid(G.kid.x, G.kid.y, 1, 'idle', G.kid.flip);
-    drawAdult(880, 598, 1, 'idle', true);
+    drawAdult(828, 598, 1, 'idle', true);
   } else if (G.phase === 'pat' || G.phase === 'tofront') {
     drawKid(MX - moundGeom().R - 40, 604, 1, 'idle', false);
   } else if (G.phase === 'dig') {
@@ -1205,14 +1214,17 @@ function drawInterior() {
   blobPath(pts);
 
   // 壁のグラデーション（Hero: 青白い雪壁 → 暖色に透ける）
-  const inner = mix3([236, 246, 254], [255, 233, 196], warm);
-  const mid = mix3([176, 205, 238], [244, 190, 130], warm);
-  const edge = mix3([120, 154, 200], [196, 138, 92], warm);
+  // 光源＝入口からの外光（点灯後はランタン位置）
+  const inner = mix3([228, 242, 253], [255, 233, 196], warm);
+  const mid = mix3([158, 192, 232], [244, 190, 130], warm);
+  const edge = mix3([90, 124, 178], [188, 130, 86], warm);
   const lt = lanternTarget();
-  const lightX = warm > 0.02 ? lt.x : cx, lightY = warm > 0.02 ? lt.y - M * 0.05 : cy + M * 0.08;
-  const rg = ctx.createRadialGradient(lightX, lightY, M * 0.02, cx, cy, M * 0.62);
+  const floorY0 = cy + M * 0.17;
+  const exX = cx - M * 0.26; // 入口アーチは左寄り（中央の設置場所と重ねない）
+  const lightX = warm > 0.02 ? lt.x : exX, lightY = warm > 0.02 ? lt.y - M * 0.05 : floorY0 - M * 0.02;
+  const rg = ctx.createRadialGradient(lightX, lightY, M * 0.03, cx, cy, M * 0.66);
   rg.addColorStop(0, rgb(inner));
-  rg.addColorStop(0.55, rgb(mid));
+  rg.addColorStop(0.45, rgb(mid));
   rg.addColorStop(1, rgb(edge));
   ctx.fillStyle = rg;
   ctx.fill();
@@ -1231,17 +1243,22 @@ function drawInterior() {
   ctx.fillStyle = rgb(mix3([200, 222, 244], [246, 205, 152], warm), 0.8);
   ctx.beginPath(); ctx.ellipse(cx, floorY + 2, M * 0.55, M * 0.05, 0, 0, TAU); ctx.fill();
 
-  // 入口（外の光が見える小さなアーチ）
+  // 入口（外の光が見える小さなアーチ）＋外光のグロー
   const exW = M * 0.075, exH = M * 0.12;
   const exY = floorY + M * 0.01;
+  const eg = ctx.createRadialGradient(exX, exY - exH * 0.4, M * 0.01, exX, exY - exH * 0.4, M * 0.22);
+  eg.addColorStop(0, `rgba(255,255,255,${0.55 * (1 - warm * 0.6)})`);
+  eg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = eg;
+  ctx.beginPath(); ctx.arc(exX, exY - exH * 0.4, M * 0.22, 0, TAU); ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(cx - exW, exY);
-  ctx.bezierCurveTo(cx - exW, exY - exH, cx + exW, exY - exH, cx + exW, exY);
+  ctx.moveTo(exX - exW, exY);
+  ctx.bezierCurveTo(exX - exW, exY - exH, exX + exW, exY - exH, exX + exW, exY);
   ctx.closePath();
-  const dayCol = mix3([225, 242, 255], [130, 120, 170], G.dusk);
+  const dayCol = mix3([240, 250, 255], [150, 140, 185], G.dusk);
   ctx.fillStyle = rgb(dayCol);
   ctx.fill();
-  ctx.strokeStyle = rgb(mix3([255, 255, 255], [255, 230, 200], warm), 0.8);
+  ctx.strokeStyle = rgb(mix3([255, 255, 255], [255, 230, 200], warm), 0.85);
   ctx.lineWidth = M * 0.012;
   ctx.stroke();
 
@@ -1294,21 +1311,22 @@ function drawInterior() {
 
   // グロー中：子どもが座って拍手
   if (G.phase === 'glow') {
-    drawKidScreen(cx - M * 0.24, floorY + M * 0.02, M / 260, 'clap');
+    // 掘り残した雪ベンチにちょこんと座って拍手
+    drawKidScreen(cx + M * 0.26, floorY - M * 0.055, M / 500, 'clap');
   }
 
   ctx.restore();
 
   // ランタン本体（LED・電池式）
   if (G.phase === 'lantern' || G.phase === 'glow') {
-    drawLantern(IN.lantern.x, IN.lantern.y, M / 340, IN.lantern.placed, warm);
+    drawLantern(IN.lantern.x, IN.lantern.y, M / 250, IN.lantern.placed, warm);
   }
 
   // 暖色の全体グロー
   if (warm > 0.01) {
     const gg = ctx.createRadialGradient(lt.x, lt.y - M * 0.04, M * 0.01, lt.x, lt.y - M * 0.04, M * 0.85);
-    gg.addColorStop(0, `rgba(255,190,110,${0.4 * warm})`);
-    gg.addColorStop(0.5, `rgba(255,170,90,${0.14 * warm})`);
+    gg.addColorStop(0, `rgba(255,190,110,${0.28 * warm})`);
+    gg.addColorStop(0.5, `rgba(255,170,90,${0.11 * warm})`);
     gg.addColorStop(1, 'rgba(255,170,90,0)');
     ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = gg;
