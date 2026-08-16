@@ -3,6 +3,7 @@ import { buildWorld } from './world.js';
 import { buildTargets } from './targets.js';
 import { Sponge } from './sponge.js';
 import { FX } from './fx.js';
+import { SpiritManager } from './spirits.js';
 import { Game } from './game.js';
 import { makeRng, isE2E } from './util.js';
 
@@ -25,8 +26,9 @@ const targets = buildTargets(scene);
 const sponge = new Sponge();
 scene.add(sponge.group);
 const fx = new FX(scene, rng);
+const spirits = new SpiritManager(scene, fx, rng, { persist: !E2E });
 
-const game = new Game({ scene, camera, renderer, sponge, world, targets, fx });
+const game = new Game({ scene, camera, renderer, sponge, world, targets, fx, spirits });
 game.attachInput(renderer.domElement);
 
 function resize() {
@@ -98,6 +100,10 @@ window.__game = {
         painting: t.painting,
         color: `#${t.color.getHexString()}`,
       })),
+      spirits: {
+        count: spirits.spirits.length,
+        discovered: Object.fromEntries(spirits.discovered),
+      },
     };
   },
 };

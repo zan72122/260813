@@ -153,6 +153,34 @@ test('tutorial stages advance into free mode', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('colour spirits are born from newly created colours', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Squeeze red onto empty grass -> first spirit (red) is born.
+  await soak(page, 'red', 2.4);
+  await squeezeAt(page, [1.8, 0.8], 3.5);
+  let s = await api(page, () => window.__game.state());
+  expect(s.spirits.count).toBe(1);
+  expect(Object.keys(s.spirits.discovered)).toContain('red');
+
+  // Top up red, mix in blue -> squeezing the purple mixture births a
+  // second spirit of a purple-family species.
+  await soak(page, 'red', 2.0);
+  await soak(page, 'blue', 2.0);
+  await api(page, () => window.__game.step(1.5));
+  await squeezeAt(page, [-1.8, 0.8], 3.5);
+  s = await api(page, () => window.__game.state());
+  expect(s.spirits.count).toBe(2);
+  const species = Object.keys(s.spirits.discovered);
+  expect(species.some((k) => k === 'purple' || k === 'magenta')).toBe(true);
+
+  // Same mixture again -> no duplicate spirit.
+  await squeezeAt(page, [1.0, 1.6], 2.5);
+  s = await api(page, () => window.__game.state());
+  expect(s.spirits.count).toBe(2);
+  expect(errors).toEqual([]);
+});
+
 test('real pointer input drags the sponge', async ({ page }) => {
   const errors = await boot(page);
   const canvas = page.locator('canvas');

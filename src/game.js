@@ -1,5 +1,6 @@
 import * as THREE from '../lib/three.module.js';
 import { POOLS, WASH, WATER_Y } from './world.js';
+import { HOUSE_POS } from './spirits.js';
 import { DYE } from './dye.js';
 import { clamp, lerp, damp } from './util.js';
 
@@ -16,7 +17,7 @@ const PLAY = { minX: -6.4, maxX: 6.6, minZ: -4.9, maxZ: 4.6 };
 const SPONGE_HALF_Y = 0.42;
 
 export class Game {
-  constructor({ scene, camera, renderer, sponge, world, targets, fx }) {
+  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -24,6 +25,7 @@ export class Game {
     this.world = world;
     this.targets = targets;
     this.fx = fx;
+    this.spirits = spirits;
 
     this.time = 0;
     this.dragging = false;
@@ -54,6 +56,22 @@ export class Game {
     this._prevPos.copy(sponge.group.position);
 
     for (const t of targets) t.onComplete = (target) => this._onTargetComplete(target);
+
+    // Spirits: keep-out zones for wandering + celebrate every birth.
+    if (spirits) {
+      spirits.obstacles = [
+        ...POOLS.map((p) => ({ x: p.pos.x, z: p.pos.z, r: p.radius + 0.5 })),
+        { x: WASH.pos.x, z: WASH.pos.z, r: WASH.radius + 0.5 },
+        { x: HOUSE_POS.x, z: HOUSE_POS.z, r: 1.3 },
+        ...targets.map((t) => ({ x: t.worldPos.x, z: t.worldPos.z, r: 0.8 })),
+      ];
+      spirits.onBirth = (spirit) => {
+        this.rewardFocus = {
+          point: spirit.group.position.clone().setY(0.55),
+          timer: 2.4,
+        };
+      };
+    }
 
     // Camera rig state
     this.camPos = new THREE.Vector3();
@@ -166,6 +184,10 @@ export class Game {
       this.hoverTarget.focusPoint(this._v1);
       wantY = Math.max(CARRY_Y, this._v1.y + SPONGE_HALF_Y + 1.05);
     }
+    // Float over the spirits' mushroom house instead of sinking into it.
+    if (Math.hypot(pos.x - HOUSE_POS.x, pos.z - HOUSE_POS.z) < 1.7) {
+      wantY = Math.max(wantY, 2.15);
+    }
 
     // --- horizontal follow
     if (this.dragging) {
@@ -239,10 +261,13 @@ export class Game {
             this.fx.drip(from, dripColor, floorY, (landPos) => {
               over.paint(dripColor);
               this.fx.sparkleBurst(landPos, dripColor, 3);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos);
             });
-            void amounts;
           } else {
-            this.fx.drip(from, dripColor, 0.02, (landPos, c) => this.fx.splat(landPos, c));
+            this.fx.drip(from, dripColor, 0.02, (landPos, c) => {
+              this.fx.splat(landPos, c);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos);
+            });
           }
           sponge.drain(dt * 6.5, 0.5);
         }
@@ -269,6 +294,7 @@ export class Game {
     // --- world, targets, fx
     this.world.update(dt, this.time);
     for (const t of this.targets) t.update(dt, this.time);
+    if (this.spirits) this.spirits.update(dt, pos);
     this.fx.update(dt);
     if (this.rewardFocus) {
       this.rewardFocus.timer -= dt;
