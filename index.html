@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ロボットそうこ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:linear-gradient(#eaf2fb,#dce8f5);
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;font-family:sans-serif}
+  #c{position:fixed;inset:0;width:100%;height:100%;touch-action:none;display:block}
+  .btn{position:fixed;border:none;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px rgba(30,60,100,.35), inset 0 -4px 0 rgba(0,0,0,.15);cursor:pointer;
+    -webkit-tap-highlight-color:transparent;transition:transform .08s;z-index:10;font-family:sans-serif}
+  .btn:active{transform:scale(.9)}
+  #playBtn{left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);
+    width:84px;height:84px;font-size:44px;background:radial-gradient(circle at 35% 30%,#5fdc7e,#27ae52)}
+  #playBtn:active{transform:translateX(-50%) scale(.9)}
+  #playBtn.stop{background:radial-gradient(circle at 35% 30%,#ff8a7a,#e5473a)}
+  #resetBtn{left:calc(50% + 68px);bottom:calc(24px + env(safe-area-inset-bottom));
+    width:64px;height:64px;font-size:32px;background:radial-gradient(circle at 35% 30%,#7db8ff,#3d7fe0)}
+  .pulse{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 6px 16px rgba(30,60,100,.35),0 0 0 0 rgba(255,220,60,.9)}
+    50%{box-shadow:0 6px 16px rgba(30,60,100,.35),0 0 0 18px rgba(255,220,60,0)}}
+  #bar{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    width:min(56vw,420px);height:22px;background:rgba(255,255,255,.75);border-radius:12px;
+    box-shadow:inset 0 2px 5px rgba(30,60,100,.25);overflow:hidden;z-index:10;pointer-events:none}
+  #fill{height:100%;width:0%;display:flex;transition:width .25s}
+  #fill div{flex:1 0 auto;height:100%}
+  #barIcon{position:fixed;top:calc(6px + env(safe-area-inset-top));left:calc(50% + min(28vw,210px) + 6px);
+    font-size:26px;z-index:10;pointer-events:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar"><div id="fill"></div></div>
+<div id="barIcon">📦</div>
+<button id="playBtn" class="btn">▶</button>
+<button id="resetBtn" class="btn">↺</button>
+<script>
+'use strict';
+/* =========================================================================
+   ロボットそうこ — 物流倉庫AGV群制御シミュレーション (4歳児向け)
+   グリッドnetwork + A* + セル占有reservation + 一方通行編集 + 再シミュレーション
+   ========================================================================= */
+
+const qs = new URLSearchParams(location.search);
+const FAST = qs.has('fast') || qs.get('e2e') === '1';   // E2E_FAST 相当
+
+// ---------- グリッド定義 ----------
+const W = 23, H = 15;
+const FLOOR = 1, SHELF = 2, CHUTE = 3, PAD = 4, WALL = 0;
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];           // 0:右 1:下 2:左 3:上
+const OPP = d => d ^ 2;
+const CX = i => i % W, CY = i => (i / W) | 0, ID = (x, y) => x + y * W;
+
+const COLORS = ['#ff5a5a', '#4e8cff', '#ffcf3f'];        // 赤 青 黄
+const COLORS_DARK = ['#c93a3a', '#2f63c4', '#d9a520'];
+const NCOLOR = 3;
+
+const cellT = new Uint8Array(W * H);        // 種類
+const cellColor = new Int8Array(W * H);     // 棚/シュートの色 (-1=なし)
+const baseArrow = new Int8Array(W * H);     // 最初からある一方通行 (-1=なし)
+const userArrow = new Int8Array(W * H);     // 子どもが描いた矢印 (-1=なし)
+const arrowBorn = new Float32Array(W * H);  // 矢印出現時刻(アニメ用)
+const costMul = new Float32Array(W * H);
+cellColor.fill(-1); baseArrow.fill(-1); userArrow.fill(-1); costMul.fill(1);
+
+// 発送口: 赤=上壁 青=右壁 黄=下壁 (mdx/mdy=口が向く方向)
+const CHUTES = [
+  { x: 18, y: 0, dropX: 18, dropY: 1 },
+  { x: 22, y: 7, dropX: 21, dropY: 7 },
+  { x: 18, y: 14, dropX: 18, dropY: 13 },
+];
+const AISLES = [2, 5, 8, 11, 14];           // 縦通路
+const CENTER_ROW = 7;                       // ボトルネックの中央通路
+
+function buildLayout() {
+  cellT.fill(WALL);
+  const setF = (x, y) => { cellT[ID(x, y)] = FLOOR; };
+  for (let x = 1; x <= 21; x++) { setF(x, 1); setF(x, 2); setF(x, 12); setF(x, 13); } // 上下通路(2車線)
+  for (let x = 1; x <= 21; x++) setF(x, CENTER_ROW);                                   // 中央通路(1車線)
+  for (let y = 1; y <= 13; y++) setF(1, y);                                            // 左端縦通路
+  for (const ax of AISLES) for (let y = 3; y <= 11; y++) setF(ax, y);                  // 縦通路
+  for (let x = 15; x <= 21; x++) for (let y = 3; y <= 11; y++) setF(x, y);             // 右側ステージング
+  // 棚ブロック 2x4 ×8
+  const blocks = [[3, 4], [6, 7], [9, 10], [12, 13]];
+  let bi = 0;
+  for (const bank of [[3, 6], [8, 11]]) {
+    for (const [x0, x1] of blocks) {
+      const col = bi % NCOLOR; bi++;
+      for (let x = x0; x <= x1; x++) for (let y = bank[0]; y <= bank[1]; y++) {
+        cellT[ID(x, y)] = SHELF; cellColor[ID(x, y)] = col;
+      }
+    }
+  }
+  // 充電パッド(装飾・通行不可)
+  for (const [px, py] of [[17, 4], [17, 9]]) {
+    for (let x = px; x <= px + 1; x++) for (let y = py; y <= py + 1; y++) cellT[ID(x, y)] = PAD;
+  }
+  // 発送口
+  for (let c = 0; c < NCOLOR; c++) { const ch = CHUTES[c]; cellT[ID(ch.x, ch.y)] = CHUTE; cellColor[ID(ch.x, ch.y)] = c; }
+  // 既設の一方通行 (現実の倉庫らしい車線運用) — 中央通路だけが「設計ミス」で双方向
+  for (let x = 1; x <= 21; x++) {
+    baseArrow[ID(x, 1)] = 2;  baseArrow[ID(x, 2)] = 0;    // 上通路: 上り車線←/下り車線→
+    baseArrow[ID(x, 12)] = 0; baseArrow[ID(x, 13)] = 2;   // 下通路: →/←
+  }
+  for (let y = 3; y <= 11; y++) baseArrow[ID(1, y)] = 1;  // 左端縦路: 下り
+  AISLES.forEach((ax, i) => {
+    const d = (i % 2 === 0) ? 3 : 1;   // 縦通路: 上,下,上,下,上 — 交差点セルには付けない
+    for (let y = 3; y <= 11; y++) if (y !== CENTER_ROW) baseArrow[ID(ax, y)] = d;
+  });
+  // ステージングエリアも循環設計: 横行は左向き、縦列は交互 (双方向は中央通路だけ)
+  for (let x = 15; x <= 21; x++) for (const y of [3, 6, 8, 11]) baseArrow[ID(x, y)] = 2;
+  for (const y of [4, 5, 9, 10]) {
+    baseArrow[ID(15, y)] = 1; baseArrow[ID(16, y)] = 3;
+    baseArrow[ID(19, y)] = 1; baseArrow[ID(20, y)] = 3;
+    baseArrow[ID(21, y)] = 3;
+  }
+  // 「経路設計が少し悪い」: 中央通路の床がつるつる(コスト低)で全員ここを選ぶ
+  for (let x = 1; x <= 21; x++) costMul[ID(x, CENTER_ROW)] = 0.7;
+}
+buildLayout();
+
+const walk = i => cellT[i] === FLOOR;
+const effArrow = i => userArrow[i] >= 0 ? userArrow[i] : baseArrow[i];
+// 発送口の前からは来た道へ戻れない (納品待ち行列との正面衝突を防ぐ)
+const bannedEdge = new Set([
+  ID(18, 1) * 4 + 1,     // 赤の口の前から下へ
+  ID(18, 13) * 4 + 3,    // 黄の口の前から上へ
+]);
+function edgeOK(u, v, d) {
+  if (!walk(v)) return false;
+  if (bannedEdge.has(u * 4 + d)) return false;
+  const au = effArrow(u); if (au >= 0 && d === OPP(au)) return false;
+  const av = effArrow(v); if (av >= 0 && d === OPP(av)) return false;
+  return true;
+}
+
+// ---------- 乱数 (決定論) ----------
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ---------- 注文 ----------
+const N_ORDERS = 60;
+let orders = [];        // {color, shelf}
+function shelvesOf(color) {
+  const out = [];
+  for (let i = 0; i < W * H; i++) if (cellT[i] === SHELF && cellColor[i] === color) out.push(i);
+  return out;
+}
+function faceOf(shelfIdx) {          // 棚セルに隣接する通路セル
+  const x = CX(shelfIdx), y = CY(shelfIdx);
+  for (const d of [2, 0, 3, 1]) {
+    const nx = x + DX[d], ny = y + DY[d];
+    if (nx >= 0 && nx < W && ny >= 0 && ny < H && walk(ID(nx, ny))) return ID(nx, ny);
+  }
+  return -1;
+}
+function genOrders() {
+  const rng = mulberry32(20240816);
+  const seq = [];
+  for (let i = 0; i < N_ORDERS; i++) seq.push(i % NCOLOR);
+  for (let i = seq.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [seq[i], seq[j]] = [seq[j], seq[i]]; }
+  // 色ごとにround-robinで棚を割当 (特定通路への集中を防ぐ)
+  const pools = [0, 1, 2].map(c => {
+    const sh = shelvesOf(c);
+    for (let i = sh.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [sh[i], sh[j]] = [sh[j], sh[i]]; }
+    return sh;
+  });
+  const rrIdx = [0, 0, 0];
+  orders = seq.map(c => ({ color: c, shelf: pools[c][rrIdx[c]++ % pools[c].length] }));
+}
+genOrders();
+
+// ---------- A* ----------
+const _g = new Float32Array(W * H), _from = new Int16Array(W * H), _stamp = new Int32Array(W * H);
+let _gen = 0;
+function astar(s, t, avoid) {
+  if (s === t) return [s];
+  _gen++;
+  const open = [];  // 小規模なのでソート済み配列でよい
+  _g[s] = 0; _stamp[s] = _gen; _from[s] = -1;
+  const h = i => Math.abs(CX(i) - CX(t)) + Math.abs(CY(i) - CY(t));
+  open.push([h(s), s]);
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+    const [, u] = open.splice(bi, 1)[0];
+    if (u === t) {
+      const path = []; let c = t;
+      while (c !== -1) { path.push(c); c = _stamp[c] === _gen ? _from[c] : -1; if (c === s) { path.push(s); break; } }
+      return path.reverse();
+    }
+    const ux = CX(u), uy = CY(u);
+    for (let d = 0; d < 4; d++) {
+      const nx = ux + DX[d], ny = uy + DY[d];
+      if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+      const v = ID(nx, ny);
+      if (!edgeOK(u, v, d)) continue;
+      if (avoid && avoid.has(v) && v !== t) continue;
+      const ng = _g[u] + costMul[v];
+      if (_stamp[v] !== _gen || ng < _g[v] - 1e-6) {
+        _g[v] = ng; _stamp[v] = _gen; _from[v] = u;
+        open.push([ng + h(v), v]);
+      }
+    }
+  }
+  return null;
+}
+
+// ---------- AGV ----------
+const N_AGV = 48;
+const SPEED = 2.6;            // セル/秒
+const DT = 1 / 60;
+const S_WAIT = 0, S_TOPICK = 1, S_PICK = 2, S_TODROP = 3, S_DROP = 4, S_HOME = 5, S_SLEEP = 6, S_DOCK = 8;
+
+let agvs = [], occ = new Int16Array(W * H), nextOrder = 0, delivered = 0, deliveredColors = [];
+let simT = 0, playing = false, completed = false, everEdited = false, editedSinceStop = false;
+let resetPulse = false, playPulse = true;
+
+function homeCells() {   // デポ = 右側ステージングエリア (発送口の前は除く)
+  const cells = [];
+  for (const x of [15, 16, 19, 20, 21]) for (let y = 3; y <= 11; y++) {
+    if (y === CENTER_ROW) continue;
+    cells.push(ID(x, y));
+  }
+  for (let x = 13; x <= 21; x++) if (x !== 18) cells.push(ID(x, 13));
+  return cells.slice(0, N_AGV);
+}
+let parkClaim = new Map();   // 駐機先の棚セル -> agv id
+// 仕事がないAGVはKiva式に「棚の下」へ潜って眠る (床を一切塞がない)
+function choosePark(a, avoid) {
+  const cands = [];
+  for (let i = 0; i < W * H; i++) {
+    if (cellT[i] !== SHELF) continue;
+    if (parkClaim.has(i) && parkClaim.get(i) !== a.id) continue;
+    const f = faceOf(i);
+    if (f < 0) continue;
+    cands.push([Math.abs(CX(i) - CX(a.cell)) + Math.abs(CY(i) - CY(a.cell)), i, f]);
+  }
+  cands.sort((p, q) => p[0] - q[0]);
+  for (let i = 0; i < Math.min(6, cands.length); i++) {
+    const [, s, f] = cands[i];
+    const p = astar(a.cell, f, avoid);
+    if (p) {
+      if (a.spot >= 0) parkClaim.delete(a.spot);
+      a.spot = s; parkClaim.set(s, a.id);
+      return p;
+    }
+  }
+  return null;
+}
+
+function resetSim() {
+  const homes = homeCells();
+  const rng = mulberry32(777);
+  occ.fill(-1);
+  agvs = homes.map((hc, i) => {
+    occ[hc] = i;
+    return {
+      id: i, home: hc, cell: hc, next: -1, prog: 0,
+      fx: CX(hc), fy: CY(hc), ang: -Math.PI / 2, tang: -Math.PI / 2,
+      state: S_WAIT, path: null, pi: 0, goal: -1,
+      order: null, carrying: -1, timer: 0, delay: 0.4 + i * 0.12,
+      blockedT: 0, replanCd: 0, retryT: 0, bob: rng() * 6.28, moved: false,
+      spot: -1, docked: false, dockK: 0,
+      speed: SPEED * (0.95 + 0.1 * rng()),
+    };
+  });
+  parkClaim = new Map();
+  nextOrder = 0; delivered = 0; deliveredColors = []; simT = 0; completed = false;
+  fx.length = 0; confetti.length = 0; flyBoxes.length = 0;
+  updateBar();
+}
+
+function orderTargets(o) {          // 棚が掘られていた場合は同色の最寄り棚へ
+  let sh = o.shelf;
+  if (cellT[sh] !== SHELF) {
+    const cands = shelvesOf(o.color);
+    if (!cands.length) return null;
+    let best = cands[0], bd = 1e9;
+    for (const c of cands) {
+      const d = Math.abs(CX(c) - CX(sh)) + Math.abs(CY(c) - CY(sh));
+      if (d < bd) { bd = d; best = c; }
+    }
+    sh = best;
+  }
+  const face = faceOf(sh);
+  if (face < 0) return null;
+  return { shelf: sh, face };
+}
+
+function planTo(a, goal, avoid) {
+  const p = astar(a.cell, goal, avoid);
+  if (!p) return false;
+  a.path = p; a.pi = 0; a.goal = goal;
+  return true;
+}
+
+function remainLen(a) { return a.path ? a.path.length - 1 - a.pi : 0; }
+
+function takeOrder(a) {
+  while (nextOrder < orders.length) {
+    const o = orders[nextOrder++];
+    const tg = orderTargets(o);
+    if (!tg) { delivered++; deliveredColors.push(o.color); updateBar(); continue; } // 供給不能はスキップ
+    a.order = { color: o.color, shelf: tg.shelf, face: tg.face };
+    return true;
+  }
+  return false;
+}
+
+function stepAgv(a, dt) {
+  if (a.delay > 0) { a.delay -= dt; return; }
+  a.replanCd -= dt;
+
+  // 状態タイマー系
+  if (a.state === S_PICK) {
+    a.timer -= dt;
+    if (a.timer <= 0) {
+      a.carrying = a.order.color;
+      sfx('pick');
+      a.state = S_TODROP; a.path = null;
+    }
+    return;
+  }
+  if (a.state === S_DROP) {
+    a.timer -= dt;
+    if (a.timer <= 0) {
+      spawnFlyBox(a);
+      delivered++; deliveredColors.push(a.carrying);
+      a.carrying = -1; a.order = null; a.state = S_WAIT;
+      updateBar(); sfx('drop');
+      if (delivered >= orders.length && !completed) { completed = true; celebrate(); }
+    }
+    return;
+  }
+  if (a.state === S_DOCK) {
+    a.timer -= dt;
+    const k = 1 - Math.max(0, a.timer) / 0.6;
+    a.dockK = k;
+    a.fx = CX(a.cell) + (CX(a.spot) - CX(a.cell)) * k * 0.85;
+    a.fy = CY(a.cell) + (CY(a.spot) - CY(a.cell)) * k * 0.85;
+    if (a.timer <= 0) {
+      if (occ[a.cell] === a.id) occ[a.cell] = -1;   // 床を完全に空ける
+      a.cell = a.spot; a.fx = CX(a.spot); a.fy = CY(a.spot);
+      a.state = S_SLEEP; a.docked = true;
+    }
+    return;
+  }
+  if (a.state === S_SLEEP) return;
+
+  if (a.state === S_WAIT) {
+    if (takeOrder(a)) { a.state = S_TOPICK; a.path = null; }
+    else { a.state = S_HOME; a.path = null; }     // 仕事がなければ棚の下へ
+  }
+
+  // 経路がなければ計画
+  if (a.next < 0 && !a.path) {
+    a.retryT -= dt;
+    if (a.retryT > 0) return;
+    if (a.state === S_HOME) {
+      const p = choosePark(a);
+      if (p) { a.path = p; a.pi = 0; a.goal = p[p.length - 1]; } else { a.retryT = 1.5; return; }
+    } else {
+      const goal = a.state === S_TOPICK ? a.order.face
+        : ID(CHUTES[a.carrying].dropX, CHUTES[a.carrying].dropY);
+      if (!planTo(a, goal)) { a.retryT = 1.5; return; }
+    }
+  }
+
+  // セル間移動中
+  if (a.next >= 0) {
+    a.prog += a.speed * dt;
+    if (a.prog >= 1) {
+      occ[a.cell] = occ[a.cell] === a.id ? -1 : occ[a.cell];
+      a.cell = a.next; a.next = -1; a.prog = 0; a.blockedT = 0;
+      a.fx = CX(a.cell); a.fy = CY(a.cell);
+      if (a.cell === a.goal) arriveGoal(a);
+    } else {
+      a.fx = CX(a.cell) + (CX(a.next) - CX(a.cell)) * a.prog;
+      a.fy = CY(a.cell) + (CY(a.next) - CY(a.cell)) * a.prog;
+    }
+    return;
+  }
+
+  if (a.cell === a.goal) { arriveGoal(a); return; }
+  if (!a.path) return;
+
+  // 次のセルへ進もうとする
+  const nxt = a.path[a.pi + 1];
+  if (nxt === undefined) { a.path = null; return; }
+  if (occ[nxt] === -1) {
+    occ[nxt] = a.id;
+    a.next = nxt; a.pi++; a.prog = 0; a.moved = true;
+    const d = dirBetween(a.cell, nxt);
+    a.tang = [0, Math.PI / 2, Math.PI, -Math.PI / 2][d];
+    a.blockedT = 0;
+  } else {
+    a.blockedT += dt;
+    // 寝ているAGVを塞いでいたら起こして1セル退避してもらう
+    if (a.blockedT > 1) {
+      const b = agvs[occ[nxt]];
+      if (b && b.state === S_SLEEP) nudgeSleeper(b, a);
+    }
+    // 3台以上の「互いのセル待ち」循環はラウンドアバウトのように同時回転で解決
+    if (a.blockedT > 0.8 && tryRotateCycle(a, nxt)) return;
+    // 停滞時のlocal reroute: 「止まっているAGV」のセルだけ避けた近い迂回を許す
+    // (動いているAGVはすぐ退くので通過予定として扱う。狭い通路の渋滞はほどけない)
+    if (a.blockedT > 2.5 && a.replanCd <= 0) {
+      a.replanCd = 2;
+      const avoid = new Set();
+      for (const b of agvs) {
+        if (b.id === a.id) continue;
+        if (b.blockedT > 1 || b.state === S_SLEEP || b.state === S_PICK || b.state === S_DROP || b.delay > 0) {
+          avoid.add(b.cell); if (b.next >= 0) avoid.add(b.next);
+        }
+      }
+      // 帰庫中で長く詰まったら別の棚下スポットへ変更
+      if (a.state === S_HOME && a.blockedT > 4) {
+        const p = choosePark(a, avoid);
+        if (p) { a.path = p; a.pi = 0; a.goal = p[p.length - 1]; }
+        return;
+      }
+      const alt = astar(a.cell, a.goal, avoid);
+      // 出庫前(未走行)のAGVは詰まりが長引けば大回りも許す
+      const cap = (!a.moved && a.blockedT > 4) ? 1e9 : remainLen(a) + 6;
+      if (alt && alt.length - 1 <= cap) { a.path = alt; a.pi = 0; }
+    }
+  }
+}
+
+function nudgeSleeper(b, blocker) {
+  for (let d = 0; d < 4; d++) {
+    const nx = CX(b.cell) + DX[d], ny = CY(b.cell) + DY[d];
+    if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+    const v = ID(nx, ny);
+    if (v === blocker.cell || occ[v] !== -1 || !edgeOK(b.cell, v, d)) continue;
+    b.state = S_HOME; b.goal = v; b.path = [b.cell, v]; b.pi = 0; b.blockedT = 0;
+    return;
+  }
+}
+
+function tryRotateCycle(a, firstWant) {
+  const chain = [a], wants = [firstWant];
+  let cur = occ[firstWant];
+  for (let hop = 0; hop < 12; hop++) {
+    if (cur < 0) return false;
+    if (cur === a.id) break;
+    const b = agvs[cur];
+    if (b.next >= 0 || !b.path || b.delay > 0 ||
+        b.state === S_PICK || b.state === S_DROP || b.state === S_SLEEP || b.state === S_WAIT) return false;
+    const w = b.path[b.pi + 1];
+    if (w === undefined) return false;
+    chain.push(b); wants.push(w);
+    cur = occ[w];
+    if (hop === 11) return false;
+  }
+  if (cur !== a.id) return false;
+  if (chain.length < 3) return false;      // 正面衝突(2台)はそのまま渋滞にする
+  for (let i = 0; i < chain.length; i++) {
+    const m = chain[i], w = wants[i];
+    m.next = w; m.pi++; m.prog = 0; m.moved = true; m.blockedT = 0;
+    m.tang = [0, Math.PI / 2, Math.PI, -Math.PI / 2][dirBetween(m.cell, w)];
+  }
+  for (let i = 0; i < chain.length; i++) occ[wants[i]] = chain[i].id;
+  return true;
+}
+
+function dirBetween(u, v) {
+  const dx = CX(v) - CX(u), dy = CY(v) - CY(u);
+  return dx === 1 ? 0 : dx === -1 ? 2 : dy === 1 ? 1 : 3;
+}
+
+function arriveGoal(a) {
+  a.path = null;
+  if (a.state === S_TOPICK) {
+    a.state = S_PICK; a.timer = 0.5;
+    const sd = dirBetween(a.cell, a.order.shelf);
+    a.tang = [0, Math.PI / 2, Math.PI, -Math.PI / 2][sd];
+  } else if (a.state === S_TODROP) {
+    a.state = S_DROP; a.timer = 0.45;
+    const ch = CHUTES[a.carrying];
+    const dd = ch.x > ch.dropX ? 0 : ch.y > ch.dropY ? 1 : ch.y < ch.dropY ? 3 : 2;
+    a.tang = [0, Math.PI / 2, Math.PI, -Math.PI / 2][dd];
+  } else if (a.state === S_HOME) {
+    // 棚の下へ潜り込む
+    if (a.spot >= 0 && cellT[a.spot] === SHELF) { a.state = S_DOCK; a.timer = 0.6; }
+    else a.state = S_SLEEP;
+  }
+}
+
+function simStep(dt) {
+  simT += dt;
+  for (const a of agvs) stepAgv(a, dt);
+}
+
+// 渋滞計測
+function jamInfo() {
+  let n = 0, sx = 0, sy = 0;
+  for (const a of agvs) if (a.moved && a.blockedT > 1.5) { n++; sx += a.fx; sy += a.fy; }
+  return n ? { n, x: sx / n, y: sy / n } : { n: 0, x: W / 2, y: H / 2 };
+}
+
+// ---------- 効果音 ----------
+let actx = null, muted = FAST;
+function audioInit() {
+  if (actx || muted) return;
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { muted = true; }
+}
+let lastBeep = 0;
+function tone(f0, f1, dur, type, vol, when) {
+  if (!actx || muted) return;
+  const t0 = actx.currentTime + (when || 0);
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t0 + dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function sfx(kind) {
+  if (!actx || muted) return;
+  if (kind === 'pick') tone(500, 900, 0.12, 'sine', 0.10);
+  else if (kind === 'drop') { tone(700, 700, 0.05, 'square', 0.07); tone(900, 1400, 0.15, 'sine', 0.10, 0.05); }
+  else if (kind === 'beep') { tone(1250, 1250, 0.05, 'square', 0.045); tone(1250, 1250, 0.05, 'square', 0.045, 0.09); }
+  else if (kind === 'draw') tone(300, 600, 0.15, 'triangle', 0.08);
+  else if (kind === 'poof') tone(220, 90, 0.2, 'triangle', 0.09);
+  else if (kind === 'win') [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.25, 'sine', 0.12, i * 0.13));
+}
+
+// ---------- エフェクト ----------
+const fx = [];        // {x,y,vx,vy,life,max,color,r}
+const confetti = [];
+const flyBoxes = [];  // {x,y,tx,ty,t,color}
+function spawnFlyBox(a) {
+  const ch = CHUTES[a.carrying];
+  flyBoxes.push({ x: a.fx + 0.5, y: a.fy + 0.5, tx: ch.x + 0.5, ty: ch.y + 0.5, t: 0, color: a.carrying });
+}
+function spawnStars(x, y, color) {
+  if (FAST) return;
+  for (let i = 0; i < 6; i++) {
+    const ang = Math.random() * 6.28;
+    fx.push({ x, y, vx: Math.cos(ang) * 2, vy: Math.sin(ang) * 2 - 1.5, life: 0.6, max: 0.6, color, r: 0.09 });
+  }
+}
+function spawnPoof(x, y) {
+  if (FAST) return;
+  for (let i = 0; i < 8; i++) {
+    const ang = Math.random() * 6.28;
+    fx.push({ x, y, vx: Math.cos(ang) * 1.5, vy: Math.sin(ang) * 1.5, life: 0.5, max: 0.5, color: '#b9c2cf', r: 0.14 });
+  }
+}
+function celebrate() {
+  sfx('win');
+  if (FAST) return;
+  for (let i = 0; i < 130; i++) {
+    confetti.push({
+      x: Math.random() * W, y: -1 - Math.random() * 6,
+      vx: (Math.random() - 0.5) * 1.6, vy: 2 + Math.random() * 2.5,
+      rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8,
+      color: COLORS[(Math.random() * 3) | 0], life: 6,
+    });
+  }
+}
+function updateFX(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const p = fx[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 4 * dt; p.life -= dt;
+    if (p.life <= 0) fx.splice(i, 1);
+  }
+  for (let i = flyBoxes.length - 1; i >= 0; i--) {
+    const b = flyBoxes[i];
+    b.t += dt * 3.2;
+    if (b.t >= 1) { spawnStars(b.tx, b.ty, COLORS[b.color]); chutePulse[b.color] = 1; flyBoxes.splice(i, 1); }
+  }
+  for (let i = confetti.length - 1; i >= 0; i--) {
+    const p = confetti[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life -= dt;
+    if (p.life <= 0 || p.y > H + 1) confetti.splice(i, 1);
+  }
+  for (let c = 0; c < 3; c++) chutePulse[c] = Math.max(0, chutePulse[c] - dt * 2.5);
+}
+const chutePulse = [0, 0, 0];
+
+// ---------- キャンバス / カメラ ----------
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let DPR = FAST ? 1 : Math.min(2, window.devicePixelRatio || 1);
+let vw = 0, vh = 0, portrait = false, fitS = 20;
+const SQ = 0.84;                       // 縦方向スカッシュ (3/4ビュー感)
+let camX = W / 2, camY = H / 2, camZ = 1, camTX = W / 2, camTY = H / 2, camTZ = 1;
+
+function resize() {
+  vw = window.innerWidth; vh = window.innerHeight;
+  DPR = FAST ? 1 : Math.min(2, window.devicePixelRatio || 1);
+  cv.width = vw * DPR; cv.height = vh * DPR;
+  portrait = vh > vw * 1.1;
+  const availW = portrait ? vh : vw, availH = (portrait ? vw : vh) - 40;
+  fitS = Math.min(availW / (W + 0.6), availH / ((H + 0.6) * SQ)) ;
+  buildStatic();
+}
+window.addEventListener('resize', resize);
+
+function worldTransform() {
+  const s = fitS * camZ;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.translate(vw / 2, vh / 2 - 8);
+  if (portrait) ctx.rotate(Math.PI / 2);
+  ctx.scale(s, s * SQ);
+  ctx.translate(-camX, -camY);
+}
+function screenToWorld(px, py) {
+  const s = fitS * camZ;
+  let x = px - vw / 2, y = py - (vh / 2 - 8);
+  if (portrait) { const t = x; x = y; y = -t; }
+  return { x: x / s + camX, y: y / (s * SQ) + camY };
+}
+function updateCamera(dt) {
+  const jam = jamInfo();
+  if (playing && jam.n >= 8 && !completed) {
+    camTZ = 1.3;
+    camTX = Math.min(Math.max(jam.x, W * 0.32), W * 0.68);
+    camTY = Math.min(Math.max(jam.y, H * 0.32), H * 0.68);
+  } else { camTZ = 1; camTX = W / 2; camTY = H / 2; }
+  const k = Math.min(1, dt * 2.2);
+  camX += (camTX - camX) * k; camY += (camTY - camY) * k; camZ += (camTZ - camZ) * k;
+}
+
+// ---------- 静的レイヤー ----------
+const off = document.createElement('canvas'); const offCtx = off.getContext('2d');
+let PPC = 40;
+function buildStatic() {
+  PPC = Math.max(24, Math.min(56, Math.round(fitS * DPR)));
+  off.width = W * PPC; off.height = H * PPC;
+  const g = offCtx;
+  g.setTransform(PPC, 0, 0, PPC, 0, 0);
+  g.clearRect(0, 0, W, H);
+  // 外周フレーム
+  g.fillStyle = '#b6c1d1';
+  rr(g, 0.15, 0.15, W - 0.3, H - 0.3, 0.5); g.fill();
+  // 床
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = ID(x, y);
+    if (cellT[i] === WALL) continue;
+    const corridor = (y <= 2 || y >= 12 || y === CENTER_ROW || x >= 15);
+    g.fillStyle = ((x + y) & 1) ? (corridor ? '#e9eef5' : '#e2e8f1') : (corridor ? '#e4eaf2' : '#dde4ee');
+    if (costMul[i] < 1) g.fillStyle = ((x + y) & 1) ? '#eef0f2' : '#e9ebee';   // つるつる中央通路
+    g.fillRect(x, y, 1.002, 1.002);
+  }
+  // 床の目地
+  g.strokeStyle = 'rgba(120,140,170,.14)'; g.lineWidth = 0.02;
+  for (let x = 1; x < W - 1; x++) { g.beginPath(); g.moveTo(x, 1); g.lineTo(x, H - 1); g.stroke(); }
+  for (let y = 1; y < H - 1; y++) { g.beginPath(); g.moveTo(1, y); g.lineTo(W - 1, y); g.stroke(); }
+  // 既設の一方通行チェブロン(うすい)
+  for (let i = 0; i < W * H; i++) if (baseArrow[i] >= 0 && userArrow[i] < 0 && walk(i)) {
+    drawChevron(g, CX(i) + 0.5, CY(i) + 0.5, baseArrow[i], 0.16, 'rgba(90,110,145,.30)');
+  }
+  // 棚
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = ID(x, y);
+    if (cellT[i] === SHELF) drawShelf(g, x, y, cellColor[i]);
+    else if (cellT[i] === PAD) drawPad(g, x, y);
+  }
+  // 発送口
+  for (let c = 0; c < NCOLOR; c++) drawChuteStatic(g, c);
+}
+function rr(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function drawChevron(g, cx, cy, d, s, color) {
+  g.save(); g.translate(cx, cy); g.rotate([0, Math.PI / 2, Math.PI, -Math.PI / 2][d]);
+  g.strokeStyle = color; g.lineWidth = 0.09; g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const o of [-0.12, 0.14]) {
+    g.beginPath(); g.moveTo(o - s, -s); g.lineTo(o + s * 0.6, 0); g.lineTo(o - s, s); g.stroke();
+  }
+  g.restore();
+}
+function drawShelf(g, x, y, col) {
+  const L = 0.34;
+  const below = y + 1 < H && cellT[ID(x, y + 1)] === SHELF;
+  if (!below) { g.fillStyle = '#9daaba'; g.fillRect(x, y + 1 - L, 1.002, L); }        // 前面
+  g.fillStyle = '#c9d2de'; g.fillRect(x, y - L, 1.002, 1.002);                        // 天面
+  g.strokeStyle = 'rgba(90,105,130,.35)'; g.lineWidth = 0.03;
+  g.strokeRect(x + 0.02, y - L + 0.02, 0.96, 0.96);
+  // 色付き荷物
+  const rng = mulberry32(x * 131 + y * 977);
+  for (let k = 0; k < 3; k++) {
+    const bx = x + 0.12 + rng() * 0.45, by = y - L + 0.10 + rng() * 0.5, bs = 0.26 + rng() * 0.1;
+    g.fillStyle = COLORS[col];
+    rr(g, bx, by, bs, bs, 0.05); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.45)'; g.fillRect(bx + bs * 0.42, by, bs * 0.16, bs);
+  }
+}
+function drawPad(g, x, y) {
+  const i = ID(x, y);
+  const first = !(cellT[ID(x - 1, y)] === PAD) && !(cellT[ID(x, y - 1)] === PAD);
+  if (!first) return;
+  g.fillStyle = '#cdd6e2'; rr(g, x + 0.08, y + 0.08, 1.84, 1.84, 0.25); g.fill();
+  g.fillStyle = '#aeb9c9'; rr(g, x + 0.25, y + 0.25, 1.5, 1.5, 0.2); g.fill();
+  g.font = '1.1px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('⚡', x + 1, y + 1.05);
+}
+function drawChuteStatic(g, c) {
+  const ch = CHUTES[c];
+  const horiz = ch.y === ch.dropY;           // 右壁の口(青)
+  const x = ch.x, y = ch.y;
+  if (horiz) {
+    g.fillStyle = COLORS_DARK[c]; rr(g, x - 0.15, y - 1.0, 1.1, 2.2, 0.2); g.fill();
+    g.fillStyle = COLORS[c];      rr(g, x - 0.15, y - 1.1, 1.1, 2.2, 0.2); g.fill();
+    g.fillStyle = 'rgba(40,30,50,.75)'; rr(g, x - 0.12, y - 0.38, 0.55, 0.8, 0.16); g.fill();
+  } else {
+    const top = ch.dropY > ch.y;             // 上壁(赤) or 下壁(黄)
+    g.fillStyle = COLORS_DARK[c]; rr(g, x - 0.55, top ? y - 0.2 : y - 0.9, 2.1, 1.15, 0.2); g.fill();
+    g.fillStyle = COLORS[c];      rr(g, x - 0.55, top ? y - 0.3 : y - 1.0, 2.1, 1.15, 0.2); g.fill();
+    g.fillStyle = 'rgba(40,30,50,.75)';
+    rr(g, x + 0.1, top ? y + 0.3 : y - 0.5, 0.8, 0.55, 0.16); g.fill();
+  }
+}
+
+// ---------- 動的描画 ----------
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  worldTransform();
+  ctx.drawImage(off, 0, 0, off.width, off.height, 0, 0, W, H);
+
+  drawUserArrows();
+  drawEditPreview();
+
+  // AGV (y順)
+  const sorted = agvs.slice().sort((a, b) => a.fy - b.fy);
+  for (const a of sorted) drawAgv(a);
+
+  // 飛ぶ荷物
+  for (const b of flyBoxes) {
+    const t = b.t, x = b.x + (b.tx - b.x) * t, y = b.y + (b.ty - b.y) * t - Math.sin(t * Math.PI) * 0.9;
+    const s = 0.42 * (1 - t * 0.35);
+    ctx.fillStyle = COLORS[b.color];
+    rr(ctx, x - s / 2, y - s / 2, s, s, 0.08); ctx.fill();
+  }
+  // シュート発光
+  for (let c = 0; c < 3; c++) if (chutePulse[c] > 0) {
+    const ch = CHUTES[c];
+    ctx.globalAlpha = chutePulse[c] * 0.7;
+    ctx.fillStyle = '#fff';
+    rr(ctx, ch.x - 0.6, ch.y - 0.9, 2.0, 1.9, 0.3); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // パーティクル
+  for (const p of fx) {
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const p of confetti) {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.color; ctx.fillRect(-0.12, -0.07, 0.24, 0.14);
+    ctx.restore();
+  }
+  drawHints();
+}
+
+const nowSec = () => performance.now() / 1000;
+
+function drawUserArrows() {
+  const t = nowSec();
+  for (let i = 0; i < W * H; i++) if (userArrow[i] >= 0) {
+    const x = CX(i) + 0.5, y = CY(i) + 0.5;
+    const born = Math.min(1, (t - arrowBorn[i]) * 3);
+    const pulse = 1 + 0.07 * Math.sin(t * 4 + CX(i) * 0.8 + CY(i) * 0.8);
+    drawArrowGlyph(x, y, userArrow[i], 0.34 * born * pulse);
+  }
+}
+function drawArrowGlyph(x, y, d, s, alpha) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate([0, Math.PI / 2, Math.PI, -Math.PI / 2][d]);
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.fillStyle = '#18b877';
+  ctx.strokeStyle = '#18b877'; ctx.lineWidth = 0.30; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s * 0.25, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(s * 0.05, -s * 0.75); ctx.lineTo(s * 1.05, 0); ctx.lineTo(s * 0.05, s * 0.75);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 0.10;
+  ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s * 0.15, 0); ctx.stroke();
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+
+function drawAgv(a) {
+  const t = nowSec();
+  if (a.docked) {          // 棚の下で就寝中: 💤だけ見せる
+    if (FAST) return;
+    ctx.save(); ctx.translate(a.fx + 0.5, a.fy - 0.55); ctx.scale(1, 1 / SQ);
+    ctx.globalAlpha = 0.35 + 0.25 * Math.sin(t * 1.5 + a.id);
+    ctx.font = '0.4px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💤', 0, 0);
+    ctx.restore(); ctx.globalAlpha = 1;
+    return;
+  }
+  const moving = a.next >= 0;
+  // 角度補間
+  let da = a.tang - a.ang;
+  while (da > Math.PI) da -= 6.283; while (da < -Math.PI) da += 6.283;
+  a.ang += da * 0.25;
+  const x = a.fx + 0.5, y = a.fy + 0.5;
+  const bob = moving && !FAST ? Math.sin(t * 18 + a.bob) * 0.02 : 0;
+  // 影
+  ctx.fillStyle = 'rgba(40,60,90,.20)';
+  ctx.beginPath(); ctx.ellipse(x, y + 0.16, 0.33, 0.20, 0, 0, 6.28); ctx.fill();
+
+  ctx.save(); ctx.translate(x, y - 0.10 + bob); ctx.rotate(a.ang);
+  if (a.state === S_DOCK) { const s = 1 - a.dockK * 0.65; ctx.scale(s, s); ctx.globalAlpha = 1 - a.dockK * 0.85; }
+  // 車体
+  ctx.fillStyle = '#6f7f94'; rr(ctx, -0.34, -0.30, 0.68, 0.62, 0.16); ctx.fill();  // 底
+  ctx.fillStyle = a.state === S_SLEEP ? '#dfe5ec' : '#f7fafd';
+  rr(ctx, -0.34, -0.34, 0.68, 0.62, 0.16); ctx.fill();                              // 天面
+  // 車輪
+  ctx.fillStyle = '#39424f';
+  ctx.fillRect(-0.30, -0.16, 0.10, 0.30); ctx.fillRect(0.20, -0.16, 0.10, 0.30);
+  // 前バンパー(向きが分かる)
+  ctx.fillStyle = '#5a6a80'; rr(ctx, 0.20, -0.30, 0.13, 0.54, 0.07); ctx.fill();
+  // 目
+  const blocked = a.blockedT > 0.7;
+  const blink = !FAST && ((t * 0.7 + a.id * 0.37) % 3) < 0.06;
+  ctx.fillStyle = '#2b3442';
+  if (a.state === S_SLEEP || blink) {
+    ctx.fillRect(0.02, -0.20, 0.11, 0.035); ctx.fillRect(0.02, 0.10, 0.11, 0.035);
+  } else if (blocked) {
+    ctx.save(); ctx.translate(0.07, -0.17); ctx.rotate(0.5); ctx.fillRect(-0.06, -0.02, 0.13, 0.045); ctx.restore();
+    ctx.save(); ctx.translate(0.07, 0.17); ctx.rotate(-0.5); ctx.fillRect(-0.06, -0.02, 0.13, 0.045); ctx.restore();
+  } else {
+    ctx.beginPath(); ctx.arc(0.07, -0.16, 0.055, 0, 6.28); ctx.arc(0.07, 0.16, 0.055, 0, 6.28); ctx.fill();
+  }
+  // 渋滞ランプ
+  if (blocked) {
+    const on = ((t * 3 + a.id) % 1) < 0.5;
+    ctx.fillStyle = on ? '#ffb020' : '#8a6a20';
+    ctx.beginPath(); ctx.arc(-0.16, 0, 0.075, 0, 6.28); ctx.fill();
+  }
+  // 荷物
+  if (a.carrying >= 0) {
+    const lift = a.state === S_PICK ? (1 - a.timer / 0.5) : 1;
+    ctx.fillStyle = COLORS[a.carrying];
+    const s = 0.46 * lift;
+    rr(ctx, -s / 2 - 0.02, -s / 2, s, s, 0.09); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.fillRect(-0.02 + s * 0.18, -s / 2, s * 0.14, s);
+  } else if (a.state === S_PICK) {
+    const lift = 1 - a.timer / 0.5;
+    ctx.fillStyle = COLORS[a.order.color];
+    const s = 0.46 * lift;
+    if (s > 0.02) { rr(ctx, -s / 2 - 0.02, -s / 2, s, s, 0.09); ctx.fill(); }
+  }
+  ctx.restore();
+
+  // 吹き出し「!」/ 💤
+  if (a.moved && a.blockedT > 2) {
+    const k = Math.min(1, (a.blockedT - 2));
+    ctx.save(); ctx.translate(x + 0.3, y - 0.75); ctx.scale(1, 1 / SQ);
+    ctx.globalAlpha = k;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(0, 0, 0.26, 0, 6.28); ctx.fill();
+    ctx.fillStyle = '#f5a623'; ctx.font = 'bold 0.36px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 0, 0.02);
+    ctx.restore(); ctx.globalAlpha = 1;
+    if (playing && actx && t - lastBeep > 0.5 && Math.random() < 0.05) { lastBeep = t; sfx('beep'); }
+  }
+  if (a.state === S_SLEEP && !FAST) {
+    ctx.save(); ctx.translate(x + 0.32, y - 0.6); ctx.scale(1, 1 / SQ);
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 2 + a.id);
+    ctx.font = '0.45px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💤', 0, 0);
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+}
+
+// ---------- 入力 (床を触って世界を書き換える) ----------
+let drag = null;   // {sx,sy, cells:[], lastCell, moved}
+cv.addEventListener('pointerdown', e => {
+  audioInit();
+  if (actx && actx.state === 'suspended') actx.resume();
+  const w = screenToWorld(e.clientX, e.clientY);
+  const cx = Math.floor(w.x), cy = Math.floor(w.y);
+  drag = { sx: e.clientX, sy: e.clientY, wx: w.x, wy: w.y, cells: [], moved: false, lastCell: -1 };
+  if (inGrid(cx, cy)) addDragCell(drag, ID(cx, cy));
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (dx * dx + dy * dy > 100) drag.moved = true;
+  const w = screenToWorld(e.clientX, e.clientY);
+  const cx = Math.floor(w.x), cy = Math.floor(w.y);
+  if (inGrid(cx, cy)) {
+    const c = ID(cx, cy);
+    if (c !== drag.lastCell) lineCells(drag, c);
+  }
+  drag.ewx = w.x; drag.ewy = w.y;
+});
+cv.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const w = screenToWorld(e.clientX, e.clientY);
+  finishDrag(drag, w);
+  drag = null;
+});
+cv.addEventListener('pointercancel', () => { drag = null; });
+
+const inGrid = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
+function addDragCell(d, c) {
+  if (d.cells.length === 0 || d.cells[d.cells.length - 1] !== c) d.cells.push(c);
+  d.lastCell = c;
+}
+function lineCells(d, c) {      // 前セルから直線補間で拾う
+  if (d.lastCell < 0) { addDragCell(d, c); return; }
+  let x0 = CX(d.lastCell), y0 = CY(d.lastCell);
+  const x1 = CX(c), y1 = CY(c);
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let i = 1; i <= steps; i++) {
+    const xi = Math.round(x0 + (x1 - x0) * i / steps), yi = Math.round(y0 + (y1 - y0) * i / steps);
+    addDragCell(d, ID(xi, yi));
+  }
+}
+function dragDir(d, w) {
+  const dx = (w ? w.x : d.ewx || d.wx) - d.wx, dy = (w ? w.y : d.ewy || d.wy) - d.wy;
+  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3);
+}
+function finishDrag(d, w) {
+  if (playing) { editRipple(w); return; }               // 走行中は編集不可
+  if (!d.moved) {                                        // タップ = 矢印を消す
+    const cx = Math.floor(w.x), cy = Math.floor(w.y);
+    if (inGrid(cx, cy) && userArrow[ID(cx, cy)] >= 0) { clearArrowFlood(ID(cx, cy)); sfx('poof'); afterEdit(); }
+    return;
+  }
+  const dir = dragDir(d, w);
+  let placed = false, carved = false;
+  const t = nowSec();
+  const floorCells = [];
+  for (const c of d.cells) {
+    if (cellT[c] === SHELF) {                            // バイパスを掘る
+      cellT[c] = FLOOR; cellColor[c] = -1;
+      spawnPoof(CX(c) + 0.5, CY(c) + 0.5);
+      carved = true; floorCells.push(c);
+    } else if (cellT[c] === FLOOR) floorCells.push(c);
+  }
+  // スワイプした床セル + 同じ直線の通路全体へ矢印を伸ばす
+  const horiz = dir === 0 || dir === 2;
+  const seen = new Set();
+  for (const c of floorCells) {
+    if (seen.has(c)) continue;
+    const x = CX(c), y = CY(c);
+    const run = [];
+    if (horiz) { for (let xi = x; xi >= 0 && walk(ID(xi, y)); xi--) run.push(ID(xi, y));
+                 for (let xi = x + 1; xi < W && walk(ID(xi, y)); xi++) run.push(ID(xi, y)); }
+    else       { for (let yi = y; yi >= 0 && walk(ID(x, yi)); yi--) run.push(ID(x, yi));
+                 for (let yi = y + 1; yi < H && walk(ID(x, yi)); yi++) run.push(ID(x, yi)); }
+    for (const rc of run) {
+      seen.add(rc);
+      if (userArrow[rc] !== dir) { userArrow[rc] = dir; arrowBorn[rc] = t; placed = true; }
+    }
+  }
+  if (carved) { sfx('poof'); buildStatic(); }
+  if (placed) { sfx('draw'); buildStatic(); }
+  if (placed || carved) afterEdit();
+}
+function clearArrowFlood(c) {
+  const st = [c];
+  while (st.length) {
+    const u = st.pop();
+    if (userArrow[u] < 0) continue;
+    userArrow[u] = -1;
+    for (let dd = 0; dd < 4; dd++) {
+      const nx = CX(u) + DX[dd], ny = CY(u) + DY[dd];
+      if (inGrid(nx, ny) && userArrow[ID(nx, ny)] >= 0) st.push(ID(nx, ny));
+    }
+  }
+  buildStatic();
+}
+function afterEdit() {
+  everEdited = true; editedSinceStop = true;
+  resetPulse = true; updateButtonHints();
+}
+let ripple = null;
+function editRipple(w) { ripple = { x: w.x, y: w.y, t: 0 }; stopHintT = 4; }
+
+function drawEditPreview() {
+  if (drag && drag.moved && !playing) {
+    const dir = dragDir(drag);
+    for (const c of drag.cells) {
+      if (cellT[c] === FLOOR) drawArrowGlyph(CX(c) + 0.5, CY(c) + 0.5, dir, 0.3, 0.5);
+      else if (cellT[c] === SHELF) {
+        ctx.globalAlpha = 0.45; ctx.fillStyle = '#fff';
+        rr(ctx, CX(c) + 0.08, CY(c) + 0.08 - 0.34, 0.84, 0.84, 0.15); ctx.fill(); ctx.globalAlpha = 1;
+      }
+    }
+  }
+  if (ripple) {
+    ripple.t += 0.03;
+    if (ripple.t > 1) ripple = null;
+    else {
+      ctx.globalAlpha = 1 - ripple.t; ctx.strokeStyle = '#7db8ff'; ctx.lineWidth = 0.08;
+      ctx.beginPath(); ctx.arc(ripple.x, ripple.y, ripple.t * 1.2, 0, 6.28); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ---------- ヒント (文字なし誘導) ----------
+let stopHintT = 0;      // STOPボタンを指す
+let jamSustain = 0;
+function drawHints() {
+  const t = nowSec();
+  // 停止中 & まだ一度も編集していない → ゆびがスワイプをお手本
+  if (!playing && !everEdited && simT > 3) {
+    const jam = jamInfo();
+    const y = jam.n >= 3 ? Math.round(jam.y - 0.5) + 0.5 : CENTER_ROW + 0.5;
+    const cx = jam.n >= 3 ? Math.min(Math.max(jam.x, 5), W - 8) : 7;
+    const ph = (t % 2.0) / 2.0;
+    const fx0 = cx - 2.5 + ph * 5;
+    ctx.save(); ctx.translate(fx0, y); ctx.scale(1, 1 / SQ);
+    ctx.globalAlpha = ph < 0.08 ? ph / 0.08 : ph > 0.85 ? (1 - ph) / 0.15 : 1;
+    ctx.font = '1.1px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('👆', 0, 0.45);
+    ctx.restore();
+    drawArrowGlyph(cx - 2.5 + ph * 5 - 1.2, y, 0, 0.3, Math.min(0.7, ph * 2));
+    ctx.globalAlpha = 1;
+  }
+}
+function updateButtonHints() {
+  playBtn.classList.toggle('pulse', playPulse && !playing);
+  resetBtn.classList.toggle('pulse', resetPulse);
+  if (stopHintT > 0 && playing) playBtn.classList.add('pulse');
+  else if (playing) playBtn.classList.remove('pulse');
+}
+
+// ---------- UI ----------
+const playBtn = document.getElementById('playBtn'), resetBtn = document.getElementById('resetBtn');
+const fill = document.getElementById('fill');
+function setPlaying(p) {
+  if (p === playing) return;
+  playing = p;
+  if (p) {
+    // 編集後の再開: 全AGVが新しい床ルールで計画し直す
+    for (const a of agvs) if (a.path) {
+      if (a.order && cellT[a.order.shelf] !== SHELF) {
+        const tg = orderTargets({ color: a.order.color, shelf: a.order.shelf });
+        if (tg) { a.order.shelf = tg.shelf; a.order.face = tg.face; if (a.state === S_TOPICK) a.goal = tg.face; }
+      }
+      const p2 = astar(a.cell, a.goal);
+      if (p2) { a.path = p2; a.pi = 0; } else { a.path = null; a.retryT = 0.5; }
+    }
+    playPulse = false; editedSinceStop = false;
+  }
+  playBtn.textContent = p ? '■' : '▶';
+  playBtn.classList.toggle('stop', p);
+  updateButtonHints();
+}
+playBtn.addEventListener('click', () => { audioInit(); setPlaying(!playing); });
+resetBtn.addEventListener('click', () => {
+  audioInit();
+  resetSim(); setPlaying(false);
+  resetPulse = false; playPulse = true;
+  updateButtonHints();
+});
+function updateBar() {
+  fill.innerHTML = '';
+  const n = deliveredColors.length;
+  fill.style.width = (n / orders.length * 100) + '%';
+  const step = Math.max(1, Math.ceil(n / 60));
+  for (let i = 0; i < n; i += step) {
+    const d = document.createElement('div');
+    d.style.background = COLORS[deliveredColors[i]];
+    fill.appendChild(d);
+  }
+}
+
+// ---------- メインループ ----------
+let manual = false;
+let last = performance.now(), acc = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (playing && !manual) {
+    acc += dt;
+    let guard = 0;
+    while (acc > DT && guard++ < 10) { simStep(DT); acc -= DT; }
+    if (acc > DT) acc = 0;
+  }
+  // 渋滞→STOPヒント
+  const jam = jamInfo();
+  jamSustain = (playing && jam.n >= 8) ? jamSustain + dt : 0;
+  if (jamSustain > 5 && !everEdited) { stopHintT = 2; }
+  stopHintT = Math.max(0, stopHintT - dt);
+  updateButtonHints();
+  updateFX(dt); updateCamera(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+resetSim(); resize(); updateButtonHints();
+requestAnimationFrame(frame);
+
+// ---------- テスト用API (決定論) ----------
+window.game = {
+  get manual() { return manual; }, set manual(v) { manual = v; },
+  step(sec) { const n = Math.round(sec / DT); for (let i = 0; i < n; i++) simStep(DT); },
+  play() { setPlaying(true); }, stop() { setPlaying(false); },
+  reset() { resetSim(); setPlaying(false); },
+  swipe(x0, y0, x1, y1) {         // 床編集をworld座標でシミュレート
+    const d = { sx: 0, sy: 0, wx: x0 + 0.5, wy: y0 + 0.5, cells: [], moved: true, lastCell: ID(x0, y0) };
+    d.cells.push(ID(x0, y0));
+    lineCells(d, ID(x1, y1));
+    finishDrag(d, { x: x1 + 0.5, y: y1 + 0.5 });
+  },
+  metrics() {
+    const jam = jamInfo();
+    let maxBlockT = 0;
+    for (const a of agvs) maxBlockT = Math.max(maxBlockT, a.blockedT);
+    return { t: simT, delivered, total: orders.length, blocked: jam.n, jamX: jam.x, jamY: jam.y,
+             maxBlockT, playing, agvs: agvs.length, completed };
+  },
+  agvState() { return agvs.map(a => ({ x: a.fx, y: a.fy, st: a.state, blocked: a.blockedT })); },
+  debugDump() {
+    const lines = [];
+    const stName = ['WAIT', 'TOPICK', 'PICK', 'TODROP', 'DROP', 'HOME', 'SLEEP', '?', 'DOCK'];
+    for (const a of agvs) {
+      if (a.blockedT < 2) continue;
+      const nxt = a.path ? a.path[a.pi + 1] : -1;
+      lines.push(`agv${a.id} ${stName[a.state]} @(${CX(a.cell)},${CY(a.cell)}) -> ` +
+        (nxt >= 0 ? `(${CX(nxt)},${CY(nxt)}) occBy=${occ[nxt]}` : 'nopath') +
+        ` goal=(${CX(a.goal)},${CY(a.goal)}) carry=${a.carrying} blockedT=${a.blockedT.toFixed(1)}`);
+    }
+    return lines.join('\n');
+  },
+  arrows() { const out = []; for (let i = 0; i < W * H; i++) if (userArrow[i] >= 0) out.push([CX(i), CY(i), userArrow[i]]); return out; },
+  draw,
+};
+</script>
+</body>
+</html>
