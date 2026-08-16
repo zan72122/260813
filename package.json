@@ -1,0 +1,16 @@
+{
+  "name": "iro-sui-sponge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "色を吸うスポンジ — a WebGL colour-mixing toy for young kids (iPhone/iPad mobile web)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
