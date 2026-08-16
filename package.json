@@ -1,0 +1,30 @@
+{
+  "name": "260813",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "verify": "node tools/verify.mjs",
+    "test:e2e": "playwright test",
+    "serve": "python3 -m http.server 8734 --bind 127.0.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zan72122/260813.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zan72122/260813/issues"
+  },
+  "homepage": "https://github.com/zan72122/260813#readme",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
