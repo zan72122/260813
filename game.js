@@ -1120,18 +1120,27 @@
     var l = viewL(1), r = viewR(1);
     var i0 = clamp((l / PILE_W) | 0, 0, NPILE - 1);
     var i1 = clamp((r / PILE_W) | 0 + 1, 0, NPILE - 1);
+    // なめらかなシルエットで描く (隣接セルを平均)
+    var by = W2SY(BASE_Y + 6, 1);
     ctx.fillStyle = '#f4f8ff';
-    for (var i = i0; i <= i1; i++) {
-      if (pileH[i] < 2) continue;
-      var x = i * PILE_W + PILE_W / 2;
-      var hgt = pileH[i];
-      var cx2 = W2SX(x, 1), by = W2SY(BASE_Y + 4, 1);
-      ctx.beginPath();
-      ctx.moveTo(cx2 - PILE_W * 0.9 * cam.zoom, by);
-      ctx.quadraticCurveTo(cx2, by - hgt * 2 * cam.zoom, cx2 + PILE_W * 0.9 * cam.zoom, by);
-      ctx.closePath();
-      ctx.fill();
+    ctx.beginPath();
+    var drawing = false;
+    for (var i = i0; i <= i1 + 1; i++) {
+      var hL = i > 0 ? pileH[i - 1] : 0;
+      var hC = i <= i1 ? pileH[i] : 0;
+      var hgt = (hL + hC) * 0.5 * 1.7;
+      var x = W2SX(i * PILE_W, 1);
+      var y = by - hgt * cam.zoom;
+      if (hgt > 1.5) {
+        if (!drawing) { ctx.moveTo(x - PILE_W * cam.zoom, by); drawing = true; }
+        ctx.quadraticCurveTo(x - PILE_W * 0.5 * cam.zoom, y, x, y);
+      } else if (drawing) {
+        ctx.lineTo(x, by);
+        drawing = false;
+      }
     }
+    if (drawing) ctx.lineTo(W2SX((i1 + 2) * PILE_W, 1), by);
+    ctx.fill();
   }
 
   function drawWall() {
