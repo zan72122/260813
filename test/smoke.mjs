@@ -83,7 +83,8 @@ async function runViewport(browser, baseUrl, vp, takeShots) {
 
   const seen = new Set()
   const t0 = Date.now()
-  const deadline = t0 + 210000
+  // generous: software rendering at tablet resolutions is CPU-bound
+  const deadline = t0 + 420000
   let lastPhase = ''
 
   while (Date.now() < deadline) {
