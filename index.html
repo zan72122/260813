@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#f6e7d3" />
+  <title>サッ！ジュワ！パカッ！ティラミス</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="c"></canvas>
+
+    <!-- idle hint hand (picture only) -->
+    <div id="hint" class="hidden" aria-hidden="true">
+      <div id="hint-hand">👆</div>
+    </div>
+
+    <!-- time-lapse clock for the fridge -->
+    <div id="clock" class="hidden" aria-hidden="true">🕐</div>
+
+    <!-- title -->
+    <div id="overlay-title" class="overlay hidden">
+      <div class="title-card">
+        <div class="title-emoji">🍰</div>
+        <div class="title-text">サッ！ジュワ！パカッ！<br /><span>ティラミス</span></div>
+        <button id="btn-play" class="big-btn play-btn" aria-label="play">
+          <svg viewBox="0 0 100 100" width="56" height="56"><polygon points="30,20 82,50 30,80" fill="#fff"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- replay choices (pictures only) -->
+    <div id="overlay-replay" class="overlay hidden">
+      <div class="replay-row">
+        <button id="btn-again" class="big-btn" aria-label="again">🔁</button>
+        <button id="btn-dish" class="big-btn" aria-label="new dish">
+          <svg id="dish-icon" viewBox="0 0 100 100" width="52" height="52">
+            <rect x="14" y="30" width="72" height="46" rx="8" fill="#bfe0f0" opacity="0.75"/>
+            <rect x="20" y="52" width="60" height="9" rx="4" fill="#8a5a34"/>
+            <rect x="20" y="42" width="60" height="9" rx="4" fill="#fdf6e6"/>
+            <rect x="20" y="62" width="60" height="9" rx="4" fill="#8a5a34"/>
+            <rect x="20" y="34" width="60" height="7" rx="3" fill="#6b4a2e"/>
+          </svg>
+        </button>
+        <button id="btn-home" class="big-btn" aria-label="home">🏠</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  background: #f6e7d3;
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: -apple-system, "Hiragino Maru Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+canvas#c {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- hint hand ---------- */
+#hint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 30;
+  will-change: transform;
+}
+
+#hint-hand {
+  font-size: 56px;
+  transform: translate(-18px, -6px);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35));
+}
+
+/* ---------- fridge clock ---------- */
+#clock {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translate(-50%, -50%);
+  font-size: 84px;
+  z-index: 25;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 10px rgba(40, 60, 120, 0.35));
+}
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px)
+    calc(env(safe-area-inset-right, 0px) + 12px)
+    calc(env(safe-area-inset-bottom, 0px) + 12px)
+    calc(env(safe-area-inset-left, 0px) + 12px);
+}
+
+#overlay-title {
+  background: radial-gradient(circle at 50% 35%, rgba(255, 249, 236, 0.55), rgba(214, 168, 120, 0.55));
+}
+
+.title-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.title-emoji {
+  font-size: 84px;
+  animation: bob 2.2s ease-in-out infinite;
+}
+
+.title-text {
+  font-size: clamp(22px, 5.5vw, 40px);
+  font-weight: 800;
+  color: #6b4226;
+  text-align: center;
+  line-height: 1.35;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.7);
+}
+
+.title-text span {
+  font-size: 1.35em;
+  color: #4c2e18;
+}
+
+.big-btn {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: none;
+  font-size: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  box-shadow: 0 6px 0 rgba(150, 105, 60, 0.45), 0 10px 24px rgba(90, 60, 30, 0.25);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.big-btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(150, 105, 60, 0.45), 0 6px 14px rgba(90, 60, 30, 0.25);
+}
+
+.play-btn {
+  width: 118px;
+  height: 118px;
+  background: #e8734a;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+#overlay-replay {
+  align-items: flex-end;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 42px);
+  background: linear-gradient(to top, rgba(80, 50, 25, 0.28), rgba(80, 50, 25, 0) 45%);
+  pointer-events: none;
+}
+
+.replay-row {
+  display: flex;
+  gap: 28px;
+  pointer-events: auto;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
