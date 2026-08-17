@@ -1,0 +1,13 @@
+{
+  "name": "mystery-animal-3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Word-morphing 3D picture book: 'Putting it all together, I'd say it's a medium-sized female who hops every few steps!'",
+  "scripts": {
+    "build": "./build.sh",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
