@@ -254,13 +254,13 @@ export class CocoaSurface {
     const u = clamp(px / INNER_X + 0.5, 0, 1) * 256
     const v = clamp(0.5 - pz / INNER_Z, 0, 1) * 184
     const ctx = this.ctx
-    ctx.fillStyle = 'rgba(88,58,34,0.16)'
+    ctx.fillStyle = 'rgba(88,58,34,0.2)'
     ctx.beginPath()
-    ctx.arc(u, v, 9 + Math.random() * 5, 0, Math.PI * 2)
+    ctx.arc(u, v, 12 + Math.random() * 6, 0, Math.PI * 2)
     ctx.fill()
     ctx.fillStyle = 'rgba(66,42,24,0.5)'
     for (let i = 0; i < 5; i++) {
-      ctx.fillRect(u + (Math.random() - 0.5) * 22, v + (Math.random() - 0.5) * 22, 1.6, 1.6)
+      ctx.fillRect(u + (Math.random() - 0.5) * 30, v + (Math.random() - 0.5) * 30, 1.6, 1.6)
     }
     this.dirty = true
   }

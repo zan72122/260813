@@ -589,8 +589,10 @@ export class Game {
       w.sieve.position.lerp(sieveTarget, 0.3)
       w.sieve.rotation.z = clamp(vx * 4, -0.35, 0.35)
       vx *= 0.8
-      if (this.input.down && Math.abs(vx) > 0.01 && !finishing) {
-        emitAcc += dt * 130 * clamp(Math.abs(vx) * 30, 0.4, 1.6)
+      if (this.input.down && !finishing) {
+        // gentle trickle while held, much more while shaking
+        const shake = Math.abs(vx) > 0.01 ? clamp(Math.abs(vx) * 30, 0.4, 1.6) : 0
+        emitAcc += dt * (28 + 130 * shake)
         const n = Math.floor(emitAcc)
         if (n > 0) {
           emitAcc -= n
@@ -601,7 +603,7 @@ export class Game {
       metricTimer += dt
       if (metricTimer > 0.4 && !finishing) {
         metricTimer = 0
-        if (w.cocoaSurface.computeCoverage() > 0.62) {
+        if (w.cocoaSurface.computeCoverage() > 0.55) {
           finishing = true
           this.input.clearHandlers()
           void w.cocoaSurface.finishDust() // even out while the last grains fall
@@ -624,8 +626,13 @@ export class Game {
 
     this.gestureFn = () => {
       const pts = []
-      for (const x of [-0.8, 0.8, -0.8, 0.8]) {
-        pts.push(this.scr(new THREE.Vector3(x, 1.7, 0.1)))
+      for (const [x, z] of [
+        [-0.8, -0.4],
+        [0.8, -0.4],
+        [-0.8, 0.5],
+        [0.8, 0.5],
+      ]) {
+        pts.push(this.scr(new THREE.Vector3(x, 1.7, z)))
       }
       return { type: 'drag', points: pts }
     }

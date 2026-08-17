@@ -592,7 +592,7 @@ export class World {
       if (this.cocoaAlive[i]) continue
       this.cocoaAlive[i] = 1
       const a = randRange(0, Math.PI * 2)
-      const rr = Math.sqrt(randRange(0, 1)) * 0.3
+      const rr = Math.sqrt(randRange(0, 1)) * 0.45
       this.cocoaPos[i * 3] = cx + Math.cos(a) * rr
       this.cocoaPos[i * 3 + 1] = 1.75 + randRange(-0.05, 0.05)
       this.cocoaPos[i * 3 + 2] = cz + Math.sin(a) * rr
