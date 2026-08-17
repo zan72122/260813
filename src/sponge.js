@@ -101,6 +101,7 @@ export class Sponge {
     this._tmpA = new Float32Array(n);
     this._dirty = true;
 
+    this.glow = 0; // moonlight charge (0..1) — makes squeezed colours shine
     this._white = new THREE.Color(1, 0.995, 0.965);
     this._mixed = new THREE.Color();
     this._vcol = new THREE.Color();
@@ -194,7 +195,11 @@ export class Sponge {
     this._dirty = true;
   }
 
-  // Remove dye uniformly; returns how much was removed (0..1 scale).
+  addGlow(dt, rate = 0.5) {
+    this.glow = Math.min(1, this.glow + rate * dt);
+  }
+
+  // Remove dye (and glow) uniformly; returns how much dye was removed.
   drain(dt, rate) {
     const f = Math.exp(-rate * dt);
     let before = 0;
@@ -204,6 +209,7 @@ export class Sponge {
       this.dyeB[i] *= f;
       this.dyeY[i] *= f;
     }
+    this.glow *= f;
     this._dirty = true;
     return (before / this.nodes.length) * (1 - f);
   }

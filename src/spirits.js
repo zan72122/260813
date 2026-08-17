@@ -73,6 +73,7 @@ class Spirit {
       roughness: 0.35,
       emissive: this.color.clone().multiplyScalar(0.16),
     });
+    this.bodyMat = mat;
     const blob = new THREE.Mesh(bodyGeo, mat);
     blob.scale.set(1, 0.88, 1);
     blob.castShadow = true;
@@ -123,6 +124,11 @@ class Spirit {
   update(dt, spongePos, pickWanderPoint) {
     const rng = this.rng;
     this.t += dt;
+    if (this.glowy) {
+      // Born from moonlit liquid: a firefly-soft pulse, day and night.
+      this.glowPhase = (this.glowPhase || 0) + dt * 2.6;
+      this.bodyMat.emissiveIntensity = 1 + Math.sin(this.glowPhase) * 0.7 + 1.4;
+    }
 
     // Blink
     this.blinkT -= dt;
@@ -339,8 +345,9 @@ export class SpiritManager {
     } catch (_) { /* private mode etc. */ }
   }
 
-  _addSpirit(species, color, pos, settled = false) {
+  _addSpirit(species, color, pos, settled = false, glow = 0) {
     const spirit = new Spirit(species, color, pos, this.rng);
+    spirit.glowy = glow > 0.3; // moonlit spirits softly pulse with light
     if (settled) {
       spirit.state = 'idle';
       spirit.group.scale.setScalar(1);
@@ -359,7 +366,7 @@ export class SpiritManager {
 
   // Called for every squeezed drip that lands. Births a new spirit the
   // first time a (hue, shade) combination is squeezed out.
-  noteLiquid(amounts, color, landPos, conc = 0.5) {
+  noteLiquid(amounts, color, landPos, conc = 0.5, glow = 0) {
     const total = amounts.r + amounts.b + amounts.y;
     if (total < 0.2) return null;
     const species = classifySpecies(amounts, conc);
@@ -369,7 +376,7 @@ export class SpiritManager {
       0,
       clamp(landPos.z + 0.75, -4.6, 4.2)
     );
-    this._addSpirit(species, color, pos);
+    this._addSpirit(species, color, pos, false, glow);
     this._save();
     this.fx.sparkleBurst(new THREE.Vector3(pos.x, 0.5, pos.z), color, 22);
     if (this.onBirth) this.onBirth(this.spirits[this.spirits.length - 1]);

@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.js';
 import { POOLS, WASH, WATER_Y } from './world.js';
 import { HOUSE_POS } from './spirits.js';
+import { MOON_POOL, GLOW_TINT } from './night.js';
 import { DYE } from './dye.js';
 import { clamp, lerp, damp } from './util.js';
 
@@ -17,7 +18,7 @@ const PLAY = { minX: -6.4, maxX: 6.6, minZ: -4.9, maxZ: 4.6 };
 const SPONGE_HALF_Y = 0.42;
 
 export class Game {
-  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden }) {
+  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -27,6 +28,7 @@ export class Game {
     this.fx = fx;
     this.spirits = spirits;
     this.garden = garden;
+    this.night = night;
 
     this.time = 0;
     this.dragging = false;
@@ -64,6 +66,7 @@ export class Game {
       spirits.obstacles = [
         ...POOLS.map((p) => ({ x: p.pos.x, z: p.pos.z, r: p.radius + 0.5 })),
         { x: WASH.pos.x, z: WASH.pos.z, r: WASH.radius + 0.5 },
+        { x: MOON_POOL.pos.x, z: MOON_POOL.pos.z, r: MOON_POOL.radius + 0.5 },
         { x: HOUSE_POS.x, z: HOUSE_POS.z, r: 1.3 },
         ...targets.map((t) => ({ x: t.worldPos.x, z: t.worldPos.z, r: 0.8 })),
       ];
@@ -97,6 +100,16 @@ export class Game {
     };
     dom.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      // A tap on the sun/moon medallion flips day and night.
+      if (this.night) {
+        const r = dom.getBoundingClientRect();
+        ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        ray.setFromCamera(ndc, this.camera);
+        if (ray.intersectObject(this.night.medallion.hit, false).length > 0) {
+          this.night.toggle();
+          return;
+        }
+      }
       const w = toWorld(e);
       if (w) this.pointerDown(w.x, w.z);
       dom.setPointerCapture(e.pointerId);
@@ -175,11 +188,13 @@ export class Game {
     // Where is the sponge?
     this.activePool = this._poolAt(pos);
     const inWash = this._inWash(pos);
-    this.hoverTarget = !this.activePool && !inWash ? this._targetAt(pos) : null;
+    const inMoon = this.night && this.night.poolActive() && this.night.inMoonPool(pos);
+    this.inMoon = inMoon;
+    this.hoverTarget = !this.activePool && !inWash && !inMoon ? this._targetAt(pos) : null;
 
     // --- height: dip into water, rise above targets, else carry height
     let wantY = CARRY_Y;
-    if (this.activePool || inWash) wantY = DIP_Y;
+    if (this.activePool || inWash || inMoon) wantY = DIP_Y;
     else if (this.hoverTarget) {
       // Hover well above the target so the falling drops (and the thing
       // they colour) stay visible under the sponge.
@@ -241,27 +256,45 @@ export class Game {
       if (this.washHint > 0) this.washHint = 0.01; // hint done
     }
 
+    // --- drinking moonlight (night only)
+    if (inMoon) {
+      sponge.addGlow(dt, 0.5);
+      this.absorbFxTimer -= dt;
+      if (this.absorbFxTimer <= 0) {
+        this.absorbFxTimer = 0.08;
+        this._v2.set(pos.x, WATER_Y + 0.02, pos.z);
+        this._v3.copy(pos).setY(WATER_Y + 0.35);
+        this.fx.absorbStream(this._v2, this._v3, GLOW_TINT);
+        if (this.fx.rng() < 0.3) this.fx.ripple(pos, GLOW_TINT);
+      }
+    }
+
     // --- squeezing (hold still, not in water, sponge actually arrived —
     // travelling toward a far-away finger must not leak dye en route)
     const arrived =
       Math.hypot(this.dragTarget.x - pos.x, this.dragTarget.z - pos.z) < 0.35;
-    const canSqueeze =
-      this.dragging && !this.activePool && !inWash && arrived &&
-      this.holdStill > 0.32 && sponge.totalDye() > 0.015;
-    this.squeezing = canSqueeze;
-    // One squeeze session = one shade: lock concentration when it starts
-    // so a long squeeze doesn't drift through several spirit species.
-    if (canSqueeze && !this._squeezeSession) {
-      this._squeezeSession = { conc: sponge.concentration(), painted: null };
+    const squeezePose =
+      this.dragging && !this.activePool && !inWash && !inMoon && arrived &&
+      this.holdStill > 0.32;
+    // Hysteresis: starting a squeeze needs real juice; once started it may
+    // run down low — but a nearly-dry sponge can never START a session
+    // (otherwise numerical wobble around the cutoff re-fires ghost paints).
+    const hasJuice = sponge.totalDye() > 0.045 || sponge.glow > 0.3;
+    const keepJuice = sponge.totalDye() > 0.012 || sponge.glow > 0.18;
+    if (squeezePose && !this._squeezeSession && hasJuice) {
+      // One squeeze session = one shade + one glow level, locked at start.
+      this._squeezeSession = { conc: sponge.concentration(), glow: sponge.glow, painted: null };
     }
-    if (!canSqueeze) this._squeezeSession = null;
+    if (!squeezePose || !keepJuice) this._squeezeSession = null;
+    const canSqueeze = !!this._squeezeSession;
+    this.squeezing = canSqueeze;
     this.squeeze += ((canSqueeze ? 1 : 0) - this.squeeze) * damp(canSqueeze ? 5 : 7, dt);
     if (this.squeeze > 0.25 && canSqueeze) {
       this.dripTimer -= dt;
       if (this.dripTimer <= 0) {
         this.dripTimer = 0.085;
         const strength = sponge.liquidColor(this._liquid);
-        if (strength > 0.02) {
+        if (strength > 0.02 || sponge.glow > 0.2) {
           const from = this._v1.set(pos.x, pos.y - SPONGE_HALF_Y * (1 - 0.4 * this.squeeze) - 0.05, pos.z);
           const over = this.hoverTarget;
           const amounts = sponge.liquidAmounts();
@@ -269,21 +302,24 @@ export class Game {
           // late-landing tail drips), and one locked shade per session.
           const session = this._squeezeSession;
           const conc = session ? session.conc : strength;
+          const glow = session ? session.glow : sponge.glow;
           const dripColor = this._liquid.clone();
+          // Pure (or nearly pure) moonlight squeezes out as silver light.
+          if (glow > 0.05) dripColor.lerp(GLOW_TINT, glow * (1 - Math.min(1, conc * 2)));
           if (over) {
             over.focusPoint(this._v2);
             const floorY = this._v2.y - 0.15;
             this.fx.drip(from, dripColor, floorY, (landPos) => {
-              if (session && session.painted !== over && over.paint(dripColor)) {
+              if (session && session.painted !== over && over.paint(dripColor, glow)) {
                 session.painted = over;
               }
               this.fx.sparkleBurst(landPos, dripColor, 3);
-              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc, glow);
             });
           } else {
             this.fx.drip(from, dripColor, 0.02, (landPos, c) => {
               this.fx.splat(landPos, c);
-              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc);
+              if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc, glow);
             });
           }
           sponge.drain(dt * 6.5, 0.5);
@@ -301,6 +337,17 @@ export class Game {
     // --- internal colour diffusion (the mixing moment)
     sponge.diffuse(dt);
     sponge.updateColors();
+    // Moonlight charge makes the sponge itself shine, most at night.
+    const nightF = this.night ? this.night.night : 0;
+    if (sponge.glow > 0.005) {
+      sponge.liquidColor(this._v1IsColor || (this._v1IsColor = new THREE.Color()));
+      if (sponge.totalDye() < 0.1) this._v1IsColor.lerp(GLOW_TINT, 0.8);
+      sponge.mesh.material.emissive
+        .copy(this._v1IsColor)
+        .multiplyScalar(sponge.glow * (0.3 + 0.7 * nightF));
+    } else {
+      sponge.mesh.material.emissive.setRGB(0, 0, 0);
+    }
     if (!this.mixSeen && sponge.mixEvent > 0.14) {
       this.mixSeen = true;
       this.mixFocus = 2.6;
@@ -310,7 +357,8 @@ export class Game {
 
     // --- world, targets, fx
     this.world.update(dt, this.time);
-    for (const t of this.targets) t.update(dt, this.time);
+    if (this.night) this.night.update(dt, this.time);
+    for (const t of this.targets) t.update(dt, this.time, nightF);
     if (this.spirits) this.spirits.update(dt, pos);
     if (this.garden) {
       const ev = this.garden.setScore(this._gardenScore());
@@ -441,7 +489,7 @@ export class Game {
       this.hoverTarget.focusPoint(this._v2);
       focus = this._v2.lerp(pos, 0.35);
       strength = 0.66;
-    } else if (this.activePool || this._inWash(pos)) {
+    } else if (this.activePool || this.inMoon || this._inWash(pos)) {
       focus = this._v2.copy(pos).setY(0.5);
       strength = 0.6;
     } else if (this.mixFocus > 0) {

@@ -242,6 +242,43 @@ test('animals can be painted alive and the garden grows in stages', async ({ pag
   expect(errors).toEqual([]);
 });
 
+test('night mode: moonlight makes glowing paint and landmarks', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Nightfall.
+  await api(page, () => { window.__game.toggleNight(); window.__game.step(4); });
+  let s = await api(page, () => window.__game.state());
+  expect(s.night.isNight).toBe(true);
+  expect(s.night.factor).toBeGreaterThan(0.9);
+
+  // Drink moonlight from the moon pool, plus some red dye.
+  await dragTo(page, [-6.0, 3.5], 1.4);
+  await api(page, () => window.__game.step(2.5));
+  s = await api(page, () => window.__game.state());
+  expect(s.glow).toBeGreaterThan(0.5);
+  await soak(page, 'red', 2.2);
+
+  // Squeeze onto the windmill: it colours, glows, and its sails spin up.
+  await squeezeAt(page, [6.0, -4.6], 4.5);
+  await api(page, () => window.__game.step(4));
+  s = await api(page, () => window.__game.state());
+  const windmill = s.targets.find((t) => t.id === 'windmill');
+  expect(windmill.colored).toBe(true);
+  expect(windmill.glow).toBeGreaterThan(0.2);
+
+  // Cottage is paintable too, and day returns on toggle.
+  await soak(page, 'blue', 2.2);
+  await squeezeAt(page, [-4.3, -4.7], 4.5);
+  await api(page, () => window.__game.step(4));
+  s = await api(page, () => window.__game.state());
+  expect(s.targets.find((t) => t.id === 'cottage').colored).toBe(true);
+  await api(page, () => { window.__game.toggleNight(); window.__game.step(4); });
+  s = await api(page, () => window.__game.state());
+  expect(s.night.isNight).toBe(false);
+  expect(s.night.factor).toBeLessThan(0.1);
+  expect(errors).toEqual([]);
+});
+
 test('real pointer input drags the sponge', async ({ page }) => {
   const errors = await boot(page);
   const canvas = page.locator('canvas');

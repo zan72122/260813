@@ -3,6 +3,8 @@ import { buildWorld } from './world.js';
 import { buildTargets } from './targets.js';
 import { buildAnimals } from './animals.js';
 import { buildProps } from './props.js';
+import { buildLandmarks } from './landmarks.js';
+import { NightCycle } from './night.js';
 import { Garden } from './garden.js';
 import { Sponge } from './sponge.js';
 import { FX } from './fx.js';
@@ -25,7 +27,13 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
 
 const world = buildWorld(scene, rng);
-const targets = [...buildTargets(scene), ...buildAnimals(scene), ...buildProps(scene)];
+const targets = [
+  ...buildTargets(scene),
+  ...buildAnimals(scene),
+  ...buildProps(scene),
+  ...buildLandmarks(scene),
+];
+const night = new NightCycle(scene, world, rng);
 const sponge = new Sponge();
 scene.add(sponge.group);
 const fx = new FX(scene, rng);
@@ -33,7 +41,9 @@ const spirits = new SpiritManager(scene, fx, rng, { persist: !E2E });
 const garden = new Garden(scene, rng, { persist: !E2E });
 garden.setScore(garden.paintCount + spirits.discovered.size, true); // restore saved growth silently
 
-const game = new Game({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden });
+const game = new Game({
+  scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night,
+});
 game.attachInput(renderer.domElement);
 
 function resize() {
@@ -84,6 +94,8 @@ window.__game = {
   release() { game.pointerUp(); },
   // Debug/test-only: add paint credit to fast-forward garden growth.
   grow(n = 1) { garden.paintCount += n; },
+  // Debug/test-only: flip day/night without tapping the medallion.
+  toggleNight() { return night.toggle(); },
   state() {
     const avg = sponge.averages();
     const liquid = new THREE.Color();
@@ -107,6 +119,7 @@ window.__game = {
         colored: t.colored,
         painting: t.painting,
         color: `#${t.color.getHexString()}`,
+        glow: t.glowLevel || 0,
       })),
       spirits: {
         count: spirits.spirits.length,
@@ -117,6 +130,8 @@ window.__game = {
         paintCount: garden.paintCount,
         butterflies: garden.butterflies.length,
       },
+      night: { factor: night.night, isNight: night.isNight },
+      glow: sponge.glow,
     };
   },
 };

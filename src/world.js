@@ -43,6 +43,7 @@ function makeSky() {
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
+      // Day palette; the night cycle lerps these towards indigo.
       top: { value: new THREE.Color(0x5fb7ea) },
       mid: { value: new THREE.Color(0xa8dcf5) },
       bottom: { value: new THREE.Color(0xeaf7ef) },
@@ -224,7 +225,8 @@ export function buildWorld(scene, rng) {
   scene.background = null; // sky dome handles it
   scene.fog = new THREE.Fog(0xcfe9f4, 20, 58);
 
-  scene.add(makeSky());
+  const sky = makeSky();
+  scene.add(sky);
 
   // Lights: warm sun + cool sky fill.
   const hemi = new THREE.HemisphereLight(0xd8ecff, 0x86b878, 1.15);
@@ -295,5 +297,5 @@ export function buildWorld(scene, rng) {
     }
   }
 
-  return { pools, wash, update };
+  return { pools, wash, update, sky, hemi, sun };
 }

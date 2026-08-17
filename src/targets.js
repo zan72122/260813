@@ -62,6 +62,7 @@ export class Target {
     this.focusLocal = focus; // where the camera / drips aim, in local space
     this.paintables = [];
     this.colored = false;
+    this.glowLevel = 0;
     this.color = new THREE.Color(1, 1, 1);
     this.sweep = null;
     this.onComplete = null;
@@ -83,14 +84,14 @@ export class Target {
     return !!this.sweep;
   }
 
-  paint(color) {
+  paint(color, glow = 0) {
     if (this.sweep) return false;
     for (const p of this.paintables) p.beginSweep();
-    this.sweep = { front: 0, soft: 0.3, color: color.clone() };
+    this.sweep = { front: 0, soft: 0.3, color: color.clone(), glow };
     return true;
   }
 
-  update(dt, t) {
+  update(dt, t, night = 0) {
     updateHalo(this.halo, dt);
     if (this.sweep) {
       this.sweep.front += dt * 0.55;
@@ -100,10 +101,20 @@ export class Target {
       if (f >= 1 + this.sweep.soft) {
         this.color.copy(this.sweep.color);
         this.colored = true;
+        this.glowLevel = this.sweep.glow || 0;
+        if (this.glowLevel > 0.12) {
+          // Moonlit paint: the colour itself becomes the light source.
+          for (const p of this.paintables) p.mesh.material.emissive.copy(this.color);
+        }
         this.sweep = null;
         this.reward = 1;
         if (this.onComplete) this.onComplete(this);
       }
+    }
+    // Glow-painted things shine — softly by day, brightly in the dark.
+    if (this.glowLevel > 0.12) {
+      const inten = this.glowLevel * (0.22 + 0.62 * night) * (1 + 0.12 * Math.sin(t * 2.4));
+      for (const p of this.paintables) p.mesh.material.emissiveIntensity = inten;
     }
     if (this.reward > 0) this.reward = Math.max(0, this.reward - dt / 2.2);
     this.idle(dt, t);
@@ -400,12 +411,14 @@ class Star extends Target {
     this.spin = 0;
   }
 
-  update(dt, t) {
-    super.update(dt, t);
+  update(dt, t, night = 0) {
+    super.update(dt, t, night);
     if (this.colored) {
       this.spin += dt * (0.8 + this.reward * 5);
-      const glow = 0.18 + this.reward * 0.5;
-      this.star.material.emissive.copy(this.color).multiplyScalar(glow);
+      if (this.glowLevel <= 0.12) {
+        const glow = 0.18 + this.reward * 0.5;
+        this.star.material.emissive.copy(this.color).multiplyScalar(glow);
+      }
     }
     this.holder.rotation.y = Math.sin(this.spin) * 0.001 + this.spin;
   }
