@@ -52,4 +52,6 @@ void game.start()
   phase: () => game.phaseName,
   step: () => game.step,
   gesture: () => game.gestureFn?.() ?? null,
+  game,
+  rig,
 }

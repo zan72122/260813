@@ -126,6 +126,7 @@ export class Game {
     this.idleTime = 0
     hint.stop()
     this.input.clearHandlers()
+    this.input.invalidateStroke() // each step starts with a fresh touch
     this.updateFn = null
     this.gestureFn = null
   }
@@ -480,7 +481,8 @@ export class Game {
       if (finishing) return
       finishing = true
       this.input.clearHandlers()
-      if (force) await cl.finishFlatten()
+      // always end with an even, wall-to-wall surface
+      await cl.finishFlatten()
       const from = w.spatula.position.clone()
       await tweens.to({
         dur: 0.45,

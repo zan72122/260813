@@ -24,6 +24,19 @@ export class Input {
   onUp: ((p: PointerPos) => void) | null = null
 
   private id: number | null = null
+  private stale = false
+
+  /**
+   * Mark the current touch as belonging to a finished phase: it no longer
+   * drives anything, a fresh pointer-down is required. Prevents e.g. the
+   * cocoa-shaking swipe from spilling into the fridge swipe.
+   */
+  invalidateStroke() {
+    if (this.id !== null) {
+      this.stale = true
+      this.down = false
+    }
+  }
 
   constructor(private el: HTMLElement) {
     el.addEventListener(
@@ -32,6 +45,7 @@ export class Input {
         sfx.unlock()
         if (this.id !== null) return
         e.preventDefault()
+        this.stale = false
         this.id = e.pointerId
         try {
           el.setPointerCapture(e.pointerId)
@@ -56,6 +70,7 @@ export class Input {
         const dy = e.clientY - this.y
         this.x = e.clientX
         this.y = e.clientY
+        if (this.stale) return
         this.onMove?.({ x: this.x, y: this.y, dx, dy })
       },
       { passive: false },
@@ -65,7 +80,9 @@ export class Input {
       if (e.pointerId !== this.id) return
       this.id = null
       this.down = false
-      this.onUp?.({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 })
+      const wasStale = this.stale
+      this.stale = false
+      if (!wasStale) this.onUp?.({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 })
     }
     el.addEventListener('pointerup', release)
     el.addEventListener('pointercancel', release)

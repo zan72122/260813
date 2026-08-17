@@ -1,4 +1,4 @@
 node_modules/
 dist/
 test/shots/
-test/_debug*.mjs
+test/_*.mjs
