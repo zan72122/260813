@@ -15,7 +15,7 @@ const SHOTS: Record<string, Shot> = {
   top: { pos: [0, 4.9, 1.1], target: [0, 0.25, 0.05], fov: 42 },
   cream: { pos: [0, 1.9, 3.15], target: [0, 0.45, 0], fov: 40 },
   layers: { pos: [0.0, 0.72, 3.4], target: [0, 0.45, 0], fov: 36 },
-  cocoa: { pos: [0, 2.55, 2.1], target: [0, 0.72, 0], fov: 40 },
+  cocoa: { pos: [0, 2.85, 2.4], target: [0, 0.72, 0], fov: 40 },
   chill: { pos: [-0.4, 2.1, 4.3], target: [1.35, 0.6, -0.7], fov: 46 },
   cut: { pos: [0.95, 0.95, 3.15], target: [0.78, 0.42, 0.3], fov: 34 },
   reveal: { pos: [1.15, 1.15, 3.3], target: [0.82, 0.5, 0.35], fov: 38 },

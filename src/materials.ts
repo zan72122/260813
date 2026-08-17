@@ -165,7 +165,7 @@ export function makeGlassMaterial(tint: number): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
     color: tint,
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.1,
     roughness: 0.08,
     metalness: 0,
     depthWrite: false,

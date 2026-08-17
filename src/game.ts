@@ -266,7 +266,7 @@ export class Game {
     this.beginPhase('place')
     const w = this.world
     const hoverY = RIM_Y + 0.5
-    const parkPos = new THREE.Vector3(-1.5, hoverY, 0.7)
+    const parkPos = new THREE.Vector3(-1.35, hoverY, 0.8)
     const from = b.mesh.position.clone()
     const fromRot = b.mesh.rotation.y
     void tweens.to({
@@ -569,8 +569,8 @@ export class Game {
     this.input.onMove = (p) => {
       if (finishing) return
       if (!w.pickPlane(this.rig.camera, p.x, p.y, plane, hit)) return
-      const nx = clamp(hit.x, -1.0, 1.0)
-      const nz = clamp(hit.z, -0.7, 0.75)
+      const nx = clamp(hit.x, -0.85, 0.85)
+      const nz = clamp(hit.z, -0.6, 0.7)
       vx = nx - sieveTarget.x
       sieveTarget.set(nx, 1.8, nz)
     }
@@ -602,6 +602,7 @@ export class Game {
         if (w.cocoaSurface.computeCoverage() > 0.62) {
           finishing = true
           this.input.clearHandlers()
+          void w.cocoaSurface.finishDust() // even out while the last grains fall
           const from = w.sieve.position.clone()
           void tweens
             .to({
@@ -636,6 +637,7 @@ export class Game {
     this.beginPhase('chill')
     const w = this.world
     w.wobbleAmp = 0.016 // soft, unset tiramisu
+    w.fridge.visible = true
     await this.rig.go('chill', 1.1 / this.tempo)
 
     let progress = 0
@@ -726,6 +728,7 @@ export class Game {
   private async cutPhase() {
     this.beginPhase('cut')
     const w = this.world
+    w.fridge.visible = false
     w.prepareSlice()
     await this.rig.go('cut', 1.1 / this.tempo)
 

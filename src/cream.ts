@@ -35,7 +35,7 @@ export class CreamLayer {
   constructor(
     public baseY: number,
     surfaceMap: THREE.Texture | null,
-    creamColor = 0xf3ecd9,
+    creamColor = 0xf8f2e3,
   ) {
     this.hCanvas = document.createElement('canvas')
     this.hCanvas.width = HM_W
@@ -263,6 +263,23 @@ export class CocoaSurface {
       ctx.fillRect(u + (Math.random() - 0.5) * 22, v + (Math.random() - 0.5) * 22, 1.6, 1.6)
     }
     this.dirty = true
+  }
+
+  /** Final even dusting while the last particles fall. */
+  finishDust(): Promise<void> {
+    return tweens.to({
+      dur: 0.6,
+      update: () => {
+        const ctx = this.ctx
+        ctx.fillStyle = 'rgba(88,58,34,0.05)'
+        ctx.fillRect(0, 0, 256, 184)
+        ctx.fillStyle = 'rgba(66,42,24,0.4)'
+        for (let i = 0; i < 24; i++) {
+          ctx.fillRect(Math.random() * 256, Math.random() * 184, 1.6, 1.6)
+        }
+        this.dirty = true
+      },
+    })
   }
 
   computeCoverage(): number {

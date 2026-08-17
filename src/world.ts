@@ -162,16 +162,23 @@ export class World {
     // ---------- coffee tray ----------
     const tray = new THREE.Group()
     tray.position.set(TRAY_POS.x, 0, TRAY_POS.z)
-    const dish = new THREE.Mesh(
-      new THREE.CylinderGeometry(TRAY_R + 0.16, TRAY_R - 0.06, 0.3, 36, 1, false),
-      new THREE.MeshStandardMaterial({ color: 0xe9e2d4, roughness: 0.5 }),
+    // open bowl so the dark coffee inside is always visible
+    const dishWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(TRAY_R + 0.16, TRAY_R - 0.02, 0.32, 36, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xe9e2d4, roughness: 0.5, side: THREE.DoubleSide }),
     )
-    dish.position.y = 0.15
-    dish.castShadow = true
-    dish.receiveShadow = true
-    tray.add(dish)
+    dishWall.position.y = 0.16
+    dishWall.castShadow = true
+    tray.add(dishWall)
+    const dishBottom = new THREE.Mesh(
+      new THREE.CircleGeometry(TRAY_R + 0.0, 36),
+      new THREE.MeshStandardMaterial({ color: 0xd9d2c2, roughness: 0.55 }),
+    )
+    dishBottom.rotation.x = -Math.PI / 2
+    dishBottom.position.y = 0.02
+    tray.add(dishBottom)
     const coffee = new THREE.Mesh(
-      new THREE.CircleGeometry(TRAY_R + 0.02, 36),
+      new THREE.CircleGeometry(TRAY_R + 0.05, 36),
       new THREE.MeshStandardMaterial({ color: 0x2c1a0d, roughness: 0.14, metalness: 0.1 }),
     )
     coffee.rotation.x = -Math.PI / 2
@@ -227,7 +234,7 @@ export class World {
       new THREE.MeshPhysicalMaterial({
         color: tint,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.22,
         roughness: 0.15,
       }),
     )
@@ -253,7 +260,7 @@ export class World {
     const ghostGeo = new RoundedBoxGeometry(BISCUIT_LEN + 0.1, BISCUIT_H + 0.04, BISCUIT_W + 0.08, 2, 0.1)
     this.slotGhost = new THREE.Mesh(
       ghostGeo,
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xffc75e, transparent: true, opacity: 0.3, depthWrite: false }),
     )
     this.slotGhost.rotation.y = Math.PI / 2
     this.slotGhost.visible = false
@@ -395,7 +402,7 @@ export class World {
     // spatula
     const blade = new THREE.Mesh(
       new THREE.BoxGeometry(0.72, 0.025, 0.42),
-      new THREE.MeshStandardMaterial({ color: 0xe3e6e9, roughness: 0.25, metalness: 0.8 }),
+      new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.28, metalness: 0.35 }),
     )
     const handle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.045, 0.045, 0.55, 10),
@@ -409,9 +416,9 @@ export class World {
     const rim = new THREE.Mesh(
       new THREE.CylinderGeometry(0.36, 0.36, 0.16, 24, 1, true),
       new THREE.MeshStandardMaterial({
-        color: 0xd8d8dc,
+        color: 0xe4e6ea,
         roughness: 0.35,
-        metalness: 0.75,
+        metalness: 0.4,
         side: THREE.DoubleSide,
       }),
     )
@@ -435,22 +442,22 @@ export class World {
     sHandle.position.set(0.58, 0, 0)
     this.sieve.add(rim, meshDisc, powder, sHandle)
 
-    // knife
+    // knife (seen edge-on from the cut camera)
     const kBlade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 1.05, 0.018),
-      new THREE.MeshStandardMaterial({ color: 0xe8ebee, roughness: 0.2, metalness: 0.85 }),
+      new THREE.BoxGeometry(0.15, 1.05, 0.02),
+      new THREE.MeshStandardMaterial({ color: 0xf2f5f8, roughness: 0.25, metalness: 0.4 }),
     )
     const kHandle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.34, 10),
-      new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.6 }),
+      new THREE.CylinderGeometry(0.06, 0.06, 0.36, 10),
+      new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.55 }),
     )
-    kHandle.position.y = 0.68
+    kHandle.position.y = 0.7
     this.knife.add(kBlade, kHandle)
 
     // cake server
     const sBlade = new THREE.Mesh(
       new THREE.BoxGeometry(0.62, 0.022, 0.86),
-      new THREE.MeshStandardMaterial({ color: 0xe3e6e9, roughness: 0.25, metalness: 0.8 }),
+      new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.28, metalness: 0.35 }),
     )
     const svHandle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.045, 0.045, 0.5, 10),
@@ -503,6 +510,7 @@ export class World {
 
     this.fridge.position.set(FRIDGE_POS.x, 0, FRIDGE_POS.z)
     this.fridge.rotation.y = Math.atan2(0 - FRIDGE_POS.x, 0 - FRIDGE_POS.z)
+    this.fridge.visible = false // only shown for the chilling beat
     this.scene.add(this.fridge)
   }
 
