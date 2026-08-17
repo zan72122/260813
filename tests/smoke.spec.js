@@ -76,6 +76,31 @@ test('R2: 分岐で左の枝を選ぶと左の物だけ落ちる', async ({ page
   expect(rightMoved.length).toBe(0); // 右の枝はまだ閉じている
 });
 
+test('R2: 3つの枝を順に全開すると全物体が落ち、R3へ進める（回帰テスト）', async ({ page }) => {
+  test.setTimeout(150000);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/?e2e=1');
+  await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 15000 });
+  await page.evaluate(() => window.__game.gotoRound(1));
+  await waitReady(page);
+  await page.evaluate(() => window.__game.setTimeScale(2));
+
+  // 左枝 → 幹線へ退避 → 右枝 → 幹線へ退避 → 直進の枝、の順に全開
+  await dragAlong(page, 0, [[0, 3.0], [0, 1.2], [-4.6, -6.4], [-5.8, -8.3]], 14);
+  await page.waitForTimeout(2200);
+  await dragAlong(page, 0, [[0, 1.2], [0, 6.0]], 14);
+  await dragAlong(page, 0, [[0, 3.0], [0, 1.2], [4.6, -6.4], [5.8, -8.3]], 14);
+  await page.waitForTimeout(2200);
+  await dragAlong(page, 0, [[0, 1.2], [0, 6.0]], 14);
+  await dragAlong(page, 0, [[0, 3.0], [0, 1.2], [0, -8.5], [0, -9.8]], 14);
+
+  // 全物体が落ちてR3（round=2）に進むことを確認
+  await page.waitForFunction(() => window.__game.round === 2 && window.__game.phase === 'play', null, { timeout: 40000 });
+  expect(errors).toEqual([]);
+});
+
 test('R3: 平行線。片線でベンチは傾くだけ、両線で落ちる', async ({ page }) => {
   test.setTimeout(150000); // 2本の長いドラッグ＋落下待ちで時間がかかる
   await page.goto('/?e2e=1');
@@ -96,15 +121,10 @@ test('R3: 平行線。片線でベンチは傾くだけ、両線で落ちる', a
   const ball = ps.find((o) => o.type === 'ball');
   expect(['fall', 'landed']).toContain(ball.state);
 
-  // 右線（track 1）も全開 → ベンチが落ちる
+  // 右線（track 1）も全開 → 2本のベンチが両方とも落ちる（回帰: 手前のベンチ
+  // だけが落ちて奥のベンチが永久にグラグラのまま、を見逃さないよう個別に確認）
   await dragAlong(page, 1, [[2.2, 2.0], [2.2, -11.0]], 16);
-  await page.waitForFunction(
-    () => {
-      const b = window.__game.props().find((o) => o.type === 'bench' && (o.state === 'fall' || o.state === 'landed'));
-      return !!b;
-    },
-    null, { timeout: 25000 }
-  );
+  await page.waitForFunction(() => window.__game.round === 3 && window.__game.phase === 'play', null, { timeout: 30000 });
 });
 
 test('逆方向へ引いても壊れない', async ({ page }) => {

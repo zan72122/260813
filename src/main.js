@@ -919,6 +919,19 @@ const propMats = {
 const colorPool = ['red', 'blue', 'yellow', 'green', 'purple'];
 
 // footW: x方向 / footL: z方向
+// メッシュを作らずサイズだけ知りたい時用（各ビルダーの return 値と対応させておく）
+const PROP_FOOT = {
+  ball: { footL: 0.92, footW: 0.92 },
+  block: { footL: 1.0, footW: 1.0 },
+  pot: { footL: 1.2, footW: 1.2 },
+  stool: { footL: 1.5, footW: 1.5 },
+  chair: { footL: 1.45, footW: 1.4 },
+  table: { footL: 2.6, footW: 2.15 },
+  bench: { footL: 1.1, footW: 4.4 },
+  slide: { footL: 3.3, footW: 1.55 },
+  house: { footL: 4.4, footW: 4.0 },
+};
+
 const PROP_BUILDERS = {
   ball() {
     const g = new THREE.Group();
@@ -1346,6 +1359,29 @@ function straightSpec(x, z0, z1, gapeMax) {
   return { nodes: [[x, z0], [x, z1]], edges: [[0, 1]], gapeMax };
 }
 
+// 開口はレンズ（葉っぱ）形で、根元とスライダー先端の両方でゼロ幅にすぼまる。
+// 枝や線の「先端そのもの」に物を置くと、全開してもスライダーがほぼ真上に
+// 来てしまい永遠に開ききらない。先端から少し内側（既定2.5）へ引いた点を返す。
+function insetFromEnd(ax, az, bx, bz, inset = 2.5) {
+  const dx = bx - ax, dz = bz - az;
+  const len = Math.hypot(dx, dz);
+  const t = Math.max(0, len - inset);
+  return { x: ax + (dx / len) * t, z: az + (dz / len) * t };
+}
+
+// 先端から insetFromEnd() で何単位ぶん離せば、指定した footprint の物体が
+// 全開時に確実に「widthOK」を満たせるかを解析的に求める（安全マージン込み）。
+// totalLen: そのトラックが全開したときの経路全長 / gapeMaxForTrack: そのトラックの上限開口幅
+function safeLeafInset(totalLen, gapeMaxForTrack, minFootprintDim) {
+  const gape = Math.min(gapeMaxForTrack, totalLen * GAPE_PER_LEN);
+  const needed = minFootprintDim * 0.44; // widthOK 判定: 2*h >= minFootprintDim*0.88
+  const ratio = needed / gape;
+  if (ratio >= 0.98) return totalLen * 0.5; // このトラックでは物理的にほぼ不可能。中央に妥協配置
+  const ang = Math.asin(Math.pow(ratio, 1 / 0.85));
+  const safeFrac = 1 - ang / Math.PI - 0.05; // 少し余裕を持たせる
+  return totalLen * (1 - Math.max(0.3, safeFrac));
+}
+
 // 各ラウンドのビルダー。戻り値: { slabs:[Slab], props:[Prop], ceiling? }
 const ROUND_BUILDERS = [
   // R1: 1本の長い幹線（v1の感触）
@@ -1376,13 +1412,17 @@ const ROUND_BUILDERS = [
     });
     const midA = { x: -2.6, z: -3.1 };  // 左枝の中間
     const midB = { x: 2.6, z: -3.1 };   // 右枝の中間
+    // 枝の先端（葉ノード）から内側へ2.5離した点に置く（開口がすぼまる領域を避ける）
+    const leafA = insetFromEnd(0, 1.2, -4.6, -6.4);
+    const leafB = insetFromEnd(0, 1.2, 4.6, -6.4);
+    const leafC = insetFromEnd(0, 1.2, 0, -8.5);
     const ps = [
       new Prop('ball', 0, 5.4, slab),
       new Prop(pick(['pot', 'block']), midA.x, midA.z, slab),
       new Prop(pick(['chair', 'stool']), midB.x, midB.z, slab),
-      new Prop('slide', -4.1, -5.6, slab),
-      new Prop(pick(['table', 'chair']), 4.1, -5.6, slab),
-      new Prop('block', 0, -5.4, slab),
+      new Prop('slide', leafA.x, leafA.z, slab),
+      new Prop(pick(['table', 'chair']), leafB.x, leafB.z, slab),
+      new Prop('block', leafC.x, leafC.z, slab),
     ];
     return { slabs: [slab], props: ps };
   },
@@ -1393,13 +1433,18 @@ const ROUND_BUILDERS = [
       trackSpecs: [straightSpec(-2.2, 7.6, -9.5, 1.6), straightSpec(2.2, 7.6, -9.5, 1.6)],
       influence: 2.6,
     });
+    // 2線をまたぐベンチ(footW=4.4)は、線どうしの間隔(4.4)ちょうどに横幅が
+    // 一致するため、footprint中央付近のサンプル点は"どちらの線からも遠い"。
+    // 開口幅は先端に近いほどすぼまる（レンズ形）ので、先端寄りに置くと
+    // 中央サンプルが必要な幅(隣接線から1.1)を満たせず、全開してもずっと
+    // 「グラグラ」のまま絶対に落ちない。安全な位置まで根元寄りに置く。
     const ps = [
       new Prop('ball', -2.2, 5.0, slab),
       new Prop('block', 2.2, 4.4, slab),
-      new Prop('bench', 0, 1.4, slab),   // 2線をまたぐ
-      new Prop('pot', -2.2, -1.8, slab),
-      new Prop('table', 2.2, -4.0, slab),
-      new Prop('bench', 0, -6.8, slab),
+      new Prop('bench', 0, 1.4, slab),
+      new Prop('pot', -2.2, -1.0, slab),
+      new Prop('table', 2.2, -2.6, slab),
+      new Prop('bench', 0, -4.6, slab),
     ];
     return { slabs: [slab], props: ps };
   },
@@ -1450,14 +1495,28 @@ const ROUND_BUILDERS = [
 function buildEndless(round) {
   const t = Math.floor(rng() * ROUND_BUILDERS.length);
   const built = ROUND_BUILDERS[t]();
-  // 大物を追加（幹線の奥・分岐/単線ラウンドのみ）
-  if (!built.ceiling && !built.tower && built.slabs[0].tracks.length === 1 && rng() < 0.8) {
-    const slab = built.slabs[0];
-    const tr = slab.tracks[0];
-    const le = tr.edges[tr.edges.length - 1];
-    const bx = tr.nodes[le.b].x - le.dx * 2.4;
-    const bz = tr.nodes[le.b].z - le.dz * 2.4;
-    built.props.push(new Prop(pick(['house', 'slide']), bx, bz, slab));
+  // 大物を追加：単線ラウンドのみ（分岐した枝は短く、house 級の footprint だと
+  // 安全マージンが枝の途中の物と衝突するため対象外にする）
+  const slab = built.slabs[0];
+  const tr = slab.tracks[0];
+  if (!built.ceiling && !built.tower && slab.tracks.length === 1 && tr.edges.length === 1 && rng() < 0.8) {
+    const type = pick(['house', 'slide']);
+    const foot = PROP_FOOT[type];
+    const le = tr.edges[0];
+    const totalLen = le.len;
+    let inset = safeLeafInset(totalLen, tr.gapeMax, Math.min(foot.footL, foot.footW)) + 0.3;
+    // 既存の一番奥の物（table）と footprint が重ならないよう、必要ならさらに奥へ
+    const others = built.props.map((p) => ({
+      distFromB: Math.hypot(tr.nodes[le.b].x - p.root.position.x, tr.nodes[le.b].z - p.root.position.z),
+      halfExtent: Math.max(foot.footL, foot.footW) / 2 + 0.9,
+    }));
+    for (const o of others) {
+      if (Math.abs(o.distFromB - inset) < o.halfExtent) inset = Math.max(inset, o.distFromB + o.halfExtent);
+    }
+    inset = Math.min(inset, totalLen * 0.75);
+    const bx = tr.nodes[le.b].x - le.dx * inset;
+    const bz = tr.nodes[le.b].z - le.dz * inset;
+    built.props.push(new Prop(type, bx, bz, slab));
   }
   return built;
 }
