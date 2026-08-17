@@ -1,11 +1,11 @@
-// ポケットいっぱいのおおきなバッグ — 4歳向けモバイルWebゲーム
-// 「チャックをあけると、なにかでてくる」
+// ジッパーハウス — 4歳向けモバイルWebゲーム
+// 「チャックをあけて、ものを下に落とす」
 // 文字・数値UIなし / 一本指操作 / 縦横対応
 //
-// 動物型リュックの表面にある大小さまざまなジッパーポケットを開けると、
-// 中身がのぞき、ムギュッと詰まり、ポンッと飛び出す。
-// 口（メインジッパー）を開けると散らばったおもちゃを吸い込んで食べる。
-// 全部食べたらごちそうさま→次の動物リュックが登場。
+// 長い床ジッパーを開けると、上の物がグラッ→踏ん張り→ガタン！と床下へ落ちる。
+// ラウンドが進むと、枝分かれの路線・平行する複数の線・天井の荷物ネット・
+// 2階建てタワーが登場し、「どこを・どの順で・どこまで開けるか」で結果が分岐する。
+// 物理は常に上から下。カメラはスライダーに接写追従し、落下をチェイスする。
 
 import * as THREE from 'three';
 
@@ -35,12 +35,23 @@ const smoothstep = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
 let simTime = 0;
 
+const ROOM = { xHalf: 9.2, zNear: 10.2, zFar: -12.4, depth: 7.6 };
+const CUSHION_TOP = -6.0;
+const GRAVITY = 16;
+const GAPE_MAX = 2.7;
+const GAPE_PER_LEN = 0.27;
+
+// グラグラ→ガタンのチューニング（v1準拠）
+const WOBBLE_MIN_TIME = 0.45;
+const CRIT_HOLD = 0.5;
+const CRIT_LURCH = 0.14;
+
 // ---------------------------------------------------------------------------
 // サウンド（全て合成・iOSは初回タッチで解禁）
 // ---------------------------------------------------------------------------
 
 const Sound = {
-  ctx: null, master: null, noiseBuf: null, lastTick: 0, lastSqueak: 0,
+  ctx: null, master: null, noiseBuf: null, lastTick: 0, lastCreak: 0,
 
   init() {
     if (this.ctx) return;
@@ -85,55 +96,48 @@ const Sound = {
     o.start(t0); o.stop(t0 + dur + 0.02);
   },
 
-  // ジジジ…ポケットの大きさで音程が変わる
-  zipTick(closing, speed, pitch = 1) {
+  zipTick(closing, speed) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     if (now - this.lastTick < 0.024) return;
     this.lastTick = now;
-    const f = (closing ? 1500 : 2300) * pitch;
-    this._noise(0.035, f + Math.random() * 400, 2.5, clamp(0.1 + speed * 0.012, 0.1, 0.28));
-    this._tone('square', 380 * pitch, 300 * pitch, 0.02, 0.03);
+    const f = closing ? 1500 : 2300;
+    this._noise(0.035, f + Math.random() * 500, 2.5, clamp(0.1 + speed * 0.012, 0.1, 0.3));
+    this._tone('square', closing ? 320 : 420, closing ? 260 : 330, 0.02, 0.03);
   },
-  squeak(pitch = 1) { // ムギュッ
+  creak(strength) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    if (now - this.lastSqueak < 0.22) return;
-    this.lastSqueak = now;
-    this._tone('sine', 500 * pitch, 780 * pitch, 0.07, 0.06);
-    this._tone('sine', 780 * pitch, 500 * pitch, 0.08, 0.05, 0.07);
+    if (now - this.lastCreak < 0.24) return;
+    this.lastCreak = now;
+    this._tone('sawtooth', 110 + Math.random() * 50, 70, 0.16, 0.05 * strength);
+    this._noise(0.1, 500, 6, 0.03 * strength);
   },
-  pop() { this._tone('sine', 400, 950, 0.09, 0.12); this._noise(0.06, 1200, 1.5, 0.06); },
+  wedge() { this._tone('sine', 300, 170, 0.14, 0.07); },
   boing() { this._tone('sine', 420, 200, 0.18, 0.09); this._tone('sine', 630, 300, 0.18, 0.04); },
-  thud(big) { this._tone('sine', big ? 90 : 130, 45, 0.22, big ? 0.24 : 0.16); },
-  slurp() { this._tone('sawtooth', 180, 620, 0.22, 0.05); this._noise(0.2, 900, 1.2, 0.06); },
-  gulp() { this._tone('sine', 300, 90, 0.16, 0.14); this._tone('sine', 140, 70, 0.12, 0.1, 0.1); },
-  burp() {
-    this._tone('sawtooth', 120, 70, 0.32, 0.1);
-    this._tone('sawtooth', 95, 60, 0.24, 0.07, 0.12);
+  whoosh() { this._noise(0.35, 700, 0.8, 0.1); },
+  thump(big) {
+    this._tone('sine', big ? 85 : 120, 40, 0.28, big ? 0.32 : 0.22);
+    this._noise(0.16, 240, 1.2, big ? 0.2 : 0.13);
   },
-  cheep() {
-    this._tone('sine', 1400, 1900, 0.06, 0.06);
-    this._tone('sine', 1700, 1300, 0.07, 0.05, 0.08);
-  },
-  vroom() { this._tone('sawtooth', 90, 160, 0.18, 0.04); },
-  twinkle() { [1568, 1976, 2349].forEach((f, i) => this._tone('triangle', f, f, 0.25, 0.05, i * 0.06)); },
+  pof() { this._noise(0.22, 320, 0.9, 0.15); },
+  squeak() { this._tone('sine', 620, 900, 0.05, 0.06); this._tone('sine', 900, 620, 0.06, 0.05, 0.05); },
+  rustle() { this._noise(0.3, 1100, 1.1, 0.07); },
   chime() { [523, 659, 784, 880, 1046].forEach((f, i) => this._tone('triangle', f, f, 0.5, 0.1, i * 0.11)); },
-  hearts() { [784, 988, 1175].forEach((f, i) => this._tone('sine', f, f * 1.02, 0.3, 0.07, i * 0.09)); },
-  grumble() { this._tone('sine', 75, 55, 0.4, 0.09); this._tone('sine', 110, 80, 0.3, 0.05, 0.1); },
   ding() { this._tone('triangle', 880, 880, 0.35, 0.06); },
-  balloonPop() { this._noise(0.12, 2500, 0.8, 0.22); this._tone('square', 300, 120, 0.05, 0.06); },
+  pop() { this._tone('sine', 500, 900, 0.07, 0.08); },
+  clack() { this._noise(0.05, 2000, 3, 0.1); this._tone('square', 500, 380, 0.04, 0.05); },
 };
 
 // ---------------------------------------------------------------------------
-// レンダラ・シーン・カメラ・ライト
+// レンダラ・シーン
 // ---------------------------------------------------------------------------
 
 const renderer = new THREE.WebGLRenderer({ antialias: !E2E, powerPreference: 'high-performance' });
 renderer.setPixelRatio(E2E ? 1 : Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.12;
 if (!E2E) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -152,90 +156,119 @@ function makeCanvasTexture(w, h, draw) {
   return t;
 }
 
-// 背景：やわらかい部屋
 {
   const c = document.createElement('canvas');
   c.width = 16; c.height = 256;
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, '#ffeccd');
-  grad.addColorStop(0.55, '#fddcc2');
-  grad.addColorStop(1, '#f6c8ab');
+  grad.addColorStop(0, '#ffe9c9');
+  grad.addColorStop(0.5, '#fbdcc0');
+  grad.addColorStop(1, '#f2c7ae');
   g.fillStyle = grad; g.fillRect(0, 0, 16, 256);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   scene.background = tex;
 }
 
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 120);
-let isPortrait = true;
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 140);
+const camBase = { pos: new THREE.Vector3(0, 11.8, 12.8), target: new THREE.Vector3(0, -0.6, 0.5), fov: 58 };
 
 function layoutCamera() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);
   const aspect = w / h;
   camera.aspect = aspect;
-  const t = clamp((aspect - 0.45) / (1.9 - 0.45), 0, 1); // 0縦 → 1横
-  camera.fov = lerp(52, 44, t);
-  camera.position.set(0, lerp(5.4, 4.8, t), lerp(20.5, 16.5, t));
-  camera.lookAt(0, lerp(4.7, 4.0, t), 0);
+  const t = clamp((aspect - 0.45) / (1.9 - 0.45), 0, 1);
+  camBase.fov = lerp(58, 47, t);
+  camBase.pos.set(0, lerp(11.8, 10.8, t), lerp(12.8, 11.8, t));
+  camBase.target.set(0, lerp(-0.6, -1.2, t), lerp(0.5, 3.2, t));
+  camera.fov = camBase.fov;
   camera.updateProjectionMatrix();
-  const portraitNow = aspect < 1;
-  if (portraitNow !== isPortrait) {
-    isPortrait = portraitNow;
-    rebuildForOrientation();
-  }
 }
+window.addEventListener('resize', layoutCamera);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', layoutCamera);
+layoutCamera();
 
-scene.add(new THREE.HemisphereLight(0xfff4e0, 0xcf9e7e, 1.1));
-const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-sun.position.set(8, 14, 12);
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0xcf9e7e, 1.15));
+const sun = new THREE.DirectionalLight(0xffffff, 2.3);
+sun.position.set(7, 16, 8);
 if (!E2E) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   const sc = sun.shadow.camera;
-  sc.left = -13; sc.right = 13; sc.top = 14; sc.bottom = -4;
+  sc.left = -13; sc.right = 13; sc.top = 15; sc.bottom = -15;
   sc.near = 2; sc.far = 45;
   sun.shadow.bias = -0.0004;
 }
 scene.add(sun);
+const cellarLight = new THREE.PointLight(0xffd9a8, 40, 22, 1.6);
+cellarLight.position.set(0, -3.4, -1);
+scene.add(cellarLight);
 
 // ---------------------------------------------------------------------------
-// 部屋（床と壁）
+// 床下空間（v1準拠：こわくない秘密の地下）
 // ---------------------------------------------------------------------------
 
+const cellarStars = [];
 {
-  const floorTex = makeCanvasTexture(256, 256, (g, w, h) => {
-    g.fillStyle = '#eeddc4'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = 'rgba(200,165,125,0.4)'; g.lineWidth = 2;
-    g.setLineDash([9, 7]);
-    for (let i = 0; i <= 4; i++) {
-      g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, h); g.stroke();
-      g.beginPath(); g.moveTo(0, i * 64); g.lineTo(w, i * 64); g.stroke();
-    }
-    g.setLineDash([]);
-    g.fillStyle = 'rgba(233,169,140,0.35)';
-    for (let i = 0; i < 12; i++) {
-      g.beginPath(); g.arc((i * 137.5) % w, (i * 89.3) % h, 5, 0, Math.PI * 2); g.fill();
-    }
-  });
-  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-  floorTex.repeat.set(6, 4);
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(46, 26),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, 0, 5);
-  floor.receiveShadow = true;
-  scene.add(floor);
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xe8b98f, roughness: 1 });
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xd9a276, roughness: 1 });
+  const midZ = (ROOM.zNear + ROOM.zFar) / 2;
+  const mk = (w, h, px, py, pz, ry) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+    m.position.set(px, py, pz); m.rotation.y = ry;
+    scene.add(m);
+  };
+  const D = ROOM.depth;
+  mk(ROOM.xHalf * 2 + 1, D, 0, -D / 2, ROOM.zFar, 0);
+  mk(ROOM.zNear - ROOM.zFar + 1, D, -ROOM.xHalf, -D / 2, midZ, Math.PI / 2);
+  mk(ROOM.zNear - ROOM.zFar + 1, D, ROOM.xHalf, -D / 2, midZ, -Math.PI / 2);
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.xHalf * 2 + 1, ROOM.zNear - ROOM.zFar + 1), floorMat);
+  fl.rotation.x = -Math.PI / 2;
+  fl.position.set(0, -D, midZ);
+  scene.add(fl);
 
-  const wall = new THREE.Mesh(
-    new THREE.PlaneGeometry(46, 24),
-    new THREE.MeshStandardMaterial({ color: 0xf9d9b4, roughness: 1 })
+  const cushionTex = makeCanvasTexture(256, 256, (g, w, h) => {
+    g.fillStyle = '#bfe8cf'; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(255,255,255,0.75)';
+    for (let y = 0; y < 4; y++)
+      for (let x = 0; x < 4; x++) {
+        g.beginPath();
+        g.arc(x * 64 + (y % 2 ? 32 : 0) + 16, y * 64 + 16, 9, 0, Math.PI * 2);
+        g.fill();
+      }
+  });
+  cushionTex.wrapS = cushionTex.wrapT = THREE.RepeatWrapping;
+  cushionTex.repeat.set(4, 8);
+  const cush = new THREE.Mesh(
+    new THREE.BoxGeometry(15, 1.6, ROOM.zNear - ROOM.zFar - 1.2),
+    new THREE.MeshStandardMaterial({ map: cushionTex, roughness: 1 })
   );
-  wall.position.set(0, 12, -8);
-  scene.add(wall);
+  cush.position.set(0, CUSHION_TOP - 0.8, midZ);
+  scene.add(cush);
+  const pipe = new THREE.Mesh(
+    new THREE.BoxGeometry(15.3, 0.35, ROOM.zNear - ROOM.zFar - 1),
+    new THREE.MeshStandardMaterial({ color: 0x8fd8b2, roughness: 1 })
+  );
+  pipe.position.set(0, CUSHION_TOP - 0.05, midZ);
+  scene.add(pipe);
+
+  const sparkTexTmp = makeCanvasTexture(64, 64, (g) => {
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(255,236,150,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  });
+  const starMat = new THREE.SpriteMaterial({ map: sparkTexTmp, transparent: true, opacity: 0.7, depthWrite: false });
+  for (let i = 0; i < 10; i++) {
+    const s = new THREE.Sprite(starMat);
+    s.position.set(rr(-6, 6), rr(-5.4, -1.4), rr(-9, 7));
+    s.scale.setScalar(rr(0.25, 0.5));
+    s.userData.bob = rr(0, Math.PI * 2);
+    s.userData.baseY = s.position.y;
+    scene.add(s);
+    cellarStars.push(s);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,26 +285,25 @@ function makeSoftCircleTexture(color) {
 }
 const puffTex = makeSoftCircleTexture('rgba(255,250,240,0.95)');
 const sparkTex = makeSoftCircleTexture('rgba(255,236,150,1)');
-const heartTex = makeCanvasTexture(64, 64, (g) => {
-  g.fillStyle = '#ff7f9f';
-  g.beginPath();
-  g.moveTo(32, 52);
-  g.bezierCurveTo(6, 34, 10, 12, 32, 22);
-  g.bezierCurveTo(54, 12, 58, 34, 32, 52);
-  g.fill();
-});
+const hintTex = makeSoftCircleTexture('rgba(255,255,255,0.95)');
 
 const particles = [];
-function spawnParticles(tex, x, y, z, n, opts = {}) {
+function spawnPuff(x, y, z, n = 8, scale = 1) {
   for (let i = 0; i < n; i++) {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 1, depthWrite: false }));
-    const spread = opts.spread || 0.7;
-    s.position.set(x + rr(-spread, spread), y + rr(0, 0.4), z + rr(-spread, spread) * 0.4);
-    s.scale.setScalar(rr(0.25, 0.5) * (opts.scale || 1));
-    s.userData = {
-      vel: new THREE.Vector3(rr(-1.6, 1.6), rr(1.2, 3.4) * (opts.up || 1), rr(-0.5, 1.2)),
-      life: 0, maxLife: rr(0.5, 0.9), grow: opts.grow || 0, gravity: opts.gravity ?? 5,
-    };
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, opacity: 0.85, depthWrite: false }));
+    s.position.set(x + rr(-0.7, 0.7) * scale, y + rr(0, 0.4), z + rr(-0.7, 0.7) * scale);
+    s.scale.setScalar(rr(0.5, 0.9) * scale);
+    s.userData = { vel: new THREE.Vector3(rr(-1, 1), rr(0.6, 1.6), rr(-1, 1)), life: 0, maxLife: rr(0.4, 0.7), grow: rr(1.8, 2.8) * scale, puff: true };
+    scene.add(s);
+    particles.push(s);
+  }
+}
+function spawnSparkles(x, y, z, n = 14, spread = 1.6) {
+  for (let i = 0; i < n; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, transparent: true, opacity: 1, depthWrite: false }));
+    s.position.set(x + rr(-spread, spread), y + rr(0, 0.5), z + rr(-spread, spread));
+    s.scale.setScalar(rr(0.2, 0.45));
+    s.userData = { vel: new THREE.Vector3(rr(-1.6, 1.6), rr(1.5, 4), rr(-1.6, 1.6)), life: 0, maxLife: rr(0.5, 0.9), grow: 0, puff: false };
     scene.add(s);
     particles.push(s);
   }
@@ -285,1076 +317,1288 @@ function updateParticles(dt) {
       continue;
     }
     s.position.addScaledVector(u.vel, dt);
-    u.vel.y -= u.gravity * dt;
+    if (!u.puff) u.vel.y -= 6 * dt;
     if (u.grow) s.scale.setScalar(s.scale.x + u.grow * dt);
-    s.material.opacity = 1 - u.life / u.maxLife;
+    s.material.opacity = (u.puff ? 0.85 : 1) * (1 - u.life / u.maxLife);
   }
 }
 
 // ---------------------------------------------------------------------------
-// バッグ（動物型リュック）の定義
+// ジッパー路線（枝分かれする経路の木）
 // ---------------------------------------------------------------------------
 
-const BAGS = [
-  { name: 'bear', body: 0xc98f5f, belly: 0xe8c398, accent: 0x8f5f38 },
-  { name: 'frog', body: 0x7ec87e, belly: 0xd9efc4, accent: 0x4d9950 },
-  { name: 'cat', body: 0x9d8ec9, belly: 0xe6def4, accent: 0x6c5da0 },
-];
+const metalMat = new THREE.MeshStandardMaterial({ color: 0xc3d0e0, metalness: 0.3, roughness: 0.45 });
+const metal2Mat = new THREE.MeshStandardMaterial({ color: 0x93a7be, metalness: 0.3, roughness: 0.5 });
+const tabMat = new THREE.MeshStandardMaterial({ color: 0xf25c6e, metalness: 0.35, roughness: 0.45 });
+const toothMat = new THREE.MeshStandardMaterial({ color: 0xe3b23e, metalness: 0.5, roughness: 0.4 });
+const capMat = new THREE.MeshStandardMaterial({ color: 0xe8493f, roughness: 0.5 });
 
-// 中身のカタログ。need = 飛び出すのに必要な開口幅（ワールド）
-const CONTENT_TYPES = {
-  chick:   { need: 0.42 },
-  ball:    { need: 0.48 },
-  marbles: { need: 0.3 },
-  marble:  { need: 0.3 },
-  star:    { need: 0.42 },
-  balloon: { need: 0.46 },
-  car:     { need: 0.52 },
-  pouch:   { need: 0.5 },
-  teddy:   { need: 1.08 },
-  apple:   { need: 0.44 },
-  candy:   { need: 0.34 },
+class Track {
+  // spec: { nodes: [[x,z],...], edges: [[ai,bi],...] } — nodes[0]が始端（root）
+  constructor(spec, slab) {
+    this.slab = slab;
+    this.gapeMax = spec.gapeMax || GAPE_MAX;
+    this.nodes = spec.nodes.map(([x, z]) => ({ x, z }));
+    this.edges = spec.edges.map(([a, b]) => {
+      const dx = this.nodes[b].x - this.nodes[a].x;
+      const dz = this.nodes[b].z - this.nodes[a].z;
+      const len = Math.hypot(dx, dz);
+      return { a, b, len, dx: dx / len, dz: dz / len, parent: -1 };
+    });
+    // 木構造：edge.parent = ノードaへ流入するエッジ
+    this.edges.forEach((e, i) => {
+      this.edges.forEach((f, j) => { if (i !== j && f.b === e.a) e.parent = j; });
+    });
+    this.childrenOf = (nodeIdx) => this.edges.map((e, i) => (e.a === nodeIdx ? i : -1)).filter((i) => i >= 0);
+
+    this.slider = { edge: 0, s: 0 };
+    this.activity = 0;
+    this.tickAccum = 0;
+    this.openPath = [];   // [{edge, u0}] root→slider、u0=経路上の開始距離
+    this.openLen = 0;
+    this.updatePath();
+
+    this.buildMeshes();
+  }
+
+  updatePath() {
+    const chain = [];
+    let ei = this.slider.edge;
+    while (ei >= 0) { chain.unshift(ei); ei = this.edges[ei].parent; }
+    let u = 0;
+    this.openPath = chain.map((idx) => {
+      const e = this.edges[idx];
+      const seg = { edge: idx, u0: u, len: idx === this.slider.edge ? this.slider.s : e.len };
+      u += seg.len;
+      return seg;
+    });
+    this.openLen = u;
+  }
+
+  gape() { return Math.min(this.gapeMax, this.openLen * GAPE_PER_LEN); }
+
+  lens(u) {
+    if (this.openLen < 0.05 || u <= 0 || u >= this.openLen) return 0;
+    return this.gape() * Math.pow(Math.sin(Math.PI * (u / this.openLen)), 0.85);
+  }
+
+  // 点(x,z)の開口情報: {d 横距離, h 開口半幅, px,pz 垂直方向}（開いていなければ h=0）
+  holeAt(x, z) {
+    let best = null;
+    for (const seg of this.openPath) {
+      if (seg.len < 0.02) continue;
+      const e = this.edges[seg.edge];
+      const ax = this.nodes[e.a].x, az = this.nodes[e.a].z;
+      const relX = x - ax, relZ = z - az;
+      const t = clamp(relX * e.dx + relZ * e.dz, 0, seg.len);
+      const cx = ax + e.dx * t, cz = az + e.dz * t;
+      const d = Math.hypot(x - cx, z - cz);
+      if (!best || d < best.d) {
+        best = { d, u: seg.u0 + t, px: -e.dz, pz: e.dx, sideSign: Math.sign((x - cx) * -e.dz + (z - cz) * e.dx) || 1 };
+      }
+    }
+    if (!best) return { d: 1e9, h: 0 };
+    best.h = this.lens(best.u);
+    return best;
+  }
+
+  sliderWorld() {
+    const e = this.edges[this.slider.edge];
+    return {
+      x: this.nodes[e.a].x + e.dx * this.slider.s,
+      z: this.nodes[e.a].z + e.dz * this.slider.s,
+      dx: e.dx, dz: e.dz,
+    };
+  }
+
+  // 経路上の距離u→ワールド座標（root からの既定経路。テスト・ヒント用）
+  pointAt(u) {
+    let ei = 0;
+    while (true) {
+      const e = this.edges[ei];
+      if (u <= e.len) return { x: this.nodes[e.a].x + e.dx * u, z: this.nodes[e.a].z + e.dz * u };
+      u -= e.len;
+      const kids = this.childrenOf(e.b);
+      if (!kids.length) return { x: this.nodes[e.b].x, z: this.nodes[e.b].z };
+      ei = kids[0];
+    }
+  }
+
+  // 目標ワールド点へスライダーを進める（分岐は指の方向で選択）
+  moveToward(wx, wz, dt) {
+    // 分岐点を越えた直後なら、指の向きに合わせて枝を選び直せる
+    {
+      const e = this.edges[this.slider.edge];
+      if (e.parent >= 0 && this.slider.s < 3.5) {
+        const sibs = this.childrenOf(e.a);
+        if (sibs.length > 1) {
+          const jx = this.nodes[e.a].x, jz = this.nodes[e.a].z;
+          const mag = Math.hypot(wx - jx, wz - jz) || 1;
+          let best = this.slider.edge, bestDot = -2, curDot = -2;
+          for (const k of sibs) {
+            const ke = this.edges[k];
+            const dot = ((wx - jx) * ke.dx + (wz - jz) * ke.dz) / mag;
+            if (k === this.slider.edge) curDot = dot;
+            if (dot > bestDot) { bestDot = dot; best = k; }
+          }
+          if (best !== this.slider.edge && bestDot > 0.35 && bestDot > curDot + 0.03) {
+            this.slider.edge = best;
+            this.slider.s = Math.min(this.slider.s * 0.4, 0.8);
+            this.updatePath();
+            if (simTime - (this.lastClack || 0) > 0.2) { Sound.clack(); this.lastClack = simTime; }
+          }
+        }
+      }
+    }
+    const maxStep = 18 * dt;
+    let remaining = maxStep;
+    let moved = 0;
+    for (let iter = 0; iter < 4 && remaining > 0.001; iter++) {
+      const e = this.edges[this.slider.edge];
+      const ax = this.nodes[e.a].x, az = this.nodes[e.a].z;
+      const proj = (wx - ax) * e.dx + (wz - az) * e.dz;
+      let target = proj;
+      // 分岐点越えの判定
+      if (target > e.len + 0.01) {
+        const step = Math.min(remaining, e.len - this.slider.s);
+        if (step > 0) { this.slider.s += step; remaining -= step; moved += step; continue; }
+        const kids = this.childrenOf(e.b);
+        if (!kids.length) { this.slider.s = e.len; break; }
+        // 指の向きに最も合う枝へ
+        const bx = this.nodes[e.b].x, bz = this.nodes[e.b].z;
+        let bestKid = -1, bestDot = 0.25;
+        const mag = Math.hypot(wx - bx, wz - bz) || 1;
+        for (const k of kids) {
+          const ke = this.edges[k];
+          const dot = ((wx - bx) * ke.dx + (wz - bz) * ke.dz) / mag;
+          if (dot > bestDot) { bestDot = dot; bestKid = k; }
+        }
+        if (bestKid < 0) break;
+        this.slider.edge = bestKid;
+        this.slider.s = 0;
+        Sound.clack();
+        continue;
+      }
+      if (target < -0.01) {
+        const step = Math.min(remaining, this.slider.s);
+        if (step > 0) { this.slider.s -= step; remaining -= step; moved -= step; continue; }
+        if (e.parent < 0) { this.slider.s = 0; break; }
+        const pe = this.edges[e.parent];
+        this.slider.edge = e.parent;
+        this.slider.s = pe.len;
+        continue;
+      }
+      // エッジ内の通常移動
+      const want = clamp(target - this.slider.s, -remaining, remaining);
+      this.slider.s += want;
+      remaining -= Math.abs(want);
+      moved += want;
+      break;
+    }
+    this.slider.s = clamp(this.slider.s, 0, this.edges[this.slider.edge].len);
+    this.updatePath();
+    const speed = Math.abs(moved) / Math.max(dt, 1e-4);
+    this.activity = lerp(this.activity, clamp(speed / 6, 0, 1), Math.min(1, dt * 8));
+    this.tickAccum += Math.abs(moved);
+    if (this.tickAccum >= 0.34) {
+      this.tickAccum = 0;
+      Sound.zipTick(moved < 0, speed);
+    }
+    return moved;
+  }
+
+  // 自動で閉じる（ラウンド終了時）
+  retreat(dt) {
+    const step = 9 * dt;
+    let left = step;
+    while (left > 0.001) {
+      if (this.slider.s > 0) {
+        const d = Math.min(left, this.slider.s);
+        this.slider.s -= d; left -= d;
+      } else {
+        const e = this.edges[this.slider.edge];
+        if (e.parent < 0) break;
+        this.slider.edge = e.parent;
+        this.slider.s = this.edges[e.parent].len;
+      }
+    }
+    this.updatePath();
+    this.tickAccum += step;
+    if (this.tickAccum > 0.34) { this.tickAccum = 0; Sound.zipTick(true, 8); }
+    return this.openLen < 0.03;
+  }
+
+  buildMeshes() {
+    const g = new THREE.Group();
+    this.group = g;
+    const y = this.slab.y;
+
+    // 歯（全エッジ分・開閉で移動）
+    this.teethInfo = [];
+    this.edges.forEach((e, ei) => {
+      const n = Math.floor(e.len / 0.34);
+      for (let i = 0; i < n; i++) {
+        for (const side of [-1, 1]) {
+          const t = (i + (side > 0 ? 0.3 : 0.8)) * 0.34;
+          if (t > e.len) continue;
+          this.teethInfo.push({ edge: ei, t, side });
+        }
+      }
+    });
+    this.teeth = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.34, 0.17, 0.24), toothMat, this.teethInfo.length
+    );
+    this.teeth.castShadow = !E2E;
+    g.add(this.teeth);
+    this.toothDummy = new THREE.Object3D();
+
+    // スライダー（v1の形）
+    const s = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 1.9), metalMat);
+    body.position.y = 0.32;
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.44, 0.7), metal2Mat);
+    nose.position.set(0, 0.32, -1.15);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.5, 10), metal2Mat);
+    post.position.set(0, 0.7, 0.4);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.2, 12, 24), tabMat);
+    ring.rotation.x = -Math.PI / 2.1;
+    ring.position.set(0, 0.3, 1.4);
+    const link = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.8), metal2Mat);
+    link.position.set(0, 0.45, 0.75);
+    s.add(body, nose, post, ring, link);
+    s.traverse((o) => { if (o.isMesh) o.castShadow = !E2E; });
+    this.sliderMesh = s;
+    this.ringMesh = ring;
+    g.add(s);
+
+    // 末端の留め具＆分岐点の飾り
+    this.nodes.forEach((nd, ni) => {
+      const isRoot = this.edges.some((e) => e.a === ni && e.parent === -1) && !this.edges.some((e) => e.b === ni);
+      const isLeaf = !this.edges.some((e) => e.a === ni);
+      if (isLeaf) {
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.34, 0.5), capMat);
+        cap.position.set(nd.x, y + 0.17, nd.z);
+        const inEdge = this.edges.find((e) => e.b === ni);
+        if (inEdge) cap.rotation.y = Math.atan2(inEdge.dx, inEdge.dz);
+        cap.castShadow = !E2E;
+        g.add(cap);
+      } else if (!isRoot && this.childrenOf(ni).length > 1) {
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 6), metal2Mat);
+        plate.position.set(nd.x, y + 0.05, nd.z);
+        g.add(plate);
+      }
+    });
+
+    scene.add(g);
+    this.updateMeshes();
+  }
+
+  updateMeshes() {
+    const y = this.slab.y;
+    const sw = this.sliderWorld();
+    // 歯
+    let idx = 0;
+    for (const ti of this.teethInfo) {
+      const e = this.edges[ti.edge];
+      const ax = this.nodes[e.a].x, az = this.nodes[e.a].z;
+      // 経路上か？
+      let u = -1;
+      for (const seg of this.openPath) {
+        if (seg.edge === ti.edge && ti.t <= seg.len + 0.001) { u = seg.u0 + ti.t; break; }
+      }
+      const h = u >= 0 ? this.lens(u) : 0;
+      const px = -e.dz, pz = e.dx;
+      const off = h > 0.001 ? h + 0.1 : 0.115;
+      const wx = ax + e.dx * ti.t + px * off * ti.side;
+      const wz = az + e.dz * ti.t + pz * off * ti.side;
+      const nearSlider = Math.hypot(wx - sw.x, wz - sw.z) < 0.8;
+      this.toothDummy.position.set(wx, y + (h > 0.001 ? -0.14 * Math.min(1, h * 1.6) : 0) + 0.1, wz);
+      this.toothDummy.rotation.set(0, Math.atan2(e.dx, e.dz), h > 0.001 ? -ti.side * Math.min(1, 0.35 + h * 0.35) : 0);
+      this.toothDummy.scale.setScalar(nearSlider ? 0.001 : 1);
+      this.toothDummy.updateMatrix();
+      this.teeth.setMatrixAt(idx++, this.toothDummy.matrix);
+    }
+    this.teeth.instanceMatrix.needsUpdate = true;
+
+    // スライダー
+    this.sliderMesh.position.set(sw.x + Math.sin(simTime * 47) * 0.02 * this.activity, y, sw.z);
+    this.sliderMesh.rotation.y = Math.atan2(-sw.dx, -sw.dz);
+  }
+
+  ringWorldPos(v) {
+    this.ringMesh.getWorldPosition(v);
+    return v;
+  }
+
+  dispose() {
+    this.teeth.geometry.dispose();
+    this.group.traverse((o) => { if (o.isMesh && o !== this.teeth) o.geometry.dispose(); });
+    scene.remove(this.group);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 素材
+// スラブ（変形する布の床。天井ネットにも使う）
 // ---------------------------------------------------------------------------
 
-const mats = {
-  metal: new THREE.MeshStandardMaterial({ color: 0xc3d0e0, metalness: 0.3, roughness: 0.45 }),
-  metal2: new THREE.MeshStandardMaterial({ color: 0x93a7be, metalness: 0.3, roughness: 0.5 }),
-  tab: new THREE.MeshStandardMaterial({ color: 0xf25c6e, metalness: 0.3, roughness: 0.45 }),
-  teeth: new THREE.MeshStandardMaterial({ color: 0xe3b23e, metalness: 0.5, roughness: 0.4 }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x4a3038, roughness: 1 }),
-  white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
-  black: new THREE.MeshStandardMaterial({ color: 0x332a2a, roughness: 0.6 }),
+function makeSlabTexture(tracks, xHalf, zNear, zFar, opts = {}) {
+  const W = 1024, H = 1024;
+  return makeCanvasTexture(W, H, (g) => {
+    const base = opts.net ? '#dcc9a6' : (opts.color || '#f6e3c8');
+    g.fillStyle = base;
+    g.fillRect(0, 0, W, H);
+    if (opts.net) {
+      // 網目
+      g.strokeStyle = 'rgba(140,110,70,0.55)';
+      g.lineWidth = 4;
+      const step = 40;
+      for (let x = -H; x < W + H; x += step) {
+        g.beginPath(); g.moveTo(x, 0); g.lineTo(x + H, H); g.stroke();
+        g.beginPath(); g.moveTo(x + H, 0); g.lineTo(x, H); g.stroke();
+      }
+    } else {
+      g.strokeStyle = 'rgba(197,160,120,0.4)';
+      g.lineWidth = 2;
+      g.setLineDash([9, 7]);
+      const step = 60;
+      for (let x = -H; x < W + H; x += step) {
+        g.beginPath(); g.moveTo(x, 0); g.lineTo(x + H, H); g.stroke();
+        g.beginPath(); g.moveTo(x + H, 0); g.lineTo(x, H); g.stroke();
+      }
+      g.setLineDash([]);
+      g.fillStyle = 'rgba(233,169,140,0.45)';
+      for (let i = 0; i < 70; i++) {
+        g.beginPath(); g.arc((i * 137.5) % W, (i * 89.3) % H, 4.5, 0, Math.PI * 2); g.fill();
+      }
+    }
+    // 各エッジに沿ってテープ帯＋ステッチを描く
+    const xC = opts.xC || 0;
+    const toU = (x) => ((x - xC + xHalf) / (2 * xHalf)) * W;
+    const toV = (z) => ((zNear - z) / (zNear - zFar)) * H;
+    const tapePx = (0.95 / (2 * xHalf)) * W;
+    for (const tr of tracks) {
+      for (const e of tr.edges) {
+        const a = tr.nodes[e.a], b = tr.nodes[e.b];
+        g.strokeStyle = '#e2899d';
+        g.lineWidth = tapePx * 2;
+        g.lineCap = 'round';
+        g.beginPath(); g.moveTo(toU(a.x), toV(a.z)); g.lineTo(toU(b.x), toV(b.z)); g.stroke();
+        g.strokeStyle = 'rgba(255,243,234,0.9)';
+        g.lineWidth = 3;
+        g.setLineDash([11, 8]);
+        for (const off of [-tapePx * 0.62, tapePx * 0.62]) {
+          const px = -(toV(b.z) - toV(a.z)), pz = toU(b.x) - toU(a.x);
+          const m = Math.hypot(px, pz) || 1;
+          g.beginPath();
+          g.moveTo(toU(a.x) + (px / m) * off, toV(a.z) + (pz / m) * off);
+          g.lineTo(toU(b.x) + (px / m) * off, toV(b.z) + (pz / m) * off);
+          g.stroke();
+        }
+        g.setLineDash([]);
+      }
+    }
+  });
+}
+
+class Slab {
+  // opts: { y, xHalf, zNear, zFar, trackSpecs: [spec], influence, net }
+  constructor(opts) {
+    this.y = opts.y;
+    this.x = opts.x || 0;
+    this.xHalf = opts.xHalf;
+    this.zNear = opts.zNear;
+    this.zFar = opts.zFar;
+    this.influence = opts.influence || 4.8;
+    this.net = !!opts.net;
+    this.netContents = [];  // {type, x, z, released}
+    this.tracks = opts.trackSpecs.map((spec) => new Track(spec, this));
+
+    const w = this.xHalf * 2, d = this.zNear - this.zFar;
+    const segX = Math.min(60, Math.round(w / 0.34));
+    const segZ = Math.min(78, Math.round(d / 0.34));
+    this.geo = new THREE.PlaneGeometry(w, d, segX, segZ);
+    this.geo.rotateX(-Math.PI / 2);
+    this.geo.translate(this.x, 0, (this.zNear + this.zFar) / 2);
+    this.base = new Float32Array(this.geo.attributes.position.array);
+    // 開いた区間を切り抜くアルファマップ（seamをまたぐポリゴン帯を透明化）
+    this.alphaCanvas = document.createElement('canvas');
+    this.alphaCanvas.width = 256;
+    this.alphaCanvas.height = 256;
+    this.alphaTex = new THREE.CanvasTexture(this.alphaCanvas);
+    // 引き伸ばされたポリゴンがミップで黒線を失わないように
+    this.alphaTex.generateMipmaps = false;
+    this.alphaTex.minFilter = THREE.LinearFilter;
+    this.alphaTex.magFilter = THREE.LinearFilter;
+    this.alphaKey = -1;
+    this.redrawAlpha();
+    const mat = new THREE.MeshStandardMaterial({
+      map: makeSlabTexture(this.tracks, this.xHalf, this.zNear, this.zFar, { net: this.net, color: opts.color, xC: this.x }),
+      roughness: 0.95,
+      side: THREE.DoubleSide,
+      transparent: true,
+      alphaMap: this.alphaTex,
+      alphaTest: 0.4,
+    });
+    this.mesh = new THREE.Mesh(this.geo, mat);
+    this.mesh.position.y = this.y;
+    this.mesh.receiveShadow = true;
+    scene.add(this.mesh);
+    this.extras = new THREE.Group();
+    scene.add(this.extras);
+    if (this.y > 0.5 && !this.net) {
+      // 上の階：前縁の厚みと支柱で「2階」だと分かるように
+      const edgeMat = new THREE.MeshStandardMaterial({ color: opts.edgeColor || 0x9fb8d8, roughness: 0.9 });
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(this.xHalf * 2, 0.45, 0.3), edgeMat);
+      edge.position.set(this.x, this.y - 0.22, this.zNear);
+      edge.castShadow = !E2E;
+      this.extras.add(edge);
+      const postMat = new THREE.MeshStandardMaterial({ color: 0xc99560, roughness: 0.9 });
+      for (const px of [this.x - this.xHalf + 0.7, this.x + this.xHalf - 0.7]) {
+        for (const pz of [this.zNear - 0.5, this.zFar + 0.9]) {
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, this.y, 10), postMat);
+          post.position.set(px, this.y / 2, pz);
+          post.castShadow = !E2E;
+          this.extras.add(post);
+        }
+      }
+    }
+    if (this.net) {
+      // 吊りロープ（天井のさらに上へ）
+      const ropeMat = new THREE.MeshStandardMaterial({ color: 0xa8875f, roughness: 1 });
+      for (const px of [this.x - this.xHalf + 0.3, this.x + this.xHalf - 0.3]) {
+        for (const pz of [this.zNear - 0.4, this.zFar + 0.6]) {
+          const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 8, 6), ropeMat);
+          rope.position.set(px, this.y + 4, pz);
+          this.extras.add(rope);
+        }
+      }
+    }
+    this.wasOpen = true;
+    this.deform();
+  }
+
+  setGhost(on) {
+    this.mesh.material.opacity = on ? 0.22 : 1;
+    for (const tr of this.tracks) {
+      tr.group.traverse((o) => {
+        if (o.material && o.material.transparent !== undefined) {
+          o.material = o.material; // 素材共有のため透明化はスラブのみ
+        }
+      });
+      tr.group.visible = !on;
+    }
+  }
+
+  // 開いた経路に沿って黒線を描き、seam横断ポリゴンを切り抜く
+  redrawAlpha() {
+    const key = this.tracks.reduce((a, t) => a + t.openLen * 7.13 + t.slider.edge, 0);
+    if (Math.abs(key - this.alphaKey) < 0.01) return;
+    this.alphaKey = key;
+    const S = 256;
+    const g = this.alphaCanvas.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, S, S);
+    const toU = (x) => ((x - this.x + this.xHalf) / (2 * this.xHalf)) * S;
+    // CanvasTextureのflipYとPlaneGeometryのUVの組で、こちらは反転が必要
+    const toV = (z) => S - ((this.zNear - z) / (this.zNear - this.zFar)) * S;
+    g.strokeStyle = '#000';
+    g.lineCap = 'round';
+    g.lineWidth = Math.max(3, (0.7 / (2 * this.xHalf)) * S);
+    for (const tr of this.tracks) {
+      if (tr.openLen < 1.1) continue;
+      const uStart = 0.5, uEnd = tr.openLen - 0.6;
+      if (uEnd <= uStart) continue;
+      for (const seg of tr.openPath) {
+        const s0 = Math.max(seg.u0, uStart), s1 = Math.min(seg.u0 + seg.len, uEnd);
+        if (s1 <= s0) continue;
+        const e = tr.edges[seg.edge];
+        const ax = tr.nodes[e.a].x, az = tr.nodes[e.a].z;
+        const t0 = s0 - seg.u0, t1 = s1 - seg.u0;
+        g.beginPath();
+        g.moveTo(toU(ax + e.dx * t0), toV(az + e.dz * t0));
+        g.lineTo(toU(ax + e.dx * t1), toV(az + e.dz * t1));
+        g.stroke();
+      }
+    }
+    this.alphaTex.needsUpdate = true;
+  }
+
+  // 点の開口情報（全トラックのうち最も近い開口）
+  holeAt(x, z) {
+    let best = { d: 1e9, h: 0 };
+    for (const tr of this.tracks) {
+      const r = tr.holeAt(x, z);
+      if (r.h > 0 && r.d - r.h < best.d - best.h) best = r;
+    }
+    return best;
+  }
+
+  isOverHole(x, z, margin = 0) {
+    const r = this.holeAt(x, z);
+    return r.h > 0.02 && r.d < r.h - margin;
+  }
+
+  deform() {
+    const opened = this.tracks.some((t) => t.openLen > 0.02);
+    const lively = this.tracks.some((t) => t.activity > 0.02) || this.net;
+    if (!opened && !this.wasOpen && !lively) return;
+    const arr = this.geo.attributes.position.array, base = this.base;
+    const R = this.influence;
+    const n = arr.length / 3;
+    for (let i = 0; i < n; i++) {
+      const bx = base[i * 3], bz = base[i * 3 + 2];
+      let x = bx, ny = 0, z = bz;
+      const r = this.holeAt(bx, bz);
+      if (r.h > 0.001 && r.d < R) {
+        const t = clamp(r.d / R, 0, 1);
+        const fall = 1 - t * t * (3 - 2 * t);
+        const s = r.h * fall;
+        x = bx + r.px * r.sideSign * s * (r.px !== undefined ? 1 : 0);
+        z = bz + r.pz * r.sideSign * s;
+        const bulge = 0.42 * s * (1 - s / r.h);
+        const roll = 0.2 * Math.min(1, r.h * 1.6) * Math.exp(-(r.d * r.d) / 0.5);
+        ny = bulge - roll;
+      }
+      if (this.net) {
+        // 中身のふくらみ：上に頭が出て、下にも少し垂れる（ハンモック感）
+        for (const c of this.netContents) {
+          if (c.released) continue;
+          const dd = (bx - c.x) * (bx - c.x) + (bz - c.z) * (bz - c.z);
+          const w = Math.exp(-dd / (c.big ? 1.3 : 0.65));
+          ny += (c.big ? 0.7 : 0.5) * w * (1 + 0.06 * Math.sin(simTime * 2.4 + c.x * 3));
+          ny -= 0.25 * Math.exp(-dd / 2.4);
+        }
+        ny += Math.sin(bx * 1.3 + simTime * 0.7) * 0.04;
+      }
+      arr[i * 3] = x;
+      arr[i * 3 + 1] = ny;
+      arr[i * 3 + 2] = z;
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.computeVertexNormals();
+    this.wasOpen = opened;
+  }
+
+  update() {
+    for (const tr of this.tracks) {
+      tr.activity = Math.max(0, tr.activity - 0.03);
+      tr.updateMeshes();
+    }
+    this.redrawAlpha();
+    this.deform();
+  }
+
+  dispose() {
+    for (const tr of this.tracks) tr.dispose();
+    this.geo.dispose();
+    this.alphaTex.dispose();
+    scene.remove(this.mesh);
+    if (this.extras) {
+      this.extras.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+      scene.remove(this.extras);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 落とすもの（v1のビルダー＋ベンチ）
+// ---------------------------------------------------------------------------
+
+const propMats = {
   red: new THREE.MeshStandardMaterial({ color: 0xef6a5a, roughness: 0.85 }),
   blue: new THREE.MeshStandardMaterial({ color: 0x5aa9e6, roughness: 0.85 }),
   yellow: new THREE.MeshStandardMaterial({ color: 0xffd34d, roughness: 0.85 }),
   green: new THREE.MeshStandardMaterial({ color: 0x7ec87e, roughness: 0.85 }),
   purple: new THREE.MeshStandardMaterial({ color: 0xb48ce0, roughness: 0.85 }),
-  pink: new THREE.MeshStandardMaterial({ color: 0xf78fb3, roughness: 0.85 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0xc99560, roughness: 0.9 }),
+  wood2: new THREE.MeshStandardMaterial({ color: 0xa87748, roughness: 0.9 }),
+  terra: new THREE.MeshStandardMaterial({ color: 0xd47f52, roughness: 0.9 }),
+  leaf: new THREE.MeshStandardMaterial({ color: 0x5fae5f, roughness: 0.9 }),
   cream: new THREE.MeshStandardMaterial({ color: 0xfff1dc, roughness: 0.9 }),
-  brown: new THREE.MeshStandardMaterial({ color: 0xc98f5f, roughness: 0.9 }),
-  tongue: new THREE.MeshStandardMaterial({ color: 0xf78fb3, roughness: 0.9 }),
 };
-const colorMats = [mats.red, mats.blue, mats.yellow, mats.green, mats.purple, mats.pink];
+const colorPool = ['red', 'blue', 'yellow', 'green', 'purple'];
 
-const pocketTexCache = new Map();
-function pocketTexture(colorHex) {
-  if (pocketTexCache.has(colorHex)) return pocketTexCache.get(colorHex);
-  const base = new THREE.Color(colorHex);
-  const light = base.clone().lerp(new THREE.Color(0xffffff), 0.45);
-  const tex = makeCanvasTexture(256, 128, (g, w, h) => {
-    g.fillStyle = '#' + light.getHexString();
-    g.fillRect(0, 0, w, h);
-    // ふちのステッチ
-    g.strokeStyle = 'rgba(255,255,255,0.9)';
-    g.lineWidth = 3;
-    g.setLineDash([8, 6]);
-    g.strokeRect(6, 6, w - 12, h - 12);
-    g.setLineDash([]);
-    // 中央のテープ帯（ジッパーの縫い付け）
-    g.fillStyle = '#' + base.getHexString();
-    g.fillRect(0, h / 2 - 13, w, 26);
-    g.strokeStyle = 'rgba(255,255,255,0.8)';
-    g.lineWidth = 2;
-    g.setLineDash([6, 5]);
-    g.beginPath(); g.moveTo(0, h / 2 - 9); g.lineTo(w, h / 2 - 9); g.stroke();
-    g.beginPath(); g.moveTo(0, h / 2 + 9); g.lineTo(w, h / 2 + 9); g.stroke();
-    g.setLineDash([]);
-  });
-  pocketTexCache.set(colorHex, tex);
-  return tex;
-}
-
-// ---------------------------------------------------------------------------
-// ポケット（バッグ表面のジッパー開口。口やポーチにも使う）
-// ---------------------------------------------------------------------------
-
-const SEGX = 30, SEGY = 8;
-
-class Pocket {
-  // opts: { len, width, colorHex, pitch, isMouth }
-  constructor(opts) {
-    this.len = opts.len;
-    this.width = opts.width;
-    this.pitch = opts.pitch || 1;
-    this.isMouth = !!opts.isMouth;
-    this.group = new THREE.Group();
-    this.sliderT = 0;       // 0=閉 1=全開
-    this.gap = 0;           // 現在の最大開口幅
-    this.content = null;    // 中身タイプ名 or null
-    this.state = 'closed';  // closed|peek|struggle|empty
-    this.struggleTime = 0;
-    this.holdTime = 0;
-    this.wiggle = 0;        // ヒントのもぞもぞ
-    this.happy = 0;         // ごくん後のぷるぷる
-    this.activity = 0;
-    this.tickAccum = 0;
-    this.eyeSeed = rr(0, 10);
-
-    const L = this.len, W = this.width;
-    const M = 0.26; // ふち
-    // 布パッチ
-    this.geo = new THREE.PlaneGeometry(L + M * 2, W * 2 + M * 2, SEGX, SEGY);
-    this.base = new Float32Array(this.geo.attributes.position.array);
-    const mat = new THREE.MeshStandardMaterial({
-      map: pocketTexture(opts.colorHex), roughness: 0.95, side: THREE.DoubleSide,
-    });
-    this.patch = new THREE.Mesh(this.geo, mat);
-    this.patch.castShadow = false;
-    this.group.add(this.patch);
-
-    // 中の暗がり
-    const inner = new THREE.Mesh(
-      new THREE.PlaneGeometry(L, W * 1.8),
-      new THREE.MeshStandardMaterial({ color: 0x51343c, roughness: 1 })
-    );
-    inner.position.z = -0.32;
-    this.group.add(inner);
-
-    // のぞく目（中身がいる印）
-    this.peekGroup = new THREE.Group();
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), mats.white);
-    const eyeR = eyeL.clone();
-    eyeL.position.set(-0.17, 0.02, 0);
-    eyeR.position.set(0.17, 0.02, 0);
-    const pupL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), mats.black);
-    const pupR = pupL.clone();
-    pupL.position.set(-0.17, 0.02, 0.1);
-    pupR.position.set(0.17, 0.02, 0.1);
-    this.peekDome = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), mats.cream);
-    this.peekDome.position.set(0, -0.18, -0.05);
-    this.peekGroup.add(eyeL, eyeR, pupL, pupR, this.peekDome);
-    this.peekGroup.visible = false;
-    this.group.add(this.peekGroup);
-
-    // 歯（左右2列）
-    this.teethCount = Math.max(6, Math.floor(L / 0.28));
-    this.teeth = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.24, 0.12, 0.14), mats.teeth, this.teethCount * 2
-    );
-    this.group.add(this.teeth);
-    this.toothDummy = new THREE.Object3D();
-
-    // ミニスライダー＋取っ手リング
-    this.slider = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.3), mats.metal);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.11, 10, 20), mats.tab);
-    ring.position.set(-0.55, 0, 0.12);
-    const link = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.1), mats.metal2);
-    link.position.set(-0.32, 0, 0.1);
-    this.slider.add(body, ring, link);
-    this.sliderRing = ring;
-    this.group.add(this.slider);
-
-    this.deform();
-  }
-
-  // t(0..1) → パッチローカル x
-  tx(t) { return -this.len / 2 + t * this.len; }
-
-  holeHalfAt(x) {
-    const x0 = this.tx(0), xs = this.tx(this.sliderT);
-    const open = xs - x0;
-    if (open < 0.03 || x <= x0 || x >= xs) return 0;
-    const u = (x - x0) / open;
-    // 長く開けるほど幅も広がる（大きい物ほど長く開けないと出ない）
-    const gape = Math.min(this.width * 0.72, open * 0.26);
-    return gape * Math.pow(Math.sin(Math.PI * u), 0.85);
-  }
-
-  maxGap() {
-    const x0 = this.tx(0), xs = this.tx(this.sliderT);
-    const open = xs - x0;
-    if (open < 0.03) return 0;
-    return 2 * Math.min(this.width * 0.72, open * 0.26);
-  }
-
-  deform() {
-    const arr = this.geo.attributes.position.array, base = this.base;
-    const cols = SEGX + 1, rows = SEGY + 1;
-    const R = this.width + 0.42;
-    const need = this.content ? CONTENT_TYPES[this.content].need : 0.5;
-    // 中身が押すふくらみ（ヒントのもぞもぞ／ムギュムギュ共用）
-    const pushAmp =
-      (this.state === 'struggle' ? 0.22 + 0.1 * Math.sin(simTime * 26 + this.eyeSeed) : 0) +
-      this.wiggle * (0.13 + 0.06 * Math.sin(simTime * 17 + this.eyeSeed)) +
-      this.happy * (0.1 + 0.05 * Math.sin(simTime * 21));
-    const pushW = Math.max(0.5, need * 0.8);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const i = (r * cols + c) * 3;
-        const x = base[i], y = base[i + 1];
-        const h = this.holeHalfAt(x);
-        const d = Math.abs(y);
-        let ny = y, nz = 0;
-        if (h > 0.001 && d < R) {
-          const t = clamp(d / R, 0, 1);
-          const fall = 1 - t * t * (3 - 2 * t);
-          const s = h * fall;
-          ny = Math.sign(y || 1) * (d + s);
-          nz = 0.3 * s * (1 - s / h) - 0.12 * Math.min(1, h * 2) * Math.exp(-(d * d) / 0.12);
-        }
-        if (pushAmp > 0.001) {
-          nz += pushAmp * Math.exp(-(x * x) / (pushW * pushW)) * Math.exp(-(d * d) / (this.width * this.width));
-        }
-        arr[i] = x; arr[i + 1] = ny; arr[i + 2] = nz;
-      }
-    }
-    this.geo.attributes.position.needsUpdate = true;
-    this.geo.computeVertexNormals();
-
-    // 歯
-    let idx = 0;
-    const xs = this.tx(this.sliderT);
-    for (let side = -1; side <= 1; side += 2) {
-      for (let k = 0; k < this.teethCount; k++) {
-        const x = this.tx((k + (side > 0 ? 0.25 : 0.75)) / this.teethCount);
-        const h = this.holeHalfAt(x);
-        const nearSlider = Math.abs(x - xs) < 0.4;
-        this.toothDummy.position.set(x, side * (h > 0.001 ? h + 0.06 : 0.075), 0.07);
-        this.toothDummy.rotation.set(h > 0.001 ? side * Math.min(0.9, h) : 0, 0, 0);
-        this.toothDummy.scale.setScalar(nearSlider ? 0.001 : 1);
-        this.toothDummy.updateMatrix();
-        this.teeth.setMatrixAt(idx++, this.toothDummy.matrix);
-      }
-    }
-    this.teeth.instanceMatrix.needsUpdate = true;
-
-    // スライダー
-    this.slider.position.set(xs, 0, 0.14);
-  }
-
-  // 中身の状態更新。飛び出すときは onPop(type, worldPos, worldNormal) を呼ぶ
-  update(dt, onPop) {
-    this.wiggle = Math.max(0, this.wiggle - dt * 1.6);
-    this.happy = Math.max(0, this.happy - dt * 1.2);
-    this.activity = Math.max(0, this.activity - dt * 3);
-    this.gap = this.maxGap();
-
-    if (this.content) {
-      const need = CONTENT_TYPES[this.content].need;
-      const peekAmt = clamp((this.gap - 0.22) / 0.3, 0, 1);
-      // のぞく目
-      this.peekGroup.visible = peekAmt > 0.02 && this.gap < need;
-      if (this.peekGroup.visible) {
-        const x0 = this.tx(0), xs = this.tx(this.sliderT);
-        this.peekGroup.position.set((x0 + xs) / 2, 0, -0.15 + peekAmt * 0.4);
-        this.peekGroup.scale.setScalar(0.6 + peekAmt * 0.5);
-        this.peekDome.material = mats.cream;
-        const look = Math.sin(simTime * 2.2 + this.eyeSeed) * 0.06;
-        this.peekGroup.children[2].position.x = -0.17 + look;
-        this.peekGroup.children[3].position.x = 0.17 + look;
-      }
-
-      if (this.gap >= need) {
-        // ムギュムギュ…からのポンッ！
-        if (this.state !== 'struggle') { this.state = 'struggle'; this.struggleTime = 0; }
-        this.struggleTime += dt;
-        if (rng() < dt * 5) Sound.squeak(this.pitch);
-        if (this.struggleTime > 0.45) {
-          const type = this.content;
-          this.content = null;
-          this.state = 'empty';
-          this.peekGroup.visible = false;
-          const wp = new THREE.Vector3((this.tx(0) + this.tx(this.sliderT)) / 2, 0, 0.3);
-          this.group.localToWorld(wp);
-          const wn = new THREE.Vector3(0, 0, 1).transformDirection(this.group.matrixWorld);
-          Sound.pop();
-          spawnParticles(sparkTex, wp.x, wp.y, wp.z, 8, { spread: 0.4 });
-          onPop(type, wp, wn);
-        }
-      } else if (this.gap >= need * 0.45) {
-        // 幅が足りない：ムギュッと詰まる（開口が中身より小さい）
-        if (this.state !== 'struggle') { this.state = 'struggle'; this.struggleTime = 0; }
-        this.struggleTime = Math.min(this.struggleTime + dt, 0.3); // ため続けるが出ない
-        if (this.activity > 0.2 && rng() < dt * 3) Sound.squeak(this.pitch * 0.8);
-      } else if (peekAmt > 0.02) {
-        this.state = 'peek';
-      } else {
-        this.state = 'closed';
-      }
-    } else {
-      this.state = this.gap > 0.25 ? 'empty' : 'closed';
-      this.peekGroup.visible = false;
-    }
-    this.deform();
-  }
-
-  // 空きポケットに物をしまう
-  store(type) {
-    this.content = type;
-    this.state = 'closed';
-    this.happy = 1.2;
-    Sound.gulp();
-  }
-
-  setSliderT(t, dt) {
-    const prev = this.sliderT;
-    const maxStep = (6 * dt) / this.len; // ワールド速度6/sを t に換算（ラチェット感）
-    this.sliderT = clamp(prev + clamp(t - prev, -maxStep, maxStep), 0, 1);
-    const moved = Math.abs(this.sliderT - prev) * this.len;
-    if (moved > 0.0005) {
-      this.activity = 1;
-      this.tickAccum += moved;
-      if (this.tickAccum > 0.26) {
-        this.tickAccum = 0;
-        Sound.zipTick(this.sliderT < prev, moved / Math.max(dt, 1e-4), this.pitch);
-      }
-    }
-  }
-
-  tabWorldPos(v) {
-    v.copy(this.sliderRing.position).add(this.slider.position);
-    this.group.localToWorld(v);
-    return v;
-  }
-
-  trackWorldPos(t, v) {
-    v.set(this.tx(t), 0, 0.15);
-    this.group.localToWorld(v);
-    return v;
-  }
-
-  dispose() {
-    this.geo.dispose();
-    this.teeth.geometry.dispose();
-    this.group.removeFromParent();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 飛び出した物（軽量2.5D物理）
-// ---------------------------------------------------------------------------
-
-const ITEM_BUILDERS = {
-  chick() {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.34, 14, 10), mats.yellow);
-    body.position.y = 0.34;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), mats.yellow);
-    head.position.y = 0.72;
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.14, 8), mats.red);
-    beak.rotation.x = Math.PI / 2;
-    beak.position.set(0, 0.7, 0.24);
-    const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 5), mats.black);
-    e1.position.set(-0.1, 0.78, 0.19);
-    const e2 = e1.clone(); e2.position.x = 0.1;
-    g.add(body, head, beak, e1, e2);
-    return { g, r: 0.38 };
-  },
+// footW: x方向 / footL: z方向
+const PROP_BUILDERS = {
   ball() {
     const g = new THREE.Group();
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), pick(colorMats));
-    m.position.y = 0.4;
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.05, 8, 20), mats.cream);
-    band.rotation.x = Math.PI / 2; band.position.y = 0.4;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 16), propMats[pick(colorPool)]);
+    m.position.y = 0.46;
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.045, 8, 24), propMats.cream);
+    band.rotation.x = Math.PI / 2;
+    band.position.y = 0.46;
     g.add(m, band);
-    return { g, r: 0.42 };
+    return { g, footL: 0.92, footW: 0.92, height: 0.92 };
   },
-  marble() {
+  block() {
     const g = new THREE.Group();
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), pick(colorMats));
-    m.position.y = 0.17;
-    g.add(m);
-    return { g, r: 0.18 };
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), propMats[pick(colorPool)]);
+    m.position.y = 0.5;
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.16, 12), propMats.cream);
+    top.position.y = 1.05;
+    g.add(m, top);
+    return { g, footL: 1.0, footW: 1.0, height: 1.1 };
   },
-  star() {
+  pot() {
     const g = new THREE.Group();
-    const c = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), mats.yellow);
-    c.position.y = 0.3;
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2;
-      const p = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 6), mats.yellow);
-      p.position.set(Math.cos(a) * 0.3, 0.3 + Math.sin(a) * 0.3, 0);
-      p.rotation.z = a - Math.PI / 2;
-      g.add(p);
+    const potm = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 0.62, 14), propMats.terra);
+    potm.position.y = 0.31;
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.58, 0.14, 14), propMats.terra);
+    rim.position.y = 0.62;
+    const b1 = new THREE.Mesh(new THREE.SphereGeometry(0.36, 10, 8), propMats.leaf);
+    b1.position.set(0, 1.0, 0);
+    const b2 = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), propMats.leaf);
+    b2.position.set(0.24, 1.22, 0.1);
+    g.add(potm, rim, b1, b2);
+    return { g, footL: 1.2, footW: 1.2, height: 1.45 };
+  },
+  stool() {
+    const g = new THREE.Group();
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.2, 16), propMats[pick(colorPool)]);
+    seat.position.y = 0.95;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.95, 8), propMats.wood);
+      leg.position.set(Math.cos(a) * 0.5, 0.47, Math.sin(a) * 0.5);
+      leg.rotation.z = -Math.cos(a) * 0.14;
+      leg.rotation.x = Math.sin(a) * 0.14;
+      g.add(leg);
     }
-    g.add(c);
-    return { g, r: 0.4 };
+    g.add(seat);
+    return { g, footL: 1.5, footW: 1.5, height: 1.1 };
   },
-  balloon() {
+  chair() {
     const g = new THREE.Group();
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.44, 14, 12), pick(colorMats));
-    b.scale.y = 1.15; b.position.y = 0.66;
-    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.12, 8), mats.cream);
-    knot.position.y = 0.12; knot.rotation.x = Math.PI;
-    g.add(b, knot);
-    return { g, r: 0.46 };
-  },
-  car() {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.45), pick(colorMats));
-    body.position.y = 0.28;
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.24, 0.4), mats.cream);
-    top.position.set(-0.05, 0.5, 0);
-    for (const sx of [-0.28, 0.28]) for (const sz of [-0.24, 0.24]) {
-      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.08, 10), mats.black);
-      w.rotation.x = Math.PI / 2;
-      w.position.set(sx, 0.13, sz);
-      g.add(w);
+    const c = pick(colorPool);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.16, 1.2), propMats[c]);
+    seat.position.y = 0.85;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.05, 0.14), propMats[c]);
+    back.position.set(0, 1.45, -0.55);
+    for (const sx of [-0.5, 0.5]) for (const sz of [-0.48, 0.48]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.85, 8), propMats.wood);
+      leg.position.set(sx, 0.42, sz);
+      g.add(leg);
     }
-    g.add(body, top);
-    return { g, r: 0.45 };
+    g.add(seat, back);
+    return { g, footL: 1.45, footW: 1.4, height: 2.0 };
   },
-  pouch() {
+  table() {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), mats.pink);
-    body.scale.set(1, 0.62, 0.5);
-    body.position.y = 0.3;
-    g.add(body);
-    return { g, r: 0.5 };
-  },
-  candy() {
-    const g = new THREE.Group();
-    const c = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), pick(colorMats));
-    c.position.y = 0.22;
-    for (const s of [-1, 1]) {
-      const w = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 6), mats.cream);
-      w.rotation.z = s * Math.PI / 2;
-      w.position.set(s * 0.28, 0.22, 0);
-      g.add(w);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.18, 2.5), propMats.wood);
+    top.position.y = 1.28;
+    for (const sx of [-0.85, 0.85]) for (const sz of [-1.05, 1.05]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.25, 8), propMats.wood2);
+      leg.position.set(sx, 0.62, sz);
+      g.add(leg);
     }
-    g.add(c);
-    return { g, r: 0.26 };
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.24, 10), propMats[pick(colorPool)]);
+    cup.position.set(0.4, 1.5, 0.3);
+    g.add(top, cup);
+    return { g, footL: 2.6, footW: 2.15, height: 1.6 };
   },
-  teddy() {
+  bench() {
+    // 平行線をまたぐ横長ベンチ
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), mats.brown);
-    body.scale.y = 1.1; body.position.y = 0.58;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), mats.brown);
-    head.position.y = 1.3;
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), mats.cream);
-    muzzle.position.set(0, 1.22, 0.32);
-    for (const s of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mats.brown);
-      ear.position.set(s * 0.3, 1.62, 0);
-      const arm = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), mats.brown);
-      arm.scale.set(1, 1.6, 1);
-      arm.position.set(s * 0.58, 0.62, 0.1);
-      const leg = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), mats.brown);
-      leg.position.set(s * 0.3, 0.12, 0.15);
-      g.add(ear, arm, leg);
+    const c = pick(colorPool);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.22, 1.1), propMats[c]);
+    seat.position.y = 0.95;
+    for (const sx of [-1.9, 1.9]) for (const sz of [-0.38, 0.38]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.9, 8), propMats.wood2);
+      leg.position.set(sx, 0.45, sz);
+      g.add(leg);
     }
-    const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mats.black);
-    e1.position.set(-0.13, 1.36, 0.34);
-    const e2 = e1.clone(); e2.position.x = 0.13;
-    g.add(body, head, muzzle, e1, e2);
-    return { g, r: 0.62 };
+    const backrest = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.7, 0.14), propMats[c]);
+    backrest.position.set(0, 1.5, -0.48);
+    g.add(seat, backrest);
+    return { g, footL: 1.1, footW: 4.4, height: 1.9 };
   },
-  apple() {
+  slide() {
     const g = new THREE.Group();
-    const a = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), mats.red);
-    a.position.y = 0.34;
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 6), mats.brown);
-    stem.position.y = 0.72;
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), mats.green);
-    leaf.scale.set(1.6, 0.5, 0.8);
-    leaf.position.set(0.12, 0.74, 0);
-    g.add(a, stem, leaf);
-    return { g, r: 0.36 };
+    const c1 = pick(colorPool), c2 = pick(colorPool);
+    const ladder = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.7, 0.18), propMats[c1]);
+    ladder.position.set(0, 0.85, 1.3);
+    for (let i = 0; i < 3; i++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.3), propMats.cream);
+      step.position.set(0, 0.4 + i * 0.5, 1.42);
+      g.add(step);
+    }
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.18, 0.8), propMats[c2]);
+    deck.position.set(0, 1.75, 0.75);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.14, 2.6), propMats[c2]);
+    ramp.position.set(0, 0.95, -0.55);
+    ramp.rotation.x = 0.6;
+    for (const sz of [0.4, 1.15]) for (const sx of [-0.45, 0.45]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.7, 8), propMats.cream);
+      leg.position.set(sx, 0.85, sz);
+      g.add(leg);
+    }
+    g.add(ladder, deck, ramp);
+    return { g, footL: 3.3, footW: 1.55, height: 2.1 };
+  },
+  house() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3.9, 2.5, 3.6), propMats.cream);
+    body.position.y = 1.25;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.1, 1.7, 4), propMats.red);
+    roof.position.y = 3.3;
+    roof.rotation.y = Math.PI / 4;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.5, 0.12), propMats.blue);
+    door.position.set(0, 0.75, 1.82);
+    const win1 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.1), propMats.yellow);
+    win1.position.set(-1.2, 1.5, 1.82);
+    const win2 = win1.clone();
+    win2.position.x = 1.2;
+    g.add(body, roof, door, win1, win2);
+    return { g, footL: 4.4, footW: 4.0, height: 4.2 };
   },
 };
 
-const GRAV = 14;
-const items = [];
+// ---------------------------------------------------------------------------
+// Prop（v1の状態機械＋任意方向の転倒＋多層落下）
+// ---------------------------------------------------------------------------
 
-class FreeItem {
-  constructor(type, pos, normal) {
+const props = [];
+
+class Prop {
+  constructor(type, x, z, slab) {
+    const built = PROP_BUILDERS[type]();
     this.type = type;
-    const built = ITEM_BUILDERS[type]();
-    this.root = built.g;
-    this.r = built.r;
-    this.root.position.copy(pos);
-    this.root.traverse((o) => { if (o.isMesh) o.castShadow = !E2E; });
+    this.slab = slab;               // いま立っている/落ちる元のスラブ
+    this.root = new THREE.Group();
+    this.tiltNode = new THREE.Group();
+    this.body = built.g;
+    this.tiltNode.add(this.body);
+    this.root.add(this.tiltNode);
+    this.root.position.set(x, slab ? slab.y : 0, z);
     scene.add(this.root);
-    this.vel = new THREE.Vector3(
-      normal.x * rr(2.5, 4) + rr(-1.2, 1.2),
-      rr(2.2, 3.6),
-      Math.abs(normal.z) * rr(2.5, 4) + rr(0.5, 1.5)
-    );
-    this.spin = rr(-3, 3);
-    this.state = 'air'; // air | floor | sucked | gone
-    this.floorTimer = rr(0, 2);
-    this.dir = rng() < 0.5 ? -1 : 1;
-    this.suckTarget = null;
+    this.footL = built.footL;
+    this.footW = built.footW;
+    this.height = built.height;
+    this.state = 'rest'; // rest wobble critical fall landed gone
+    this.tilt = 0; this.tiltVel = 0;
+    this.tiltDir = new THREE.Vector2(0, 1); // 倒れる水平方向
+    this.wobbleTime = 0;
+    this.critTime = 0;
+    this.vy = 0;
+    this.vx = 0;
+    this.vz = 0;
+    this.spin = 0;
+    this.sink = 0;
+    this.landBounces = 0;
+    this.wedgeCue = 0;
+    this.spawning = false;
+    this.spawnT = 0;
+    this.squashT = 0;
     this.jiggleT = 0;
-    if (type === 'balloon') this.vel.y = rr(0.5, 1.2);
+    this.body.traverse((o) => { if (o.isMesh) o.castShadow = !E2E; });
+  }
+
+  // 支持サンプリング：5×5
+  sampleSupport() {
+    const N = 5;
+    const cx = this.root.position.x, cz = this.root.position.z;
+    let over = 0, ox = 0, oz = 0, maxH = 0;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const sx = cx + ((i / (N - 1)) - 0.5) * this.footW;
+        const sz = cz + ((j / (N - 1)) - 0.5) * this.footL;
+        const r = this.slab.holeAt(sx, sz);
+        maxH = Math.max(maxH, r.h);
+        if (r.h > 0.02 && r.d < r.h) { over++; ox += sx - cx; oz += sz - cz; }
+      }
+    }
+    const total = N * N;
+    const overFrac = over / total;
+    let dir = new THREE.Vector2(0, 1);
+    if (over > 0) {
+      dir.set(ox / over, oz / over);
+      if (dir.lengthSq() < 0.001) dir.set(0, 1);
+      else dir.normalize();
+    }
+    const widthOK = 2 * maxH >= Math.min(this.footW, this.footL) * 0.88;
+    return { overFrac, dir, widthOK, maxH };
   }
 
   update(dt) {
-    const p = this.root.position;
-    if (this.state === 'air') {
-      if (this.type === 'balloon') {
-        this.vel.y += 2.6 * dt; // 浮く！
-        this.vel.multiplyScalar(1 - dt * 0.9);
-        p.addScaledVector(this.vel, dt);
-        p.x += Math.sin(simTime * 1.7 + this.spin) * dt * 0.5;
-        this.root.rotation.z = Math.sin(simTime * 1.5 + this.spin) * 0.15;
-        if (p.y > 10.5) p.y = 10.5;
-        p.z = lerp(clamp(p.z, 2.2, 5), 3.4, dt * 1.2); // 画面内の帯にとどまる
-        const xr = isPortrait ? 3.4 : bag.halfW + 2.5;
-        p.x = clamp(p.x, -xr, xr);
-        return;
-      }
-      this.vel.y -= GRAV * dt;
-      p.addScaledVector(this.vel, dt);
-      this.root.rotation.z += this.spin * dt;
-      // バッグ表面ですべる
-      const bagFront = 1.9;
-      if (p.z < bagFront && p.y > 0.6 && Math.abs(p.x) < bag.halfW + 0.5) {
-        p.z = bagFront;
-        this.vel.z = Math.abs(this.vel.z) * 0.35 + 0.6;
-      }
-      if (p.y <= this.r) {
-        p.y = this.r;
-        if (Math.abs(this.vel.y) > 1.6) {
-          this.vel.y = -this.vel.y * 0.42;
-          this.vel.x *= 0.7; this.vel.z *= 0.7;
-          Sound.thud(this.r > 0.5);
-          if (this.type === 'marble') Sound.twinkle();
-        } else {
-          this.vel.set(0, 0, 0);
-          this.state = 'floor';
-          this.root.rotation.z = 0;
-          spawnParticles(puffTex, p.x, 0.2, p.z, 4, { spread: 0.4, grow: 1.6, gravity: 0 });
-          if (this.type === 'chick') Sound.cheep();
-          if (this.type === 'star') Sound.twinkle();
-        }
-      }
-    } else if (this.state === 'floor') {
-      const xr = isPortrait ? 3.1 : bag.halfW + 3;
-      p.x = clamp(p.x, -xr, xr);
-      p.z = clamp(p.z, 2.2, isPortrait ? 5.4 : 6.6);
-      this.floorTimer -= dt;
-      if (this.type === 'car') {
-        p.x += this.dir * dt * 2.2;
-        this.root.rotation.y = this.dir > 0 ? 0 : Math.PI;
-        const range = isPortrait ? 2.9 : bag.halfW + 2.6;
-        if (Math.abs(p.x) > range) { this.dir *= -1; Sound.vroom(); }
-      } else if (this.type === 'chick' && this.floorTimer <= 0) {
-        this.floorTimer = rr(1.2, 3);
-        this.vel.set(rr(-1, 1), 2.6, rr(-0.5, 0.5));
-        this.state = 'air';
-        Sound.cheep();
-      } else if (this.type === 'ball' && this.floorTimer <= 0) {
-        this.floorTimer = rr(2.5, 5);
-        this.vel.set(rr(-0.6, 0.6), 3, rr(-0.3, 0.3));
-        this.state = 'air';
-      }
-      // 山積みの押し合い
-      for (const o of items) {
-        if (o === this || o.state !== 'floor') continue;
-        const dx = p.x - o.root.position.x, dz = p.z - o.root.position.z;
-        const rd = this.r + o.r;
-        const d2 = dx * dx + dz * dz;
-        if (d2 > 0.0001 && d2 < rd * rd) {
-          const d = Math.sqrt(d2), push = (rd - d) * 0.5;
-          p.x += (dx / d) * push; p.z += (dz / d) * push;
-        }
-      }
-    } else if (this.state === 'sucked') {
-      const tv = this.suckTarget;
-      const to = new THREE.Vector3().subVectors(tv, p);
-      const d = to.length();
-      if (d < 0.7) {
-        this.state = 'gone';
-        this.root.visible = false;
-        Sound.gulp();
-        onItemEaten(this);
-        return;
-      }
-      to.normalize();
-      this.vel.lerp(to.multiplyScalar(9), dt * 4);
-      p.addScaledVector(this.vel, dt);
-      this.root.rotation.z += dt * 8;
-      const s = clamp(d / 3, 0.35, 1);
-      this.root.scale.setScalar(s);
+    if (this.spawning) { this.updateSpawn(dt); return; }
+    switch (this.state) {
+      case 'rest': case 'wobble': case 'critical': this.updateStanding(dt); break;
+      case 'fall': this.updateFall(dt); break;
+      case 'landed': break;
     }
-    // タップのぷるん
     if (this.jiggleT > 0) {
       this.jiggleT -= dt;
-      const k = Math.max(0, this.jiggleT) / 0.3;
-      const s = 1 + Math.sin(k * Math.PI * 3) * 0.08 * k;
-      this.root.scale.set(1 / s, s, 1 / s);
-      if (this.jiggleT <= 0) this.root.scale.setScalar(1);
+      const k = Math.max(0, this.jiggleT) / 0.35;
+      const s = 1 + Math.sin(k * Math.PI * 3) * 0.06 * k;
+      this.body.scale.set(1 / s, s, 1 / s);
+      if (this.jiggleT <= 0) this.body.scale.set(1, 1, 1);
+    }
+    if (this.squashT) {
+      this.squashT += dt;
+      const k = Math.min(1, this.squashT / 0.22);
+      const sy = lerp(this.body.scale.y, 1, smoothstep(k));
+      this.body.scale.set(1 / Math.sqrt(sy), sy, 1 / Math.sqrt(sy));
+      if (k >= 1) { this.squashT = 0; this.body.scale.set(1, 1, 1); }
     }
   }
 
-  tap() {
-    if (this.type === 'pouch' && !this.opened) {
-      // マトリョーシカ：ポーチのチャックが開いて中からキャンディ
-      this.opened = true;
-      Sound.zipTick(false, 12, 1.5);
-      Sound.zipTick(false, 12, 1.5);
-      setTimeout(() => Sound.pop(), 180);
-      const wp = this.root.position.clone();
-      wp.y += 0.5;
-      spawnParticles(sparkTex, wp.x, wp.y, wp.z, 8, { spread: 0.4 });
-      const candy = new FreeItem('candy', wp, new THREE.Vector3(0, 0, 0.5));
-      candy.vel.set(rr(-0.8, 0.8), 3.4, rr(0.2, 1));
-      items.push(candy);
-      this.jiggleT = 0.3;
-      return;
+  updateStanding(dt) {
+    const s = this.sampleSupport();
+    const stuck = s.overFrac >= 0.5 && !s.widthOK;
+
+    if (this.state === 'rest') {
+      if (s.overFrac > 0.1) { this.state = 'wobble'; this.wobbleTime = 0; }
     }
-    if (this.type === 'balloon') {
-      // 風船はタップで割れて星に
-      Sound.balloonPop();
-      spawnParticles(sparkTex, this.root.position.x, this.root.position.y, this.root.position.z, 14, { spread: 0.5 });
-      this.state = 'gone';
-      this.root.visible = false;
-      const star = new FreeItem('star', this.root.position.clone(), new THREE.Vector3(0, 0, 0.3));
-      star.vel.set(rr(-0.5, 0.5), -1, 0.5);
-      items.push(star);
-      return;
-    }
-    this.jiggleT = 0.3;
-    // ぴょんと跳ねる（開いている口があればそちらへ寄る）
-    if (this.state === 'floor') {
-      this.state = 'air';
-      const target = nearestOpenMouthPos(this.root.position);
-      if (target) {
-        const to = new THREE.Vector3().subVectors(target, this.root.position);
-        this.vel.set(clamp(to.x, -3, 3) * 0.8, 4.2, clamp(to.z, -3, 3) * 0.6);
-      } else {
-        this.vel.set(rr(-1, 1), 4, rr(-0.5, 0.5));
+    if (this.state === 'wobble') {
+      this.wobbleTime += dt;
+      if (s.overFrac <= 0.05) {
+        if (Math.abs(this.tilt) > 0.12) Sound.boing();
+        this.state = 'rest';
+      } else if (s.overFrac >= 0.62 && s.widthOK && this.wobbleTime > WOBBLE_MIN_TIME) {
+        this.state = 'critical';
+        this.critTime = 0;
+        Sound.creak(1);
       }
-      Sound.boing();
+    }
+    if (this.state === 'critical') {
+      if (s.overFrac < 0.5 || !s.widthOK) {
+        this.state = 'wobble'; // 間一髪セーフ
+      } else {
+        this.critTime += dt;
+        if (this.critTime >= CRIT_HOLD + CRIT_LURCH) {
+          this.startFall(s);
+          return;
+        }
+      }
+    }
+
+    if (s.overFrac > 0.03) this.tiltDir.lerp(s.dir, Math.min(1, dt * 6)).normalize();
+
+    let target = 0, tremble = 0;
+    if (this.state === 'wobble') {
+      target = 0.06 + 0.4 * s.overFrac;
+      tremble = 0.25 + s.overFrac * 0.9;
+      if (s.overFrac > 0.4 && rng() < dt * 2.2) Sound.creak(0.6 + s.overFrac * 0.5);
+    } else if (this.state === 'critical') {
+      const inLurch = this.critTime > CRIT_HOLD;
+      target = inLurch ? 0.3 : 0.44;
+      tremble = inLurch ? 0.4 : 1.6;
+      if (rng() < dt * 5) Sound.creak(1);
+    }
+
+    const sinkTarget = stuck ? Math.min(0.16 * this.height, 0.26) : 0;
+    this.sink = lerp(this.sink, sinkTarget, Math.min(1, dt * 6));
+    if (stuck) {
+      target = Math.max(target, 0.14);
+      this.wedgeCue -= dt;
+      const act = Math.max(...this.slab.tracks.map((t) => t.activity));
+      if (this.wedgeCue <= 0 && act > 0.2) { Sound.wedge(); this.wedgeCue = 0.8; }
+    }
+
+    const K = 26, D = 5.5;
+    this.tiltVel += (target - this.tilt) * K * dt - this.tiltVel * D * dt;
+    this.tilt += this.tiltVel * dt;
+    const tr = tremble * 0.02 * Math.sin(simTime * 43 + this.root.position.z * 7);
+    this.applyStandPose(this.tilt + tr, Math.sin(simTime * 31 + this.root.position.x * 3) * tremble * 0.012);
+  }
+
+  applyStandPose(tilt, wob) {
+    // tiltDir 方向へ、footprintの先端エッジを軸に倒れる
+    const d = this.tiltDir;
+    const ext = Math.abs(d.x) * this.footW * 0.5 + Math.abs(d.y) * this.footL * 0.5;
+    // 支えている側（tiltDirの逆側）の端を軸に
+    this.tiltNode.position.set(-d.x * ext, 0, -d.y * ext);
+    this.body.position.set(d.x * ext, -this.sink, d.y * ext);
+    const axis = new THREE.Vector3(d.y, 0, -d.x); // up×dir
+    this.tiltNode.quaternion.setFromAxisAngle(axis, tilt + wob);
+  }
+
+  startFall(s) {
+    this.state = 'fall';
+    this.vy = -0.6;
+    this.spin = rr(1.4, 2.2);
+    Sound.whoosh();
+    requestChase(this);
+  }
+
+  updateFall(dt) {
+    const prevY = this.root.position.y;
+    this.vy -= GRAVITY * dt;
+    this.root.position.y += this.vy * dt;
+    this.root.position.x += this.vx * dt;
+    this.root.position.z += this.vz * dt;
+    this.vx *= 1 - dt * 1.2;
+    this.vz *= 1 - dt * 1.2;
+    // 回転しながら穴中心へ吸い寄せ
+    const axis = new THREE.Vector3(this.tiltDir.y, 0, -this.tiltDir.x);
+    const q = new THREE.Quaternion().setFromAxisAngle(axis, this.spin * dt);
+    this.tiltNode.quaternion.premultiply(q);
+    this.spin *= 1 - dt * 1.1;
+
+    // 下のスラブ or 床下に着地（高速落下でも面交差で確実に判定）
+    const below = slabsBelow(this.slab, this.root.position.x, this.root.position.z);
+    for (const sl of below) {
+      const surfaceY = sl.y;
+      if (prevY > surfaceY - 0.02 && this.root.position.y <= surfaceY + 0.02 && this.vy < 0) {
+        // 穴が開いていれば素通り
+        if (this.canPassThrough(sl)) {
+          this.slab = sl;
+          Sound.whoosh();
+          continue;
+        }
+        // 着地：このスラブの住人になる（また落とせる）
+        this.root.position.y = surfaceY;
+        this.slab = sl;
+        this.state = 'rest';
+        this.tilt = 0; this.tiltVel = 0;
+        this.tiltNode.quaternion.identity();
+        this.tiltNode.position.set(0, 0, 0);
+        this.body.position.set(0, 0, 0);
+        this.squash(0.72);
+        Sound.thump(this.footL > 2);
+        spawnPuff(this.root.position.x, surfaceY + 0.2, this.root.position.z, 6, 0.7 + this.footL * 0.2);
+        return;
+      }
+    }
+    // 床下クッション
+    const bottomY = CUSHION_TOP + Math.max(0.25, this.height * 0.35);
+    if (this.root.position.y <= bottomY && this.vy < 0) {
+      this.root.position.y = bottomY;
+      if (this.landBounces === 0) {
+        Sound.thump(this.footL > 2);
+        Sound.pof();
+        spawnPuff(this.root.position.x, CUSHION_TOP + 0.3, this.root.position.z, 9, 0.8 + this.footL * 0.25);
+        this.squash(0.72);
+      } else {
+        this.squash(0.88);
+      }
+      this.landBounces++;
+      this.vy = -this.vy * 0.3;
+      this.spin *= 0.4;
+      if (this.vy < 1.2 || this.landBounces >= 3) {
+        this.vy = 0;
+        this.state = 'landed';
+        onPropLanded(this);
+      }
+    }
+  }
+
+  canPassThrough(slab) {
+    const cx = this.root.position.x, cz = this.root.position.z;
+    let over = 0, maxH = 0;
+    const pts = [[0, 0], [-this.footW / 3, 0], [this.footW / 3, 0], [0, -this.footL / 3], [0, this.footL / 3]];
+    for (const [dx, dz] of pts) {
+      const r = slab.holeAt(cx + dx, cz + dz);
+      maxH = Math.max(maxH, r.h);
+      if (r.h > 0.02 && r.d < r.h) over++;
+    }
+    return over >= 4 && 2 * maxH >= Math.min(this.footW, this.footL) * 0.85;
+  }
+
+  squash(k) {
+    this.body.scale.set(1 / Math.sqrt(k), k, 1 / Math.sqrt(k));
+    this.squashT = 0.001;
+  }
+
+  updateSpawn(dt) {
+    this.spawnT += dt;
+    if (this.spawnT < 0) { this.root.position.y = this.slab.y + 8.5; return; }
+    const t = clamp(this.spawnT / 0.55, 0, 1);
+    const e = 1 - Math.pow(1 - t, 3);
+    this.root.position.y = lerp(this.slab.y + 6.5, this.slab.y, e);
+    if (t >= 1) {
+      this.root.position.y = this.slab.y;
+      this.spawning = false;
+      this.squash(0.8);
+      Sound.pop();
+      spawnPuff(this.root.position.x, this.slab.y + 0.15, this.root.position.z, 4, 0.6);
+    }
+  }
+
+  jiggle() {
+    if (this.state === 'rest' || this.state === 'landed') {
+      this.jiggleT = 0.35;
+      Sound.squeak();
     }
   }
 
   dispose() {
     scene.remove(this.root);
-    this.root.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    this.body.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
   }
 }
 
 // ---------------------------------------------------------------------------
-// バッグ本体の構築
+// ラウンド定義
 // ---------------------------------------------------------------------------
 
-const bag = {
-  group: null,
-  def: null,
-  index: 0,
-  halfW: 3.7,
-  bellyH: 6.2,
-  headR: 1.9,
-  pockets: [],   // おなかのポケット
-  mouth: null,   // 口（メインジッパー）
-  eyes: [],
-  pupils: [],
-  face: null,
-  bounce: 0,
-  eaten: 0,
-};
+const slabs = [];
 
-function bagDims() {
-  return isPortrait
-    ? { halfW: 3.6, bellyH: 6.4, headR: 1.85 }
-    : { halfW: 5.6, bellyH: 4.6, headR: 1.7 };
+function slabsBelow(fromSlab, x, z) {
+  const fromY = fromSlab ? fromSlab.y : 99;
+  return slabs
+    .filter((s) => s.y < fromY - 0.5 &&
+      x > s.x - s.xHalf && x < s.x + s.xHalf && z < s.zNear && z > s.zFar)
+    .sort((a, b) => b.y - a.y);
 }
 
-// ポケットのワールド配置（おなか表面のゆるいカーブに沿わせる）
-function placeOnBelly(pocket, x, y, ang) {
-  const { halfW } = bag;
-  const xn = clamp(x / halfW, -0.95, 0.95);
-  const depth = bag.group.userData.depth;
-  const zf = Math.sqrt(Math.max(0.2, 1 - xn * xn * 0.55));
-  pocket.group.position.set(x, y, depth * zf + 0.06);
-  pocket.group.rotation.set(0, -Math.asin(xn * 0.6) * 0.6, ang);
+function straightSpec(x, z0, z1, gapeMax) {
+  return { nodes: [[x, z0], [x, z1]], edges: [[0, 1]], gapeMax };
 }
 
-// 手続き的レイアウト：毎ラウンド配置が変わる（縦2＋横列）
-function generatePocketLayout() {
-  const { halfW, bellyH } = bag;
-  const list = [];
-  const yLo = 1.05, yHi = 0.55 + bellyH - 0.9;
-  // 両サイドの縦ポケット
-  const vx = halfW * 0.66;
-  const vlen = Math.min(2.3, bellyH * 0.4);
-  list.push({ x: -vx, y: 0.55 + bellyH * 0.5, len: vlen, ang: Math.PI / 2, size: 'M' });
-  list.push({ x: vx, y: 0.55 + bellyH * 0.5, len: vlen, ang: -Math.PI / 2, size: 'M' });
-  // 中央の横列
-  const rows = Math.max(2, Math.floor((yHi - yLo) / 1.6));
-  const innerHalf = vx - 1.1;
-  const cols = innerHalf * 2 > 4.4 ? 2 : 1;
-  const lRow = Math.floor(rr(0, rows)); // どの行が大ポケットか
-  for (let r = 0; r < rows; r++) {
-    const y = yLo + ((yHi - yLo) * (r + 0.5)) / rows + rr(-0.1, 0.1);
-    for (let c = 0; c < cols; c++) {
-      const isL = r === lRow && c === cols - 1;
-      const size = isL ? 'L' : rng() < 0.5 ? 'S' : 'M';
-      const len = (isL ? 2.6 : size === 'M' ? 2.0 : 1.6) * (cols === 2 ? 0.8 : 1);
-      const cx = cols === 1
-        ? rr(-0.35, 0.35)
-        : (c === 0 ? -innerHalf / 2 - 0.1 : innerHalf / 2 + 0.1) + rr(-0.2, 0.2);
-      list.push({ x: cx, y, len, ang: rr(-0.15, 0.15), size });
-    }
-  }
-  return list;
-}
-
-function buildBag(defIndex) {
-  const def = BAGS[defIndex % BAGS.length];
-  const d = bagDims();
-  bag.def = def;
-  bag.index = defIndex;
-  bag.halfW = d.halfW;
-  bag.bellyH = d.bellyH;
-  bag.headR = d.headR;
-  bag.eaten = 0;
-  bag.pockets = [];
-  bag.eyes = []; bag.pupils = [];
-
-  const g = new THREE.Group();
-  bag.group = g;
-  const depth = 1.7;
-  g.userData.depth = depth;
-
-  const bodyMat = new THREE.MeshStandardMaterial({ color: def.body, roughness: 0.95 });
-  const bellyMat = new THREE.MeshStandardMaterial({ color: def.belly, roughness: 0.95 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: def.accent, roughness: 0.9 });
-
-  // 胴体：縦につぶした楕円柱＋上下の丸み
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, bag.bellyH, 28, 1), bodyMat);
-  body.scale.set(bag.halfW, 1, depth);
-  body.position.y = 0.55 + bag.bellyH / 2;
-  const bottom = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), bodyMat);
-  bottom.scale.set(bag.halfW, 0.7, depth);
-  bottom.position.y = 0.58;
-  // おなかの明るいパネル
-  const belly = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, bag.bellyH * 0.96, 28, 1, false, -Math.PI * 0.42, Math.PI * 0.84), bellyMat);
-  belly.scale.set(bag.halfW * 0.99, 1, depth * 1.02);
-  belly.position.y = 0.55 + bag.bellyH / 2; // theta=0 が +z（正面）なので回転不要
-  g.add(body, bottom, belly);
-
-  // 頭
-  const headCy = 0.55 + bag.bellyH + bag.headR * 0.62;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(bag.headR, 24, 16), bodyMat);
-  head.scale.set(1.15, 1, 0.9);
-  head.position.y = headCy;
-  g.add(head);
-  bag.headCy = headCy;
-
-  // 動物ごとの飾り
-  if (def.name === 'bear') {
-    for (const s of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), bodyMat);
-      ear.position.set(s * bag.headR * 0.85, headCy + bag.headR * 0.75, 0);
-      const inner = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), bellyMat);
-      inner.position.set(s * bag.headR * 0.85, headCy + bag.headR * 0.75, 0.32);
-      g.add(ear, inner);
-    }
-  } else if (def.name === 'frog') {
-    for (const s of [-1, 1]) {
-      const bump = new THREE.Mesh(new THREE.SphereGeometry(0.6, 14, 10), bodyMat);
-      bump.position.set(s * bag.headR * 0.62, headCy + bag.headR * 0.82, 0);
-      g.add(bump);
-    }
-  } else if (def.name === 'cat') {
-    for (const s of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.85, 4), bodyMat);
-      ear.position.set(s * bag.headR * 0.72, headCy + bag.headR * 0.9, 0);
-      ear.rotation.y = Math.PI / 4;
-      g.add(ear);
-    }
-  }
-
-  // 目（スライダーを目で追う）
-  const eyeY = def.name === 'frog' ? headCy + bag.headR * 0.82 : headCy + bag.headR * 0.25;
-  const eyeZ = def.name === 'frog' ? 0.45 : bag.headR * 0.78;
-  const eyeSpread = def.name === 'frog' ? bag.headR * 0.62 : bag.headR * 0.42;
-  for (const s of [-1, 1]) {
-    const white = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10), mats.white);
-    white.position.set(s * eyeSpread, eyeY, eyeZ);
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), mats.black);
-    pupil.position.set(s * eyeSpread, eyeY, eyeZ + 0.2);
-    g.add(white, pupil);
-    bag.eyes.push(white); bag.pupils.push(pupil);
-  }
-
-  // ほっぺ
-  for (const s of [-1, 1]) {
-    const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), mats.pink);
-    cheek.scale.z = 0.4;
-    cheek.position.set(s * bag.headR * 0.8, headCy - bag.headR * 0.15, bag.headR * 0.72);
-    g.add(cheek);
-  }
-
-  // 肩ひも（リュックらしさ）
-  for (const s of [-1, 1]) {
-    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.16, 8, 16, Math.PI), accentMat);
-    strap.position.set(s * bag.halfW * 0.55, 0.6 + bag.bellyH, -depth * 0.4);
-    strap.rotation.set(0.3, 0, 0);
-    g.add(strap);
-  }
-
-  // おなかのポケット（手続き的レイアウト・毎ラウンド変化）
-  const pcolors = [0xf28ba8, 0x7ec0f0, 0xffd34d, 0x8fd8b2, 0xc39ae8, 0xf9a76a, 0x9ad0c9];
-  const layout = generatePocketLayout();
-  layout.forEach((pd, i) => {
-    const width = pd.size === 'L' ? 0.78 : pd.size === 'M' ? 0.58 : 0.45;
-    const p = new Pocket({
-      len: pd.len, width,
-      colorHex: pcolors[i % pcolors.length],
-      pitch: pd.size === 'L' ? 0.8 : pd.size === 'S' ? 1.35 : 1,
+// 各ラウンドのビルダー。戻り値: { slabs:[Slab], props:[Prop], ceiling? }
+const ROUND_BUILDERS = [
+  // R1: 1本の長い幹線（v1の感触）
+  function r1() {
+    const slab = new Slab({
+      y: 0, xHalf: ROOM.xHalf, zNear: ROOM.zNear, zFar: ROOM.zFar,
+      trackSpecs: [straightSpec(0, 7.6, -10.5)],
     });
-    p.sizeClass = pd.size;
-    placeOnBelly(p, pd.x, pd.y, pd.ang);
-    g.add(p.group);
-    bag.pockets.push(p);
-  });
+    const ps = [
+      new Prop('ball', rr(-0.1, 0.1), 5.2, slab),
+      new Prop('block', rr(-0.1, 0.1), 3.5, slab),
+      new Prop('pot', rr(-0.1, 0.1), 1.6, slab),
+      new Prop('stool', rr(-0.1, 0.1), -1.2, slab),
+      new Prop('table', 0, -5.2, slab),
+    ];
+    return { slabs: [slab], props: ps };
+  },
+  // R2: 分岐路線（幹線→左右の枝）
+  function r2() {
+    const spec = {
+      nodes: [[0, 7.6], [0, 1.2], [-4.6, -6.4], [4.6, -6.4], [0, -8.5]],
+      edges: [[0, 1], [1, 2], [1, 3], [1, 4]],
+      gapeMax: 2.2, // 真ん中の線が脇の枝の物まで届かない幅
+    };
+    const slab = new Slab({
+      y: 0, xHalf: ROOM.xHalf, zNear: ROOM.zNear, zFar: ROOM.zFar,
+      trackSpecs: [spec],
+    });
+    const midA = { x: -2.6, z: -3.1 };  // 左枝の中間
+    const midB = { x: 2.6, z: -3.1 };   // 右枝の中間
+    const ps = [
+      new Prop('ball', 0, 5.4, slab),
+      new Prop(pick(['pot', 'block']), midA.x, midA.z, slab),
+      new Prop(pick(['chair', 'stool']), midB.x, midB.z, slab),
+      new Prop('slide', -4.1, -5.6, slab),
+      new Prop(pick(['table', 'chair']), 4.1, -5.6, slab),
+      new Prop('block', 0, -5.4, slab),
+    ];
+    return { slabs: [slab], props: ps };
+  },
+  // R3: 平行2線＋横倒し（ベンチは両方開けないと落ちない）
+  function r3() {
+    const slab = new Slab({
+      y: 0, xHalf: ROOM.xHalf, zNear: ROOM.zNear, zFar: ROOM.zFar,
+      trackSpecs: [straightSpec(-2.2, 7.6, -9.5, 1.6), straightSpec(2.2, 7.6, -9.5, 1.6)],
+      influence: 2.6,
+    });
+    const ps = [
+      new Prop('ball', -2.2, 5.0, slab),
+      new Prop('block', 2.2, 4.4, slab),
+      new Prop('bench', 0, 1.4, slab),   // 2線をまたぐ
+      new Prop('pot', -2.2, -1.8, slab),
+      new Prop('table', 2.2, -4.0, slab),
+      new Prop('bench', 0, -6.8, slab),
+    ];
+    return { slabs: [slab], props: ps };
+  },
+  // R4: 天井の荷物ネット＋床
+  function r4() {
+    const floor = new Slab({
+      y: 0, xHalf: ROOM.xHalf, zNear: ROOM.zNear, zFar: ROOM.zFar,
+      trackSpecs: [straightSpec(0, 7.6, -10.5)],
+    });
+    const net = new Slab({
+      y: 6.6, x: 2.0, xHalf: 2.2, zNear: 7.4, zFar: -9.5,
+      trackSpecs: [straightSpec(2.0, 6.6, -8.8, 1.5)],
+      net: true, influence: 2.4,
+    });
+    net.netContents = [
+      { type: 'ball', x: 2.0 + rr(-0.3, 0.3), z: 3.6 },
+      { type: 'block', x: 2.0 + rr(-0.3, 0.3), z: 1.0 },
+      { type: 'pot', x: 2.0 + rr(-0.3, 0.3), z: -1.8 },
+      { type: 'stool', x: 2.0, z: -4.4, big: true },
+      { type: 'ball', x: 2.0 + rr(-0.3, 0.3), z: -6.4 },
+    ];
+    const ps = [new Prop('block', 0, -7.8, floor)];
+    return { slabs: [floor, net], props: ps, ceiling: net, focusFloor: true };
+  },
+  // R5: 2階建てタワー（連鎖落下。ロフトの穴と床の線は同じ x=0 に揃う）
+  function r5() {
+    const floor = new Slab({
+      y: 0, xHalf: ROOM.xHalf, zNear: ROOM.zNear, zFar: ROOM.zFar,
+      trackSpecs: [straightSpec(0, 7.6, -10.5)],
+    });
+    const loft = new Slab({
+      y: 4.4, xHalf: 7.2, zNear: 1.6, zFar: -11.4,
+      trackSpecs: [straightSpec(0, 0.8, -10.4)],
+      color: '#e6ddf4', edgeColor: 0xb2a2d6,
+    });
+    const ps = [
+      new Prop('ball', 0, -1.4, loft),
+      new Prop('pot', 0, -4.2, loft),
+      new Prop('chair', 0, -7.6, loft),
+      new Prop('ball', 0, 5.6, floor),
+      new Prop('stool', 0, 3.2, floor),
+    ];
+    return { slabs: [floor, loft], props: ps, tower: true };
+  },
+];
 
-  // 口 = メインジッパー（開けると吸い込む）
-  const mouth = new Pocket({
-    len: bag.headR * 1.3, width: 0.5,
-    colorHex: def.body, pitch: 0.65, isMouth: true,
-  });
-  mouth.group.position.set(0, headCy - bag.headR * 0.45, bag.headR * 0.74);
-  mouth.group.rotation.set(-0.15, 0, 0);
-  // 口の中はベロ色
-  mouth.group.children[1].material = mats.tongue;
-  g.add(mouth.group);
-  bag.mouth = mouth;
-
-  g.traverse((o) => { if (o.isMesh && o.geometry.type !== 'PlaneGeometry') o.castShadow = !E2E; });
-  scene.add(g);
-  return g;
-}
-
-function disposeBag() {
-  if (!bag.group) return;
-  for (const p of bag.pockets) p.dispose();
-  if (bag.mouth) bag.mouth.dispose();
-  bag.group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
-  scene.remove(bag.group);
-  bag.group = null;
-}
-
-// 中身を割り当てる（毎ラウンドシャッフル）
-function fillPockets() {
-  const large = [], others = [];
-  bag.pockets.forEach((p) => (p.sizeClass === 'L' ? large : others).push(p));
-  // 大ポケットにはクマかポーチか風船
-  for (const p of large) p.content = pick(['teddy', 'teddy', 'pouch', 'balloon']);
-  const pool = ['chick', 'ball', 'marbles', 'star', 'balloon', 'car', 'apple', 'pouch'];
-  const shuffled = pool.slice().sort(() => rng() - 0.5);
-  others.forEach((p, i) => { p.content = shuffled[i % shuffled.length]; });
-  for (const p of [...bag.pockets]) { p.sliderT = 0; p.state = 'closed'; p.deform(); }
-  bag.mouth.sliderT = 0;
-  bag.mouth.content = null;
-  bag.mouth.deform();
+// R6以降：テンプレートを乱択して大物混合
+function buildEndless(round) {
+  const t = Math.floor(rng() * ROUND_BUILDERS.length);
+  const built = ROUND_BUILDERS[t]();
+  // 大物を追加（幹線の奥・分岐/単線ラウンドのみ）
+  if (!built.ceiling && !built.tower && built.slabs[0].tracks.length === 1 && rng() < 0.8) {
+    const slab = built.slabs[0];
+    const tr = slab.tracks[0];
+    const le = tr.edges[tr.edges.length - 1];
+    const bx = tr.nodes[le.b].x - le.dx * 2.4;
+    const bz = tr.nodes[le.b].z - le.dz * 2.4;
+    built.props.push(new Prop(pick(['house', 'slide']), bx, bz, slab));
+  }
+  return built;
 }
 
 // ---------------------------------------------------------------------------
-// ラウンド進行
+// ゲーム進行
 // ---------------------------------------------------------------------------
 
 const game = {
-  phase: 'enter', // enter | play | celebrate | exit
-  phaseT: 0,
   round: 0,
+  phase: 'play', // play | clear | closing | respawn
+  phaseT: 0,
   ready: false,
+  ceiling: null,
 };
 
 function startRound(round) {
-  disposeBag();
-  for (const it of items) it.dispose();
-  items.length = 0;
-  buildBag(round);
-  fillPockets();
-  game.phase = 'enter';
+  for (const s of slabs) s.dispose();
+  slabs.length = 0;
+  for (const p of props) p.dispose();
+  props.length = 0;
+  const built = round < ROUND_BUILDERS.length ? ROUND_BUILDERS[round]() : buildEndless(round);
+  slabs.push(...built.slabs);
+  game.ceiling = built.ceiling || null;
+  built.props.forEach((p, i) => {
+    p.spawning = true;
+    p.spawnT = -i * 0.15;
+    p.root.position.y = p.slab.y + 8.5;
+    props.push(p);
+  });
+  // 最初の注目：通常は一番上のスラブ、天井ラウンドは床側
+  const sorted = slabs.slice().sort((a, b) => (built.focusFloor ? a.y - b.y : b.y - a.y));
+  focusTrack = sorted[0] ? sorted[0].tracks[0] : null;
+  chaseProp = null;
+  game.phase = 'play';
   game.phaseT = 0;
 }
 
-function rebuildForOrientation() {
-  if (!bag.group) return;
-  // 向きが変わったらバッグを組み直す（中身は引き継ぎ、ジッパーは閉じ直す）
-  const savedContents = bag.pockets.map((p) => p.content).filter(Boolean);
-  const round = bag.index;
-  disposeBag();
-  buildBag(round);
-  const large = bag.pockets.filter((p) => p.sizeClass === 'L');
-  const others = bag.pockets.filter((p) => p.sizeClass !== 'L');
-  for (const c of savedContents) {
-    let dest = null;
-    if (c === 'teddy') dest = large.find((p) => !p.content) || null;
-    if (!dest) dest = others.find((p) => !p.content) || large.find((p) => !p.content) || null;
-    if (dest) dest.content = c;
-  }
-  for (const p of bag.pockets) p.deform();
-  bag.mouth.deform();
-}
-
-function popContent(pocket, type, wp, wn) {
-  bag.bounce = 0.5;
-  if (type === 'marbles') {
-    for (let i = 0; i < 5; i++) {
-      const it = new FreeItem('marble', wp, wn);
-      it.vel.x += rr(-1.5, 1.5);
-      items.push(it);
-    }
-  } else {
-    items.push(new FreeItem(type, wp, wn));
+function onPropLanded(p) {
+  const remaining = props.filter((q) => q.state !== 'landed');
+  const netLeft = game.ceiling ? game.ceiling.netContents.filter((c) => !c.released).length : 0;
+  if (remaining.length === 0 && netLeft === 0 && game.phase === 'play') {
+    game.phase = 'clear';
+    game.phaseT = 0;
   }
 }
 
-function onItemEaten(item) {
-  bag.eaten++;
-  bag.bounce = 0.8;
-  spawnParticles(heartTex, 0, bag.headCy + bag.headR, 2, 3, { spread: 0.8, gravity: -1.5 });
-  Sound.hearts();
-}
-
-function nearestOpenMouthPos(fromPos) {
-  // 開いている口（吸い込み中）を優先
-  if (bag.mouth && bag.mouth.gap > 0.5) {
-    const v = new THREE.Vector3();
-    bag.mouth.trackWorldPos(bag.mouth.sliderT * 0.5, v);
-    return v;
-  }
-  return null;
-}
-
-function allDone() {
-  for (const p of bag.pockets) if (p.content) return false;
-  for (const it of items) if (it.state === 'air' || it.state === 'floor' || it.state === 'sucked') return false;
-  return true;
-}
-
-function updateGame(dt) {
+function updateGamePhase(dt) {
   game.phaseT += dt;
-  const g = bag.group;
-  if (!g) return;
-
-  if (game.phase === 'enter') {
-    const k = smoothstep(clamp(game.phaseT / 1.1, 0, 1));
-    g.position.x = lerp((isPortrait ? 10 : 16), 0, k);
-    g.position.y = Math.abs(Math.sin(game.phaseT * 9)) * (1 - k) * 0.8;
-    if (k >= 1) { game.phase = 'play'; game.phaseT = 0; Sound.boing(); }
-  } else if (game.phase === 'play') {
-    if (allDone() && game.phaseT > 1.5) {
-      game.phase = 'celebrate';
-      game.phaseT = 0;
+  if (game.phase === 'clear') {
+    if (game.phaseT > 0.7) {
       Sound.chime();
-      Sound.burp();
-      spawnParticles(heartTex, 0, bag.headCy + 1, 2.5, 8, { spread: 1.5, gravity: -1.2 });
-      spawnParticles(sparkTex, 0, bag.bellyH * 0.6, 2.5, 16, { spread: 2.4 });
+      spawnSparkles(0, 0.6, 0, 22, 2.6);
+      for (const p of props) {
+        spawnSparkles(p.root.position.x, p.root.position.y + 0.5, p.root.position.z, 6, 1);
+      }
+      game.phase = 'closing';
+      game.phaseT = 0;
     }
-  } else if (game.phase === 'celebrate') {
-    // うれしいダンス＋口を自動で閉じる
-    g.position.y = Math.abs(Math.sin(game.phaseT * 7)) * 0.6;
-    g.rotation.z = Math.sin(game.phaseT * 7) * 0.05;
-    bag.mouth.setSliderT(0, dt);
-    if (game.phaseT > 2.2) { game.phase = 'exit'; game.phaseT = 0; }
-  } else if (game.phase === 'exit') {
-    const k = smoothstep(clamp(game.phaseT / 1.0, 0, 1));
-    g.position.x = lerp(0, (isPortrait ? -11 : -17), k);
-    g.position.y = Math.abs(Math.sin(game.phaseT * 10)) * 0.7;
-    g.rotation.z = 0;
-    if (k >= 1) {
+  } else if (game.phase === 'closing') {
+    for (const p of props) {
+      if (p.state === 'landed') {
+        p.body.scale.multiplyScalar(1 - dt * 2.4);
+        if (p.body.scale.y < 0.05) { p.state = 'gone'; p.root.visible = false; }
+      }
+    }
+    let allClosed = true;
+    for (const s of slabs) for (const tr of s.tracks) {
+      if (!tr.retreat(dt)) allClosed = false;
+    }
+    if (allClosed && game.phaseT > 1.0) {
       game.round++;
-      startRound(game.round);
+      game.phase = 'respawn';
+      game.phaseT = 0;
     }
+  } else if (game.phase === 'respawn') {
+    if (game.phaseT > 0.4) startRound(game.round);
   }
 
-  // バッグのぼよん
-  bag.bounce = Math.max(0, bag.bounce - dt * 2.5);
-  const sq = 1 + Math.sin(bag.bounce * Math.PI) * 0.05;
-  g.scale.set(1 / sq, sq, 1);
-
-  // ポケット更新
-  for (const p of bag.pockets) {
-    p.update(dt, (type, wp, wn) => popContent(p, type, wp, wn));
-  }
-  bag.mouth.update(dt, () => {});
-
-  // 口の吸い込み
-  if (bag.mouth.gap > 0.5 && game.phase === 'play') {
-    const mp = new THREE.Vector3();
-    bag.mouth.trackWorldPos(bag.mouth.sliderT * 0.5, mp);
-    let slurping = false;
-    for (const it of items) {
-      if (it.state === 'floor' || (it.state === 'air' && it.type === 'balloon')) {
-        const d = it.root.position.distanceTo(mp);
-        if (d < 8.5) {
-          it.state = 'sucked';
-          it.suckTarget = mp.clone();
-          slurping = true;
-        }
-      } else if (it.state === 'sucked') {
-        it.suckTarget.copy(mp);
+  // 天井ネット：開口が中身の真上に達したら降らせる
+  if (game.ceiling) {
+    for (const c of game.ceiling.netContents) {
+      if (c.released) continue;
+      const r = game.ceiling.holeAt(c.x, c.z);
+      const need = c.big ? 0.66 : 0.46;
+      if (r.h > need && r.d < r.h) {
+        c.released = true;
+        Sound.rustle();
+        Sound.pop();
+        const p = new Prop(c.type, c.x, c.z, game.ceiling);
+        p.root.position.y = game.ceiling.y - 0.3;
+        p.state = 'fall';
+        p.vy = -0.5;
+        // 網の縁を転がって床の線の近くへ落ちる
+        p.vx = (0 - c.x) * rr(0.7, 1.0);
+        p.spin = rr(-1.5, 1.5);
+        props.push(p);
+        requestChase(p);
       }
-    }
-    if (slurping) Sound.slurp();
-  }
-
-  // 空のポケットが落下物をキャッチ
-  for (const it of items) {
-    if (it.state !== 'air' || it.vel.y > 0) continue;
-    for (const p of bag.pockets) {
-      if (p.content || p.gap < 0.45) continue;
-      const sp = new THREE.Vector3();
-      p.trackWorldPos(p.sliderT * 0.5, sp);
-      if (it.root.position.distanceTo(sp) < 0.9 && p.gap >= it.r * 1.4) {
-        it.state = 'gone';
-        it.root.visible = false;
-        p.store(it.type);
-        spawnParticles(sparkTex, sp.x, sp.y, sp.z, 6, { spread: 0.4 });
-        break;
-      }
-    }
-  }
-
-  // 目がスライダーや飛び出た物を追う
-  let lookAt = null;
-  if (input.dragging && input.pocket) {
-    lookAt = new THREE.Vector3();
-    input.pocket.tabWorldPos(lookAt);
-  } else if (items.length) {
-    const last = items[items.length - 1];
-    if (last.state !== 'gone') lookAt = last.root.position;
-  }
-  for (let i = 0; i < bag.pupils.length; i++) {
-    const pu = bag.pupils[i], wh = bag.eyes[i];
-    const blink = Math.sin(simTime * 0.7 + 2 * i) > 0.995;
-    wh.scale.y = blink ? 0.15 : 1;
-    if (lookAt) {
-      const local = lookAt.clone();
-      bag.group.worldToLocal(local);
-      const dx = clamp((local.x - wh.position.x) * 0.03, -0.1, 0.1);
-      const dy = clamp((local.y - wh.position.y) * 0.02, -0.08, 0.08);
-      pu.position.x = wh.position.x + dx;
-      pu.position.y = wh.position.y + dy;
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// 入力（一本指）
+// 入力（一本指・複数スライダー対応）
 // ---------------------------------------------------------------------------
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const hitPoint = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 
 const input = {
   dragging: false,
   pointerId: -1,
-  pocket: null,
+  track: null,
+  grabOffset: 0,
   lastInputAt: 0,
   hasEverDragged: false,
 };
 
-const _v3a = new THREE.Vector3();
-const _v3b = new THREE.Vector3();
-
-function toScreen(v) {
-  const p = v.clone().project(camera);
-  return { x: (p.x * 0.5 + 0.5) * window.innerWidth, y: (-p.y * 0.5 + 0.5) * window.innerHeight };
+function allTracks() {
+  const out = [];
+  for (const s of slabs) for (const tr of s.tracks) out.push(tr);
+  return out;
 }
 
-function allPockets() {
-  return bag.group ? [...bag.pockets, bag.mouth] : [];
+function screenToSlabPoint(cx, cy, slabY) {
+  ndc.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(slabY + 0.3));
+  if (raycaster.ray.intersectPlane(plane, hitPoint)) return hitPoint;
+  return null;
+}
+
+function projectToScreen(x, y, z) {
+  const v = _v3.set(x, y, z).project(camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+  };
 }
 
 function onPointerDown(e) {
@@ -1362,60 +1606,64 @@ function onPointerDown(e) {
   Sound.resume();
   input.lastInputAt = simTime;
   if (input.dragging || game.phase !== 'play') return;
-
-  const grabR = Math.min(window.innerWidth, window.innerHeight) * 0.11 + 24;
+  // 一番近い取っ手をつかむ
+  const grabR = Math.min(window.innerWidth, window.innerHeight) * 0.14 + 28;
   let best = null, bestD = grabR;
-  for (const p of allPockets()) {
-    const sp = toScreen(p.tabWorldPos(_v3a));
+  const rp = new THREE.Vector3();
+  for (const tr of allTracks()) {
+    tr.ringWorldPos(rp);
+    const sp = projectToScreen(rp.x, rp.y, rp.z);
     const d = Math.hypot(e.clientX - sp.x, e.clientY - sp.y);
-    if (d < bestD) { bestD = d; best = p; }
+    if (d < bestD) { bestD = d; best = tr; }
   }
   if (best) {
     input.dragging = true;
     input.pointerId = e.pointerId;
-    input.pocket = best;
-    input.targetT = best.sliderT;
+    input.track = best;
+    focusTrack = best;
+    const wp = screenToSlabPoint(e.clientX, e.clientY, best.slab.y);
+    if (wp) {
+      const e0 = best.edges[best.slider.edge];
+      const ax = best.nodes[e0.a].x, az = best.nodes[e0.a].z;
+      const proj = (wp.x - ax) * e0.dx + (wp.z - az) * e0.dz;
+      // 取っ手はスライダーの後方（進行方向の逆）にあるので、offsetは負が標準
+      input.grabOffset = clamp(proj - best.slider.s, -2.6, 0.8);
+    } else input.grabOffset = -1.4;
     input.hasEverDragged = true;
     renderer.domElement.setPointerCapture(e.pointerId);
     Sound.pop();
     return;
   }
-  // 物へのタップ
-  for (const it of items) {
-    if (it.state === 'gone') continue;
-    const sp = toScreen(it.root.position);
-    if (Math.hypot(e.clientX - sp.x, e.clientY - sp.y) < 60) { it.tap(); return; }
-  }
-  // 顔へのタップ→まばたき＆きゅっ
-  if (bag.group) {
-    const fp = toScreen(new THREE.Vector3(0, bag.headCy, bag.headR).applyMatrix4(bag.group.matrixWorld));
-    if (Math.hypot(e.clientX - fp.x, e.clientY - fp.y) < 110) {
-      bag.bounce = 0.5;
-      Sound.squeak(0.7);
+  // 物へのタップ→ぷるん
+  const wp0 = screenToSlabPoint(e.clientX, e.clientY, 0);
+  if (wp0) {
+    for (const p of props) {
+      const dxp = wp0.x - p.root.position.x, dzp = wp0.z - p.root.position.z;
+      const r = Math.max(p.footL, p.footW) * 0.7 + 0.4;
+      if (p.root.position.y > -1 && dxp * dxp + dzp * dzp < r * r) { p.jiggle(); return; }
     }
+    spawnSparkles(wp0.x, 0.3, wp0.z, 4, 0.3);
   }
 }
 
 function onPointerMove(e) {
-  if (!input.dragging || e.pointerId !== input.pointerId || !input.pocket) return;
+  if (!input.dragging || e.pointerId !== input.pointerId || !input.track) return;
   input.lastInputAt = simTime;
-  // トラックの画面上の直線に指を射影 → t を得る（線から外れても自動補正）
-  const p = input.pocket;
-  const A = toScreen(p.trackWorldPos(0, _v3a));
-  const B = toScreen(p.trackWorldPos(1, _v3b));
-  const abx = B.x - A.x, aby = B.y - A.y;
-  const len2 = abx * abx + aby * aby;
-  if (len2 < 1) return;
-  const t = clamp(((e.clientX - A.x) * abx + (e.clientY - A.y) * aby) / len2, 0, 1);
-  input.targetT = t;
+  const tr = input.track;
+  const wp = screenToSlabPoint(e.clientX, e.clientY, tr.slab.y);
+  if (!wp) return;
+  // grabOffsetぶん戻した点を目標に（線から外れても最寄り射影で自動補正）
+  const e0 = tr.edges[tr.slider.edge];
+  input.targetX = wp.x - e0.dx * input.grabOffset;
+  input.targetZ = wp.z - e0.dz * input.grabOffset;
 }
 
 function onPointerUp(e) {
   if (e.pointerId !== input.pointerId) return;
   input.dragging = false;
   input.pointerId = -1;
-  input.pocket = null;
-  input.targetT = null;
+  input.track = null;
+  input.targetX = input.targetZ = null;
 }
 
 renderer.domElement.addEventListener('pointerdown', onPointerDown);
@@ -1425,57 +1673,130 @@ renderer.domElement.addEventListener('pointercancel', onPointerUp);
 window.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('gesturestart', (e) => e.preventDefault());
 window.addEventListener('dblclick', (e) => e.preventDefault());
-window.addEventListener('resize', layoutCamera);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', layoutCamera);
 
 function updateInput(dt) {
-  if (input.dragging && input.pocket && input.targetT != null && game.phase === 'play') {
-    input.pocket.setSliderT(input.targetT, dt);
+  if (input.dragging && input.track && input.targetX != null && game.phase === 'play') {
+    input.track.moveToward(input.targetX, input.targetZ, dt);
   }
 }
 
 // ---------------------------------------------------------------------------
-// ヒント（何を触ればよいか）
+// カメラ（接写追従＋落下チェイス。ドラッグ中は固定）
+// ---------------------------------------------------------------------------
+
+let focusTrack = null;
+let chaseProp = null;
+let chaseTimer = 0;
+
+function requestChase(p) {
+  chaseProp = p;
+  chaseTimer = 0;
+}
+
+const camPosCur = camBase.pos.clone();
+const camTargetCur = camBase.target.clone();
+const followCur = new THREE.Vector3();
+
+function updateCamera(dt) {
+  const tr = focusTrack || (allTracks()[0] || null);
+  // 多層ラウンドは高く・引いた構図（上のスラブの奥まで指が届くように）
+  const maxY = slabs.reduce((m, s) => Math.max(m, s.y), 0);
+  const liftY = maxY * 0.5, liftZ = maxY * 0.85, liftT = maxY * 0.42;
+  // スライダー追従（接写）：ドラッグ中は固定。
+  // しばらく触っていないときは俯瞰へ戻る（全部の取っ手が見えるように）
+  if (tr && (!input.dragging || game.phase !== 'play')) {
+    const idle = simTime - input.lastInputAt;
+    const overview = !chaseProp && (idle > 1.6 || game.phase !== 'play');
+    const k = overview ? 0 : 1;
+    const sw = tr.sliderWorld();
+    const rootN = tr.nodes[0];
+    const fx = clamp((sw.x - rootN.x) * 0.55, -5.5, 5.5) * k;
+    const fz = clamp((sw.z - rootN.z) * 0.45, -6.2, 0) * k;
+    followCur.lerp(_v3.set(fx, 0, fz), Math.min(1, dt * 1.8));
+  }
+  let pos = camBase.pos.clone().add(followCur);
+  let target = camBase.target.clone().add(followCur);
+  pos.y += liftY; pos.z += liftZ;
+  target.y += liftT;
+
+  // 落下チェイス：穴と着地点が同時に入るよう下へ寄る
+  if (chaseProp) {
+    chaseTimer += dt;
+    const done = chaseProp.state === 'landed' || chaseProp.state === 'gone' ||
+      chaseProp.state === 'rest' || chaseTimer > 3.2;
+    if (done && chaseTimer > 1.2) chaseProp = null;
+    else if (!input.dragging) {
+      const pp = chaseProp.root.position;
+      const w = smoothstep(clamp(chaseTimer / 0.5, 0, 1)) * 0.85;
+      pos = pos.lerp(_v3.set(pp.x * 0.4, pos.y - 3.2, pos.z - 0.8), w);
+      target = target.lerp(new THREE.Vector3(pp.x * 0.6, clamp(pp.y, -4.5, 5) - 0.6, pp.z * 0.7), w);
+    }
+  }
+
+  camPosCur.lerp(pos, Math.min(1, dt * 5));
+  camTargetCur.lerp(target, Math.min(1, dt * 5));
+  camera.position.copy(camPosCur);
+  camera.lookAt(camTargetCur);
+}
+
+// タワーのカットアウェイ：下の階を操作中は上の階の布を薄く
+// （ジッパー・取っ手・物はそのまま見せる）
+function updateGhosting() {
+  const focusY = focusTrack ? focusTrack.slab.y : 0;
+  for (const s of slabs) {
+    // ネットは細い帯なので隠さない（中身のふくらみを見せ続ける）
+    const ghost = s.y > focusY + 0.5 && !s.net;
+    s.mesh.material.opacity = lerp(s.mesh.material.opacity, ghost ? 0.25 : 1, 0.1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ヒント
 // ---------------------------------------------------------------------------
 
 const hintRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.62, 0.06, 8, 32),
+  new THREE.TorusGeometry(1.1, 0.08, 8, 40),
   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })
 );
+hintRing.rotation.x = -Math.PI / 2;
 scene.add(hintRing);
-let hintTimer = 0;
-let hintPocket = null;
+
+const hintDots = [];
+{
+  for (let i = 0; i < 7; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: hintTex, transparent: true, opacity: 0, depthWrite: false }));
+    s.scale.setScalar(0.5);
+    scene.add(s);
+    hintDots.push(s);
+  }
+}
+let hintDing = 0;
 
 function updateHints(dt) {
   const idle = simTime - input.lastInputAt;
-  const show = game.phase === 'play' && !input.dragging && (!input.hasEverDragged || idle > 6);
-  if (show) {
-    hintTimer -= dt;
-    if (hintTimer <= 0 || !hintPocket) {
-      hintTimer = 3.5;
-      // 中身のあるポケット（なければ口）をもぞもぞさせる
-      const withContent = bag.pockets.filter((p) => p.content);
-      hintPocket = withContent.length ? pick(withContent)
-        : (items.some((i) => i.state === 'floor') ? bag.mouth : null);
-      if (hintPocket) {
-        hintPocket.wiggle = 1.6;
-        if (hintPocket.isMouth) Sound.grumble();
-        else Sound.squeak(hintPocket.pitch * 0.8);
-        if (input.hasEverDragged === false || idle > 10) Sound.ding();
-      }
-    }
-  } else {
-    hintPocket = null;
-  }
-  const targetOp = show && hintPocket ? 0.5 + Math.sin(simTime * 4) * 0.3 : 0;
+  const show = game.phase === 'play' && !input.dragging && (!input.hasEverDragged || idle > 7);
+  const tr = focusTrack || allTracks()[0];
+  const targetOp = show ? 0.55 + Math.sin(simTime * 4) * 0.35 : 0;
   hintRing.material.opacity = lerp(hintRing.material.opacity, targetOp, Math.min(1, dt * 6));
-  hintRing.visible = hintRing.material.opacity > 0.02;
-  if (hintRing.visible && hintPocket) {
-    hintPocket.tabWorldPos(_v3a);
-    hintRing.position.copy(_v3a);
-    hintRing.position.z += 0.3;
-    hintRing.scale.setScalar(1 + Math.sin(simTime * 4) * 0.1);
-    hintRing.lookAt(camera.position);
+  hintRing.visible = hintRing.material.opacity > 0.02 && !!tr;
+  if (hintRing.visible && tr) {
+    const rp = new THREE.Vector3();
+    tr.ringWorldPos(rp);
+    hintRing.position.set(rp.x, tr.slab.y + 0.25, rp.z);
+    hintRing.scale.setScalar(1 + Math.sin(simTime * 4) * 0.08);
+  }
+  for (let i = 0; i < hintDots.length; i++) {
+    const s = hintDots[i];
+    if (!show || !tr) { s.material.opacity = lerp(s.material.opacity, 0, Math.min(1, dt * 6)); continue; }
+    const cyc = (simTime * 0.55 + i / hintDots.length) % 1;
+    const u = tr.openLen + 1.0 + cyc * 5.5;
+    const pt = tr.pointAt(u);
+    s.position.set(pt.x, tr.slab.y + 0.35, pt.z);
+    s.material.opacity = lerp(s.material.opacity, 0.75 * Math.sin(cyc * Math.PI), Math.min(1, dt * 10));
+  }
+  if (show && input.hasEverDragged && idle > 7) {
+    hintDing -= dt;
+    if (hintDing <= 0) { Sound.ding(); hintDing = 6; }
   }
 }
 
@@ -1483,7 +1804,6 @@ function updateHints(dt) {
 // メインループ
 // ---------------------------------------------------------------------------
 
-layoutCamera();
 startRound(0);
 game.ready = true;
 
@@ -1496,14 +1816,17 @@ function frame() {
   simTime += dt;
 
   updateInput(dt);
-  updateGame(dt);
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    it.update(dt);
-    if (it.state === 'gone' && !it.root.visible) { it.dispose(); items.splice(i, 1); }
-  }
+  updateGamePhase(dt);
+  for (const s of slabs) s.update();
+  for (const p of props) p.update(dt);
   updateParticles(dt);
+  updateCamera(dt);
+  updateGhosting();
   updateHints(dt);
+
+  for (const s of cellarStars) {
+    s.position.y = s.userData.baseY + Math.sin(simTime * 0.8 + s.userData.bob) * 0.3;
+  }
 
   renderer.render(scene, camera);
 }
@@ -1515,27 +1838,28 @@ frame();
 
 window.__game = {
   get ready() { return game.ready; },
-  get phase() { return game.phase; },
   get round() { return game.round; },
-  get eaten() { return bag.eaten; },
-  pockets: () => allPockets().map((p, i) => ({
-    i, content: p.content, state: p.state,
-    sliderT: p.sliderT, gap: p.gap,
-    need: p.content ? CONTENT_TYPES[p.content].need : 0,
-    isMouth: p.isMouth,
+  get phase() { return game.phase; },
+  tracks: () => allTracks().map((tr, i) => {
+    const rp = new THREE.Vector3();
+    tr.ringWorldPos(rp);
+    return {
+      i,
+      slabY: tr.slab.y,
+      openLen: tr.openLen,
+      handle: projectToScreen(rp.x, rp.y, rp.z),
+      nodes: tr.nodes.map((n) => ({ x: n.x, z: n.z })),
+      edges: tr.edges.map((e) => ({ a: e.a, b: e.b })),
+      sliderEdge: tr.slider.edge,
+    };
+  }),
+  screenAt: (x, y, z) => projectToScreen(x, y, z),
+  props: () => props.map((p) => ({
+    type: p.type, state: p.state,
+    x: p.root.position.x, y: p.root.position.y, z: p.root.position.z,
+    slabY: p.slab ? p.slab.y : null,
   })),
-  pocketTabScreen: (i) => toScreen(allPockets()[i].tabWorldPos(new THREE.Vector3())),
-  pocketTrackScreen: (i, t) => toScreen(allPockets()[i].trackWorldPos(t, new THREE.Vector3())),
-  items: () => items.map((it) => ({
-    type: it.type, state: it.state,
-    x: it.root.position.x, y: it.root.position.y, z: it.root.position.z,
-  })),
+  netContents: () => (game.ceiling ? game.ceiling.netContents.map((c) => ({ type: c.type, released: !!c.released })) : []),
   setTimeScale: (s) => { timeScale = s; },
-  // 検証用：中身を差し替える（E2E時のみ）
-  setContent: (i, type) => {
-    if (!E2E) return;
-    const p = allPockets()[i];
-    p.content = type || null;
-    p.deform();
-  },
+  gotoRound: (n) => { if (E2E) { game.round = n; startRound(n); } },
 };
