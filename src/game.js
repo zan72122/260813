@@ -14,11 +14,13 @@ import { clamp, lerp, damp } from './util.js';
 
 const CARRY_Y = 0.55;
 const DIP_Y = 0.36;
-const PLAY = { minX: -6.4, maxX: 6.6, minZ: -4.9, maxZ: 4.6 };
+const PLAY = { minX: -6.4, maxX: 6.6, minZ: -4.9, maxZ: 6.6 };
 const SPONGE_HALF_Y = 0.42;
 
 export class Game {
-  constructor({ scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night }) {
+  constructor({
+    scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night, stream, board,
+  }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -29,6 +31,9 @@ export class Game {
     this.spirits = spirits;
     this.garden = garden;
     this.night = night;
+    this.stream = stream;
+    this.board = board;
+    this.wetTimer = 0; // freshly rinsed sponge can erase the drawing board
 
     this.time = 0;
     this.dragging = false;
@@ -243,6 +248,7 @@ export class Game {
     }
 
     // --- rinsing in the clear pool
+    if (inWash) this.wetTimer = 18;
     if (inWash && sponge.totalDye() > 0.004) {
       sponge.liquidColor(this._liquid);
       sponge.drain(dt, 0.55);
@@ -254,6 +260,22 @@ export class Game {
         if (this.fx.rng() < 0.3) this.fx.ripple(pos, this._liquid);
       }
       if (this.washHint > 0) this.washHint = 0.01; // hint done
+    }
+
+    // --- drawing board: drag to stroke, clean wet sponge to erase
+    this.wetTimer = Math.max(0, this.wetTimer - dt);
+    if (this.board && this.board.contains(pos.x, pos.z) && this.dragging) {
+      const speed = Math.hypot(this.vel.x, this.vel.z);
+      if (speed > 0.25) {
+        if (sponge.totalDye() > 0.02) {
+          const conc = sponge.concentration();
+          sponge.liquidColor(this._liquid);
+          this.board.stamp(pos.x, pos.z, this._liquid, 0.2 + 0.13 * conc, 0.2 + 0.4 * conc);
+          sponge.drain(dt, 0.09);
+        } else if (this.wetTimer > 0.2) {
+          this.board.erase(pos.x, pos.z);
+        }
+      }
     }
 
     // --- drinking moonlight (night only)
@@ -318,7 +340,12 @@ export class Game {
             });
           } else {
             this.fx.drip(from, dripColor, 0.02, (landPos, c) => {
-              this.fx.splat(landPos, c);
+              // Squeeze over the drawing board -> a fat round stamp.
+              if (this.board && this.board.contains(landPos.x, landPos.z)) {
+                this.board.stamp(landPos.x, landPos.z, c, 0.3 + 0.18 * conc, 0.5);
+              } else {
+                this.fx.splat(landPos, c);
+              }
               if (this.spirits) this.spirits.noteLiquid(amounts, dripColor, landPos, conc, glow);
             });
           }
@@ -358,6 +385,14 @@ export class Game {
     // --- world, targets, fx
     this.world.update(dt, this.time);
     if (this.night) this.night.update(dt, this.time);
+    if (this.board) this.board.setNight(nightF);
+    if (this.stream) {
+      this.stream.update(dt, this.time, nightF);
+      // The camera chases the colour pulse down the brook.
+      if (this.stream.flow && this.stream.pulsePosition(this._v2)) {
+        this.rewardFocus = { point: this._v2.clone(), timer: 0.5 };
+      }
+    }
     for (const t of this.targets) t.update(dt, this.time, nightF);
     if (this.spirits) this.spirits.update(dt, pos);
     if (this.garden) {
@@ -451,6 +486,10 @@ export class Game {
     this.fx.sparkleBurst(this._v1, target.color, 30);
     this.rewardFocus = { point: this._v1.clone(), timer: 2.1 };
     if (this.garden) this.garden.notePaint();
+    // Colour poured into the spring flows away down the brook.
+    if (this.stream && target.id === 'spring') {
+      this.stream.pour(target.color, target.glowLevel);
+    }
   }
 
   _gardenScore() {

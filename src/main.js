@@ -5,6 +5,8 @@ import { buildAnimals } from './animals.js';
 import { buildProps } from './props.js';
 import { buildLandmarks } from './landmarks.js';
 import { NightCycle } from './night.js';
+import { Stream } from './stream.js';
+import { DrawingBoard } from './board.js';
 import { Garden } from './garden.js';
 import { Sponge } from './sponge.js';
 import { FX } from './fx.js';
@@ -27,11 +29,14 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
 
 const world = buildWorld(scene, rng);
+const stream = new Stream(scene);
+const board = new DrawingBoard(scene);
 const targets = [
   ...buildTargets(scene),
   ...buildAnimals(scene),
   ...buildProps(scene),
   ...buildLandmarks(scene),
+  ...stream.targets,
 ];
 const night = new NightCycle(scene, world, rng);
 const sponge = new Sponge();
@@ -42,7 +47,7 @@ const garden = new Garden(scene, rng, { persist: !E2E });
 garden.setScore(garden.paintCount + spirits.discovered.size, true); // restore saved growth silently
 
 const game = new Game({
-  scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night,
+  scene, camera, renderer, sponge, world, targets, fx, spirits, garden, night, stream, board,
 });
 game.attachInput(renderer.domElement);
 
@@ -132,6 +137,11 @@ window.__game = {
       },
       night: { factor: night.night, isNight: night.isNight },
       glow: sponge.glow,
+      board: { stamps: board.stamps },
+      stream: {
+        flowing: !!stream.flow,
+        color: `#${stream.color.getHexString()}`,
+      },
     };
   },
 };

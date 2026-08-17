@@ -279,6 +279,70 @@ test('night mode: moonlight makes glowing paint and landmarks', async ({ page })
   expect(errors).toEqual([]);
 });
 
+test('colour stream: pouring into the spring dyes the brook and lilies', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Soak red, squeeze it into the spring bowl.
+  await soak(page, 'red', 2.5);
+  await squeezeAt(page, [0.4, -4.7], 4);
+  let s = await api(page, () => window.__game.state());
+  const spring = s.targets.find((t) => t.id === 'spring');
+  expect(spring.colored || spring.painting).toBe(true);
+
+  // The pulse flows downstream and flushes both lilies with the colour.
+  await api(page, () => window.__game.step(9));
+  s = await api(page, () => window.__game.state());
+  const lilyA = s.targets.find((t) => t.id === 'lily-a');
+  const lilyB = s.targets.find((t) => t.id === 'lily-b');
+  expect(lilyA.colored).toBe(true);
+  expect(lilyB.colored).toBe(true);
+  const hex = s.stream.color.slice(1);
+  const [r, g] = [0, 2].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  expect(r).toBeGreaterThan(g); // brook water is now red-ish
+  expect(errors).toEqual([]);
+});
+
+test('drawing board: strokes with dye, stamps from squeezes, wet erase', async ({ page }) => {
+  const errors = await boot(page);
+
+  // Drag a blue-soaked sponge across the board -> strokes appear.
+  await soak(page, 'blue', 2.5);
+  await api(page, () => {
+    window.__game.press(-1.6, 5.7);
+    window.__game.step(1.4);
+  });
+  for (const x of [-0.8, 0, 0.8, 1.6]) {
+    await page.evaluate((xx) => {
+      window.__game.move(xx, 5.7);
+      window.__game.step(0.4);
+    }, x);
+  }
+  let s = await api(page, () => window.__game.state());
+  const strokes = s.board.stamps;
+  expect(strokes).toBeGreaterThan(10);
+
+  // Hold still over the board -> squeeze stamps.
+  await api(page, () => window.__game.step(2.5));
+  s = await api(page, () => window.__game.state());
+  expect(s.board.stamps).toBeGreaterThan(strokes);
+  await api(page, () => window.__game.release());
+
+  // Rinse clean, then scrub the board: erasing works without new stamps.
+  await dragTo(page, WASH, 1.4);
+  await api(page, () => window.__game.step(6));
+  const before = (await api(page, () => window.__game.state())).board.stamps;
+  await api(page, () => { window.__game.press(-1.2, 5.7); window.__game.step(1.2); });
+  for (const x of [0, 1.2]) {
+    await page.evaluate((xx) => {
+      window.__game.move(xx, 5.7);
+      window.__game.step(0.4);
+    }, x);
+  }
+  s = await api(page, () => window.__game.state());
+  expect(s.board.stamps).toBe(before); // erased, not painted
+  expect(errors).toEqual([]);
+});
+
 test('real pointer input drags the sponge', async ({ page }) => {
   const errors = await boot(page);
   const canvas = page.locator('canvas');
