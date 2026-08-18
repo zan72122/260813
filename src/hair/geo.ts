@@ -178,6 +178,11 @@ export function updateSweep(
   g.computeBoundingSphere();
 }
 
+/** Strand tips taper to a point over the last ~15% — no "broom" chops. */
+export function tipTaper(t: number): number {
+  return 1 - THREE.MathUtils.smoothstep(t, 0.82, 1) * 0.92;
+}
+
 /** Sample a Catmull-Rom spline through control points into n points. */
 export function sampleSpline(controls: THREE.Vector3[], n: number, tension = 0.5): THREE.Vector3[] {
   const curve = new THREE.CatmullRomCurve3(controls, false, 'catmullrom', tension);

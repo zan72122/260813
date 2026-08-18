@@ -106,6 +106,7 @@ export class Game {
   private replay(): void {
     this.hud.hideReplay();
     this.gem.hide();
+    this.stage.setSkyLift(0);
     this.hair.reset();
     this.character.group.rotation.set(0, 0, 0);
     this.seenVerbs.clear();
@@ -455,8 +456,8 @@ export class Game {
     this.gemBase = this.hair
       .flowerCenter()
       .clone()
-      .addScaledVector(this.hair.flowerNormal(), 0.30)
-      .add(new THREE.Vector3(0, 0.16, 0));
+      .addScaledVector(this.hair.flowerNormal(), 0.26)
+      .add(new THREE.Vector3(0, 0.10, 0));
     this.gem.show(this.gemBase);
     this.tweens.run(0.8, (t) => this.gem.group.scale.setScalar(t), backOut(1.6));
     this.sparkles.burst(this.gemBase, PALETTE.gemCore, 10, 0.12);
@@ -503,6 +504,10 @@ export class Game {
     this.hint.hide();
     this.chimes.reveal();
     this.rig.moveTo('reveal', TIMING.revealHold);
+    // The world answers the finished flower: the lagoon glow rises a little,
+    // and a few light seeds drift off the petals. Quietly.
+    this.tweens.run(4.0, (t) => this.stage.setSkyLift(t), sineInOut);
+    this.sparkles.burst(this.hair.flowerCenter(), PALETTE.gemSpark, 14, 0.18);
     // Let the piece breathe. Nothing to do, nothing to press — just look.
     await this.tweens.wait(TIMING.revealHold + 1.2);
     if (this.phase === 'reveal') this.hud.showReplay();

@@ -25,10 +25,12 @@ const SWAY_AMP = REDUCED_MOTION
  * Living-hair material. A gentle vertex sway, weighted toward the tips via
  * uv.y, keeps every strand breathing — cheaper and calmer than physics.
  */
-export function makeHairMaterial(opts?: { shadowTint?: boolean; sway?: number }): THREE.MeshPhysicalMaterial {
+export function makeHairMaterial(opts?: { shadowTint?: boolean; under?: boolean; sway?: number }): THREE.MeshPhysicalMaterial {
   const mat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(opts?.shadowTint ? PALETTE.hairShadow : PALETTE.hairBase),
-    roughness: opts?.shadowTint ? 0.55 : HAIR.roughness,
+    color: new THREE.Color(
+      opts?.under ? PALETTE.hairUnder : opts?.shadowTint ? PALETTE.hairShadow : PALETTE.hairBase
+    ),
+    roughness: opts?.shadowTint || opts?.under ? 0.6 : HAIR.roughness,
     metalness: HAIR.metalness,
     sheen: HAIR.sheen,
     sheenRoughness: HAIR.sheenRoughness,

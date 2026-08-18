@@ -59,7 +59,8 @@ export class Stage {
         uMid: { value: new THREE.Color(PALETTE.skyMid) },
         uLow: { value: new THREE.Color(PALETTE.skyLow) },
         uGlow: { value: new THREE.Color(PALETTE.skyGlow) },
-        uTime: { value: 0 }
+        uTime: { value: 0 },
+        uLift: { value: 0 }
       },
       vertexShader: /* glsl */ `
         varying vec3 vPos;
@@ -71,7 +72,7 @@ export class Stage {
       fragmentShader: /* glsl */ `
         varying vec3 vPos;
         uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; uniform vec3 uGlow;
-        uniform float uTime;
+        uniform float uTime; uniform float uLift;
         void main() {
           float h = normalize(vPos).y;               // -1..1
           vec3 c = mix(uLow, uMid, smoothstep(-0.55, 0.05, h));
@@ -80,7 +81,9 @@ export class Stage {
           float glow = exp(-8.0 * pow(h + 0.22, 2.0)) * (0.5 + 0.08 * sin(uTime * 0.35));
           float az = atan(vPos.x, vPos.z);
           glow *= exp(-1.4 * pow(az - 0.35, 2.0));
-          c += uGlow * glow * 0.55;
+          // uLift: the world answers the finished flower (reveal only).
+          c += uGlow * glow * (0.55 + 0.5 * uLift);
+          c += uGlow * uLift * 0.045;
           gl_FragColor = vec4(c, 1.0);
         }
       `
@@ -168,6 +171,11 @@ export class Stage {
 
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
+  }
+
+  /** 0..1 — how much the twilight answers the finished piece (reveal). */
+  setSkyLift(v: number): void {
+    this.skyMat.uniforms.uLift.value = v;
   }
 
   tick(dt: number): void {

@@ -4,7 +4,7 @@ import {
   petalRadius, coilPoint, flowerBasis, PETAL_COUNT, BRAID_CYCLES,
   FLOWER_CENTER, FLOWER_NORMAL
 } from './braidMath';
-import { sweepTube, updateSweep, sampleSpline, transportFrames } from './geo';
+import { sweepTube, updateSweep, sampleSpline, transportFrames, tipTaper } from './geo';
 import { makeHairMaterial } from './materials';
 import { HAIR } from '../style';
 
@@ -67,7 +67,10 @@ export class HairSystem {
     }
 
     for (let k = 0; k < 3; k++) {
+      // The strands the player touches are intrinsically a step brighter —
+      // the affordance must survive even before the hint glow pulses.
       const mat = makeHairMaterial({ sway: 0.5 });
+      mat.color.offsetHSL(0, -0.02, 0.09);
       this.trioMats.push(mat);
       const pts = this.trioPoints(k, 0, 0);
       const geo = sweepTube(pts, this.trioRadiusFn(), { radial: 7 });
@@ -134,7 +137,7 @@ export class HairSystem {
   // ---------- trio (loose strands at the front) ----------
 
   private trioRadiusFn(): (t: number) => number {
-    return (t) => HAIR.strandRadius * (1 - 0.45 * t);
+    return (t) => HAIR.strandRadius * (1 - 0.45 * t) * tipTaper(t);
   }
 
   /**
@@ -203,7 +206,7 @@ export class HairSystem {
   /** Create a falling strand leaving the braid at spine t. Returns its index. */
   spawnFall(t: number): number {
     const pts = sampleSpline(waterfallControls(t, 0), FALL_SEGS);
-    const geo = sweepTube(pts, (s) => HAIR.strandRadius * (1 - 0.4 * s), { radial: 7 });
+    const geo = sweepTube(pts, (s) => HAIR.strandRadius * (1 - 0.4 * s) * tipTaper(s), { radial: 7 });
     const mesh = new THREE.Mesh(geo, this.fallMat);
     mesh.frustumCulled = false;
     mesh.userData.spineT = t;
@@ -217,7 +220,7 @@ export class HairSystem {
   setFall(i: number, settle: number): void {
     const t = this.fallMeshes[i].userData.spineT as number;
     const pts = sampleSpline(waterfallControls(t, settle), FALL_SEGS);
-    updateSweep(this.fallGeos[i], pts, (s) => HAIR.strandRadius * (1 - 0.4 * s), { radial: 7 });
+    updateSweep(this.fallGeos[i], pts, (s) => HAIR.strandRadius * (1 - 0.4 * s) * tipTaper(s), { radial: 7 });
   }
 
   get fallCount(): number {

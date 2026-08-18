@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeSkinMaterial, makeDressMaterial, makeHairMaterial } from '../hair/materials';
-import { sweepTube, sampleSpline } from '../hair/geo';
+import { sweepTube, sampleSpline, tipTaper } from '../hair/geo';
 import { HEAD_CENTER, HEAD_RADIUS } from '../hair/braidMath';
 import { PALETTE } from '../style';
 
@@ -60,8 +60,11 @@ export class Character {
     const hairDark = makeHairMaterial({ shadowTint: true, sway: 0.4 });
     const hairMid = makeHairMaterial({ sway: 0.7 });
 
-    // Hair cap hugging the skull.
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS + 0.028, 28, 22), hairMid);
+    // Hair cap hugging the skull — a touch deeper than the strands so the
+    // smooth dome reads as combed hair, not skin.
+    const capMat = makeHairMaterial({ sway: 0 });
+    capMat.color.offsetHSL(0, 0.03, -0.05);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS + 0.028, 28, 22), capMat);
     cap.position.copy(HEAD_CENTER).add(new THREE.Vector3(0, 0.025, 0.015));
     cap.scale.set(0.97, 1.02, 1.02);
     this.group.add(cap);
@@ -73,8 +76,10 @@ export class Character {
       seed = (seed * 16807) % 2147483647;
       return seed / 2147483647;
     };
-    // A soft bulge of gathered hair filling the space between strands.
-    const volume = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), hairDark);
+    // A deep-shadow bulge of gathered hair filling the space between strands —
+    // it must read as the dark interior of the hair, never as scalp.
+    const hairUnder = makeHairMaterial({ under: true, sway: 0 });
+    const volume = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), hairUnder);
     volume.position.copy(HEAD_CENTER).add(new THREE.Vector3(0, -0.10, 0.06));
     volume.scale.set(0.235, 0.34, 0.20);
     this.group.add(volume);
@@ -97,7 +102,7 @@ export class Character {
       const pts = sampleSpline([crown, mid, low, tip], 24, 0.35);
       const thick = 0.055 + rand() * 0.025;
       const mesh = new THREE.Mesh(
-        sweepTube(pts, (t) => thick * (1 - 0.5 * t) * (0.7 + 0.3 * Math.sin(t * Math.PI)), { radial: 7 }),
+        sweepTube(pts, (t) => thick * (1 - 0.5 * t) * (0.7 + 0.3 * Math.sin(t * Math.PI)) * tipTaper(t), { radial: 7 }),
         i % 3 === 0 ? hairMid : hairDark
       );
       this.group.add(mesh);
@@ -114,7 +119,7 @@ export class Character {
         ],
         20
       );
-      const mesh = new THREE.Mesh(sweepTube(pts, (t) => 0.045 * (1 - 0.5 * t), { radial: 7 }), hairMid);
+      const mesh = new THREE.Mesh(sweepTube(pts, (t) => 0.045 * (1 - 0.5 * t) * tipTaper(t), { radial: 7 }), hairMid);
       this.group.add(mesh);
     }
   }

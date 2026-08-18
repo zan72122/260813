@@ -12,7 +12,8 @@
     "skyGlow": "#7fb9b0",
     "groundMist": "#152238",
     "hairBase": "#b06f3e",
-    "hairShadow": "#7d4a33",
+    "hairShadow": "#6b3f2a",
+    "hairUnder": "#4f2f1e",
     "hairSheen": "#ffe4c9",
     "hairRim": "#9fd8d0",
     "skin": "#f2d8c4",
@@ -51,8 +52,8 @@
       "braid":       { "pos": [0.18, 1.66, 2.25], "target": [0.0, 1.30, 0.0],  "portraitPos": [0.15, 1.76, 3.0],  "portraitTarget": [0.0, 1.24, 0.0] },
       "closeup":     { "pos": [0.12, 1.60, 1.75], "target": [-0.10, 1.38, 0.10], "portraitPos": [0.12, 1.66, 2.35], "portraitTarget": [-0.10, 1.34, 0.10] },
       "petal":       { "pos": [0.95, 1.30, 2.0],  "target": [0.40, 1.10, 0.05], "portraitPos": [1.0, 1.4, 2.65], "portraitTarget": [0.38, 1.06, 0.05] },
-      "coil":        { "pos": [1.35, 1.68, 1.10], "target": [0.36, 1.40, 0.16], "portraitPos": [1.72, 1.78, 1.4], "portraitTarget": [0.36, 1.38, 0.16] },
-      "gem":         { "pos": [1.42, 1.72, 1.35], "target": [0.38, 1.40, 0.14], "portraitPos": [1.78, 1.84, 1.68],  "portraitTarget": [0.38, 1.38, 0.14] },
+      "coil":        { "pos": [1.05, 1.78, 1.30], "target": [0.36, 1.40, 0.16], "portraitPos": [1.18, 1.84, 1.48], "portraitTarget": [0.36, 1.38, 0.16] },
+      "gem":         { "pos": [1.15, 1.80, 1.55], "target": [0.38, 1.40, 0.14], "portraitPos": [1.3, 1.88, 1.75],  "portraitTarget": [0.38, 1.38, 0.14] },
       "reveal":      { "pos": [0.55, 1.66, 3.1],  "target": [0.10, 1.18, 0.0], "portraitPos": [0.5, 1.78, 3.95], "portraitTarget": [0.10, 1.12, 0.0] }
     },
     "transitionDuration": 2.2,
@@ -65,7 +66,7 @@
   "lights": {
     "key":  { "color": "#fff1dc", "intensity": 0.95, "position": [2.2, 3.4, 2.6] },
     "fill": { "color": "#5f86a8", "intensity": 0.5, "position": [-2.6, 1.4, 1.8] },
-    "rim":  { "color": "#8fe0d2", "intensity": 1.45, "position": [-1.2, 2.6, -2.8] },
+    "rim":  { "color": "#8fe0d2", "intensity": 1.9, "position": [-1.2, 2.6, -2.8] },
     "ambient": { "skyColor": "#4a6d8c", "groundColor": "#241f38", "intensity": 0.45 }
   },
   "hairMaterial": {

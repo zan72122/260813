@@ -124,7 +124,9 @@ export function petalRadius(s: number, pulls: number[], base: number, amp: numbe
 
 /** Flower placement — a side rosette above the right ear. */
 export const FLOWER_CENTER = new THREE.Vector3(0.36, 1.42, 0.16);
-export const FLOWER_NORMAL = new THREE.Vector3(0.72, 0.18, 0.67).normalize();
+// Tilted toward the camera so the spiral FACE (not the tube wall) is what
+// reads in the coil, gem and reveal shots.
+export const FLOWER_NORMAL = new THREE.Vector3(0.5, 0.3, 0.9).normalize();
 export const FLOWER_RADIUS = 0.155;
 export const COIL_TURNS = 2.1;
 
@@ -150,8 +152,9 @@ export function coilPoint(s: number, c: number, hangPt: THREE.Vector3, basis: { 
   // v01: 0 at the first wound point, 1 at the tip (innermost).
   const v01 = THREE.MathUtils.clamp((s - woundStart) / Math.max(c, 1e-4), 0, 1);
   const theta = (1 - v01) * COIL_TURNS * Math.PI * 2 * c - Math.PI * 0.4;
-  const radius = FLOWER_RADIUS * (0.18 + 0.82 * (1 - v01) * c + 0.12 * (1 - c));
-  const lift = 0.022 * (1 - v01) * c; // tiny helix pitch so loops never z-fight
+  // Tip winds to the very heart (no ear-canal hole) — the gem sits ON it.
+  const radius = FLOWER_RADIUS * (0.05 + 0.95 * (1 - v01) * c + 0.12 * (1 - c));
+  const lift = 0.024 * (1 - v01) * c; // tiny helix pitch so loops never z-fight
   const spiral = FLOWER_CENTER.clone()
     .addScaledVector(basis.u, Math.cos(theta) * radius)
     .addScaledVector(basis.v, Math.sin(theta) * radius)
