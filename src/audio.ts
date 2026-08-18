@@ -40,6 +40,17 @@ export class AudioManager {
     if (m) window.speechSynthesis?.cancel();
   }
 
+  /** 音量段階 0=大 1=小 2=ミュート */
+  setVolumeStep(step: number) {
+    const vols = [0.8, 0.35, 0];
+    this.volume = vols[step % 3];
+    this.muted = this.volume === 0;
+    if (this.master && this.ctx) {
+      this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
+    }
+    if (this.muted) window.speechSynthesis?.cancel();
+  }
+
   private throttled(name: string, ms: number): boolean {
     const now = performance.now();
     const last = this.lastPlay.get(name) ?? -1e9;

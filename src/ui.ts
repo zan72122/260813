@@ -8,6 +8,7 @@ function hex(c: number) { return '#' + c.toString(16).padStart(6, '0'); }
 /** ミュート/モーション/ホームのアイコン */
 const ICONS = {
   sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18 6a8.5 8.5 0 0 1 0 12"/></svg>',
+  soundLow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>',
   muted: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none"/><line x1="16" y1="9" x2="22" y2="15"/><line x1="22" y1="9" x2="16" y2="15"/></svg>',
   motion: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg>',
   motionOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 12h18"/></svg>',
@@ -68,6 +69,9 @@ export class UI {
   }
 
   setMuted(m: boolean) { this.muteBtn.innerHTML = m ? ICONS.muted : ICONS.sound; }
+  setVolumeStep(step: number) {
+    this.muteBtn.innerHTML = [ICONS.sound, ICONS.soundLow, ICONS.muted][step % 3];
+  }
   setMotion(reduced: boolean) { this.motionBtn.innerHTML = reduced ? ICONS.motionOff : ICONS.motion; }
 
   /** 導入: 装飾選択 + はじめる */
@@ -132,7 +136,7 @@ export class UI {
     const defs: [ReplayChoice, string, string][] = [
       ['restart', replayIcons.restart, 'さいしょから'],
       ['stretch', replayIcons.stretch, 'びよーんだけ'],
-      ['fill', replayIcons.fill, 'つめるところから'],
+      ['fill', replayIcons.fill, 'トロトロから'],
     ];
     for (const [key, svg, label] of defs) {
       const b = document.createElement('button');

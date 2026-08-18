@@ -259,10 +259,10 @@ export class BagMesh {
     const thick = p.thickness;
     const R = p.R * squishR;
     // 高さ
-    const rimH = (thick * 0.5 + p.depth * 0.34 + p.rimLift * 0.22 + this.fill * 0.08) * squishY;
+    const rimH = (thick * 0.5 + p.depth * 0.27 + p.rimLift * 0.17 + this.fill * 0.07) * squishY;
     const mouthR = lerp(R * 0.98, R * (1 - openN * 0.82) * (0.35 + (1 - p.neck) * 0.65), form)
       + p.open * R * 0.25;
-    const mouthH = (rimH + openN * 0.3 + p.knot * 0.02) * squishY;
+    const mouthH = (rimH + openN * 0.2 + p.knot * 0.02) * squishY;
     const bulge = 1 + (p.bulge * 0.4 + this.fill * 0.28) * form;
     // 内底の高さ
     const floorY = lerp(thick * 0.95, 0.055 + this.fill * 0.02, form) * squishY;
@@ -275,12 +275,18 @@ export class BagMesh {
     pts.push(new THREE.Vector3(mouthR * 0.92, lerp(thick * 0.9, mouthH, form), 0));
     // 口の縁 (外側)
     pts.push(new THREE.Vector3(mouthR * 1.02 + 0.02, lerp(thick * 0.82, mouthH, form), 0));
-    // 肩→膨らみ
+    // 首の付け根: 口がすぼまっても胴は丸く残す
+    if (p.neck > 0.05) {
+      pts.push(new THREE.Vector3(
+        lerp(R * 0.97, Math.max(mouthR * 1.25, R * 0.16), openN),
+        lerp(thick * 0.8, rimH * 0.93, form), 0));
+    }
+    // 肩→膨らみ (袋らしく丸く張り出す)
     pts.push(new THREE.Vector3(
-      lerp(R * 0.9, R * bulge * 0.95, form),
-      lerp(thick * 0.55, rimH * 0.55, form)));
+      lerp(R * 0.9, R * bulge * 1.04, form),
+      lerp(thick * 0.55, rimH * 0.6, form)));
     // 外壁下部
-    pts.push(new THREE.Vector3(R * bulge, lerp(thick * 0.25, rimH * 0.22, form)));
+    pts.push(new THREE.Vector3(R * bulge * 1.06, lerp(thick * 0.25, rimH * 0.24, form)));
     // 接地
     pts.push(new THREE.Vector3(R * 0.82, 0.005));
     pts.push(new THREE.Vector3(0.001, 0.0));

@@ -188,6 +188,9 @@ export function coldWaterModule(): Mod {
           c.stage.coldRipples.spawn(new THREE.Vector3(g.position.x - POS.coldBowl.x, 0.21, g.position.z - POS.coldBowl.z), 1.2);
         }
         if (bobT >= 1.8) {
+          // 冷水で少し締まる
+          c.world.bag.params.R = 0.3;
+          c.world.bag.dirty = true;
           c.audio.voice('かたちが きゅっと しまったよ');
           c.complete(g.position.clone().add(new THREE.Vector3(0, 0.3, 0)));
           dropped = false;
@@ -356,9 +359,9 @@ export function openModule(): Mod {
     enter(c) {
       progress = 0; active = false; flowOut = 0; revealT = -1; camMoved = false;
       c.cam.setShot({
-        pos: new THREE.Vector3(0.72, 0.75, 1.95),
-        look: new THREE.Vector3(0.7, 0.25, 0.85),
-        fov: 40,
+        pos: new THREE.Vector3(0.72, 0.9, 2.3),
+        look: new THREE.Vector3(0.7, 0.28, 0.9),
+        fov: 42,
       });
       c.audio.voice('なかを みてみよう。せんを なぞってね');
       // ガイド線
@@ -429,9 +432,9 @@ export function openModule(): Mod {
       if (!camMoved && progress > 0.15) {
         camMoved = true;
         c.cam.setShot({
-          pos: new THREE.Vector3(0.72, 0.52, 1.62),
-          look: new THREE.Vector3(0.7, 0.22, 0.85),
-          fov: 38,
+          pos: new THREE.Vector3(0.72, 0.6, 1.95),
+          look: new THREE.Vector3(0.7, 0.24, 0.88),
+          fov: 40,
         });
       }
       // 中身の流出

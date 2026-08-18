@@ -243,13 +243,13 @@ export class World {
       this.ensureInnerRibbons();
     } else if (i === 11) {
       setBag(POS.coldBowl.clone().setY(0.14), {
-        R: 0.34, depth: 0.9, rimLift: 0.75, bulge: 0.5, neck: 1, knot: 1, open: 0, squish: 0,
+        R: 0.3, depth: 0.9, rimLift: 0.75, bulge: 0.5, neck: 1, knot: 1, open: 0, squish: 0,
         thickness: 0.09,
       }, fillAmt);
       this.ensureInnerRibbons();
     } else if (i >= 12) {
       setBag(POS.plate.clone().setY(0.07), {
-        R: 0.32, depth: 0.9, rimLift: 0.75, bulge: 0.5, neck: 1, knot: 1,
+        R: 0.3, depth: 0.9, rimLift: 0.75, bulge: 0.5, neck: 1, knot: 1,
         open: i >= 13 ? 1 : 0, openDir: craft.openDir, squish: 0.12,
         thickness: 0.09,
       }, fillAmt);
@@ -321,8 +321,9 @@ export class Game {
       onUp: p => { if (!this.transitioning) this.cur?.up?.(this.ctx, p); },
     };
     ui.onMuteToggle = () => {
-      audio.setMuted(!audio.muted);
-      ui.setMuted(audio.muted);
+      save.volumeStep = (save.volumeStep + 1) % 3;
+      audio.setVolumeStep(save.volumeStep);
+      ui.setVolumeStep(save.volumeStep);
       save.muted = audio.muted; saveSave(save);
     };
     ui.onMotionToggle = () => {
@@ -358,6 +359,7 @@ export class Game {
     old?.exit?.(this.ctx);
     this.audio.stopAllChannels();
     this.index = clamp(i, 0, this.modules.length - 1);
+    if (this.index === 0) this.ctx.craft = defaultCraft();
     this.stage.chef.setHands(null, null);
     this.stage.chef.look(null);
     this.world.checkpoint(this.index, this.ctx.craft);

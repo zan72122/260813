@@ -3,6 +3,8 @@ export interface SaveData {
   bowlRim: number;
   plateStyle: number;
   muted: boolean;
+  /** 0=大 1=小 2=ミュート */
+  volumeStep: number;
   reduceMotion: boolean;
   finishedOnce: boolean;
 }
@@ -12,7 +14,7 @@ const KEY = 'biyoon-cheese-v1';
 export function loadSave(): SaveData {
   const def: SaveData = {
     apron: 0, bowlRim: 0, plateStyle: 0,
-    muted: false, reduceMotion: false, finishedOnce: false,
+    muted: false, volumeStep: 0, reduceMotion: false, finishedOnce: false,
   };
   try {
     const raw = localStorage.getItem(KEY);

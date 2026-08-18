@@ -539,14 +539,14 @@ export class Stage {
     this.props.paddle = paddle;
 
     const spoon = new THREE.Group();
-    const sHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.4, 10), m.steel);
+    const sHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 10), m.woodDark);
     sHandle.rotation.x = Math.PI / 2.6;
-    sHandle.position.set(0, 0.16, 0.16);
+    sHandle.position.set(0, 0.21, 0.2);
     spoon.add(sHandle);
-    const sCup = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), m.steel);
-    sCup.scale.set(1, 0.5, 1.2);
+    const sCup = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), m.wood);
+    sCup.scale.set(1, 0.45, 1.15);
     spoon.add(sCup);
-    const scoopBlob = new THREE.Mesh(new THREE.SphereGeometry(0.09, 14, 10), m.cream);
+    const scoopBlob = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), m.cream);
     scoopBlob.position.y = 0.05;
     scoopBlob.scale.set(1, 0.7, 1.1);
     scoopBlob.name = 'scoopBlob';

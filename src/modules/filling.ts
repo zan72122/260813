@@ -183,9 +183,9 @@ export function fillModule(): Mod {
       stage = 'scoop'; hasScoop = false; scoops = 0; creamT = 0;
       c.craft.fillScoops = 0; c.craft.creamAmount = 0;
       c.cam.setShot({
-        pos: new THREE.Vector3(-0.45, 1.25, 2.25),
-        look: new THREE.Vector3(-0.35, 0.2, 0.35),
-        fov: 44,
+        pos: new THREE.Vector3(-0.4, 1.5, 2.65),
+        look: new THREE.Vector3(-0.55, 0.12, 0.3),
+        fov: 47,
       });
       c.audio.voice('トロトロを ふくろへ いれよう');
       const spoon = c.stage.props.spoon;
