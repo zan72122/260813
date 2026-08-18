@@ -130,7 +130,8 @@ export class World {
 
   addInnerRibbon(seed: number) {
     if (this.bag.innerRibbons.children.length > 4) return;
-    const r = makeRibbon(this.stage.mats.mozz, seed, 0.16);
+    const r = makeRibbon(this.stage.mats.mozz, seed, 0.21);
+    r.position.y = 0.015;
     this.bag.innerRibbons.add(r);
   }
 

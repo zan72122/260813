@@ -12,7 +12,7 @@ export function makeTubeGeo(segs: number, rad: number): THREE.BufferGeometry {
     for (let j = 0; j < rad; j++) {
       const a = i * (rad + 1) + j;
       const b = a + rad + 1;
-      idx.push(a, b, a + 1, b, b + 1, a + 1);
+      idx.push(a, a + 1, b, b, a + 1, b + 1);
     }
   }
   geo.setIndex(idx);
@@ -354,7 +354,8 @@ export class BagMesh {
       const prof2 = this.buildProfile();
       const mouthR = prof2[2].x;
       const floorY = prof2[0].y;
-      const level = floorY + this.fill * (prof2[2].y - floorY) * 0.75 + 0.02;
+      // 開くほど中身がせり上がって見える
+      const level = floorY + this.fill * (prof2[2].y - floorY) * 0.75 + 0.02 + p.open * 0.12;
       this.innerCream.position.y = Math.min(level, prof2[2].y - 0.01);
       this.innerCream.scale.setScalar(Math.max(0.05, mouthR * 0.92 + p.open * 0.05));
       this.innerRibbons.position.y = this.innerCream.position.y;

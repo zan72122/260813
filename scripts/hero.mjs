@@ -25,7 +25,13 @@ const obj = (e) => page.evaluate((e) => {
 
 // --- M3 伸ばし中 ---
 await page.evaluate(() => window.__gameRef.goto(3));
-await page.waitForTimeout(1600);
+// 導入アニメ完了 (ハンドルが所定位置へ来る) を待つ
+for (let i = 0; i < 40; i++) {
+  const ready = await page.evaluate(() => window.__gameRef.world.stretch.visHandle.y > 0.5);
+  if (ready) break;
+  await page.waitForTimeout(300);
+}
+await page.waitForTimeout(400);
 let h = await obj('window.__gameRef.world.stretch.visHandle');
 await page.mouse.move(h.x, h.y);
 await page.mouse.down();

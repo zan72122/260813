@@ -13,7 +13,7 @@ export function stracModule(): Mod {
   let creamHold = false;
   let stirBase = 0;
   let flight: Flight | null = null;
-  const stripPos = new THREE.Vector3(-1.15, 0.66, 0.12);
+  const stripPos = new THREE.Vector3(-1.15, 0.8, 0.12);
   const pitcherLip = new THREE.Vector3();
 
   return {
@@ -103,7 +103,7 @@ export function stracModule(): Mod {
       flight?.update(dt);
       const chef = c.stage.chef;
       if (stage === 'tear') {
-        chef.setHands(null, stripPos.clone().add(new THREE.Vector3(0, 0.38, 0)));
+        chef.setHands(null, stripPos.clone().add(new THREE.Vector3(0, 0.3, 0)));
         chef.look(stripPos);
       } else if (stage === 'cream') {
         const pitcher = c.stage.props.pitcher;

@@ -3,6 +3,7 @@ import { Ctx, Mod, POS } from '../game';
 import { clamp, damp, lerp } from '../util';
 import { nearScreen } from './helpers';
 import { saveSave } from '../save';
+import { makeRibbon } from '../cheese';
 
 /** Module 8: 口を集める — 上へ大きくスワイプ */
 export function gatherMouthModule(): Mod {
@@ -143,8 +144,8 @@ export function coldWaterModule(): Mod {
     enter(c) {
       grabbing = false; dropped = false; bobT = 0;
       c.cam.setShot({
-        pos: new THREE.Vector3(0.85, 1.25, 2.35),
-        look: new THREE.Vector3(0.75, 0.2, 0.45),
+        pos: new THREE.Vector3(0.75, 1.25, 2.4),
+        look: new THREE.Vector3(0.6, 0.2, 0.45),
         fov: 46,
       });
       c.audio.voice('つめたい おみずへ いれよう');
@@ -372,15 +373,22 @@ export function openModule(): Mod {
       const knife = c.stage.props.knife;
       knife.visible = true;
       knife.position.copy(POS.plate).add(new THREE.Vector3(-0.4, 0.62, 0));
-      // 流出プール
+      // 流出プール (袋の手前側へ広がる)
       if (!pool) {
         pool = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), c.stage.mats.cream);
         pool.scale.setScalar(0.001);
         c.stage.scene.add(pool);
+        // こぼれた細いチーズ
+        const spilled = makeRibbon(c.stage.mats.mozz, 42, 0.5);
+        spilled.scale.set(0.5, 0.9, 0.35);
+        spilled.position.y = 0.25;
+        spilled.name = 'spilled';
+        pool.add(spilled);
       }
       pool.visible = true;
       pool.scale.setScalar(0.001);
-      pool.position.copy(POS.plate).add(new THREE.Vector3(0.18, 0.06, 0.12));
+      pool.position.copy(POS.plate).add(new THREE.Vector3(0.24, 0.045, 0.3));
+      c.stage.creamStream.width = 2.4;
       c.audio.startChannel('flow');
     },
     exit(c) {
@@ -388,6 +396,7 @@ export function openModule(): Mod {
       c.stage.props.knife.visible = false;
       c.audio.stopChannel('flow');
       c.stage.creamStream.level = 0;
+      c.stage.creamStream.width = 1;
       if (pool) pool.visible = false;
     },
     down(c, p) {
@@ -441,13 +450,12 @@ export function openModule(): Mod {
       flowOut = Math.max(0, flowOut - dt * 0.5);
       const flowing = progress > 0.25 ? clamp(flowOut, 0.15, 1) : 0;
       c.stage.creamStream.level = damp(c.stage.creamStream.level, flowing, 6, dt);
-      const side = new THREE.Vector3(0.16, 0, 0.1);
-      c.stage.creamStream.from.copy(bag.group.position).add(new THREE.Vector3(0.1, 0.3, 0.08));
-      c.stage.creamStream.to.copy(bag.group.position).add(side).setY(0.06);
+      c.stage.creamStream.from.copy(bag.group.position).add(new THREE.Vector3(0.19, 0.33, 0.22));
+      c.stage.creamStream.to.copy(pool ? pool.position : bag.group.position).setY(0.05);
       c.audio.setChannel('flow', flowing * 0.8);
       if (pool && flowing > 0) {
-        const s = Math.min(0.24, pool.scale.x + dt * 0.05 * flowing);
-        pool.scale.set(s, s * 0.28, s * 0.85);
+        const s = Math.min(0.3, pool.scale.x + dt * 0.07 * flowing);
+        pool.scale.set(s, s * 0.28, s * 0.8);
       }
       if (revealT >= 0) {
         revealT += dt;

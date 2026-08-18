@@ -58,6 +58,8 @@ export class Stream {
   from = new THREE.Vector3();
   to = new THREE.Vector3();
   level = 0; // 0..1 流量
+  /** 太さ倍率 (場面ごとに調整可) */
+  width = 1;
   constructor(parent: THREE.Object3D, mat: THREE.Material, radius = 0.03) {
     this.geo = new THREE.CylinderGeometry(radius * 0.7, radius, 1, 10, 6, true);
     this.geo.translate(0, -0.5, 0);
@@ -70,7 +72,8 @@ export class Stream {
     this.mesh.visible = true;
     const len = this.from.distanceTo(this.to);
     this.mesh.position.copy(this.from);
-    this.mesh.scale.set(this.level * 0.7 + 0.3, len, this.level * 0.7 + 0.3);
+    const w = (this.level * 0.7 + 0.3) * this.width;
+    this.mesh.scale.set(w, len, w);
     this.mesh.lookAt(this.to);
     this.mesh.rotateX(-Math.PI / 2);
     // ゆらぎ
