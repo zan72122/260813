@@ -1,0 +1,153 @@
+{
+  "$comment": "Waterfall Hair Garden — machine-readable style lock. Code imports this file directly (src/*). Do not change values without reading docs/DESIGN_CONSTITUTION.md. Units: meters, seconds, degrees.",
+  "identity": {
+    "title": "Waterfall Hair Garden",
+    "artDirection": "Twilight Water Garden — 夕暮れの水の庭",
+    "oneLine": "髪の流れを編み、庭を育てるように一輪の花を咲かせる、触れる短編アニメーション"
+  },
+  "palette": {
+    "skyTop": "#1b2947",
+    "skyMid": "#28436b",
+    "skyLow": "#456f82",
+    "skyGlow": "#7fb9b0",
+    "groundMist": "#152238",
+    "hairBase": "#b06f3e",
+    "hairShadow": "#7d4a33",
+    "hairSheen": "#ffe4c9",
+    "hairRim": "#9fd8d0",
+    "skin": "#f2d8c4",
+    "dress": "#3a2f4d",
+    "dressTrim": "#c9a86a",
+    "gemCore": "#7fe0d0",
+    "gemDeep": "#3e7f8e",
+    "gemSpark": "#fff6e0",
+    "moteWarm": "#ffd9a0",
+    "moteCool": "#a8e4d8",
+    "uiLine": "#d8c49a",
+    "uiInk": "#eae4d4",
+    "hintGlow": "#ffedc2"
+  },
+  "valueHierarchy": {
+    "$comment": "Relative luminance ordering that must never invert.",
+    "order": ["hairSheen > hairBase > skyGlow > skyLow > skyMid > dress > skyTop > groundMist"],
+    "hairVsBackgroundMinContrast": 2.2
+  },
+  "rendering": {
+    "pixelRatioMax": 2,
+    "renderScale": 1.0,
+    "toneMapping": "ACESFilmic",
+    "toneMappingExposure": 1.05,
+    "antialias": true,
+    "shadows": "none — depth is drawn with rim light, value hierarchy and painted AO, never shadow maps",
+    "fog": { "color": "#152238", "near": 6.5, "far": 14 }
+  },
+  "camera": {
+    "fovPortrait": 40,
+    "fovLandscape": 33,
+    "near": 0.1,
+    "far": 40,
+    "shots": {
+      "establish":   { "pos": [0.0, 1.72, 2.9],  "target": [0.0, 1.28, 0.0],  "portraitPos": [0.0, 1.82, 3.7],  "portraitTarget": [0.0, 1.18, 0.0] },
+      "braid":       { "pos": [0.18, 1.66, 2.25], "target": [0.0, 1.30, 0.0],  "portraitPos": [0.15, 1.76, 3.0],  "portraitTarget": [0.0, 1.24, 0.0] },
+      "closeup":     { "pos": [0.12, 1.60, 1.75], "target": [-0.10, 1.38, 0.10], "portraitPos": [0.12, 1.66, 2.35], "portraitTarget": [-0.10, 1.34, 0.10] },
+      "petal":       { "pos": [0.95, 1.30, 2.0],  "target": [0.40, 1.10, 0.05], "portraitPos": [1.0, 1.4, 2.65], "portraitTarget": [0.38, 1.06, 0.05] },
+      "coil":        { "pos": [1.35, 1.68, 1.10], "target": [0.36, 1.40, 0.16], "portraitPos": [1.72, 1.78, 1.4], "portraitTarget": [0.36, 1.38, 0.16] },
+      "gem":         { "pos": [1.42, 1.72, 1.35], "target": [0.38, 1.40, 0.14], "portraitPos": [1.78, 1.84, 1.68],  "portraitTarget": [0.38, 1.38, 0.14] },
+      "reveal":      { "pos": [0.55, 1.66, 3.1],  "target": [0.10, 1.18, 0.0], "portraitPos": [0.5, 1.78, 3.95], "portraitTarget": [0.10, 1.12, 0.0] }
+    },
+    "transitionDuration": 2.2,
+    "revealPullDuration": 6.0,
+    "easing": "sineInOut",
+    "breathAmplitude": 0.012,
+    "breathPeriod": 6.0,
+    "rule": "Camera never moves while a finger is down. No cuts inside a cause-effect moment; use slow push-ins instead."
+  },
+  "lights": {
+    "key":  { "color": "#fff1dc", "intensity": 0.95, "position": [2.2, 3.4, 2.6] },
+    "fill": { "color": "#5f86a8", "intensity": 0.5, "position": [-2.6, 1.4, 1.8] },
+    "rim":  { "color": "#8fe0d2", "intensity": 1.45, "position": [-1.2, 2.6, -2.8] },
+    "ambient": { "skyColor": "#4a6d8c", "groundColor": "#241f38", "intensity": 0.45 }
+  },
+  "hairMaterial": {
+    "roughness": 0.46,
+    "metalness": 0.0,
+    "sheen": 0.18,
+    "sheenRoughness": 0.62,
+    "sheenColor": "#f2c9a2",
+    "clearcoat": 0.1,
+    "clearcoatRoughness": 0.6,
+    "envMapIntensity": 0.15,
+    "swayAmplitude": 0.016,
+    "swayPeriod": 3.6,
+    "strandRadius": 0.028,
+    "braidStrandRadius": 0.024,
+    "tailRibbonHalfWidth": 0.055
+  },
+  "gemMaterial": {
+    "roughness": 0.08,
+    "metalness": 0.1,
+    "transmissionFake": "emissive core + additive halo sprite, no transmission pass",
+    "emissive": "#3e7f8e",
+    "emissiveIntensityIdle": 0.55,
+    "emissiveIntensityPulse": 1.35,
+    "envMapIntensity": 1.6,
+    "radius": 0.04
+  },
+  "particles": {
+    "moteCount": 90,
+    "moteCountReducedMotion": 0,
+    "moteSizeMin": 0.008,
+    "moteSizeMax": 0.03,
+    "moteDriftSpeed": 0.05,
+    "burstMax": 26,
+    "rule": "Particles celebrate quietly; never full-screen confetti."
+  },
+  "timing": {
+    "introHold": 2.6,
+    "crossDuration": 0.85,
+    "dropDuration": 1.35,
+    "dropSettleWobble": 0.5,
+    "pickDuration": 0.7,
+    "petalSpring": 0.35,
+    "coilFollowLag": 0.12,
+    "gemSnapDuration": 0.4,
+    "gemPressDuration": 0.55,
+    "gemJiggleDuration": 1.1,
+    "revealHold": 6.0,
+    "replayFadeIn": 1.4,
+    "hintDelay": 5.0,
+    "hintPulsePeriod": 1.6,
+    "easings": {
+      "hairMotion": "cubicOut",
+      "hairSettle": "backOut(1.2)",
+      "camera": "sineInOut",
+      "ui": "cubicInOut",
+      "gemSnap": "quartOut"
+    }
+  },
+  "ui": {
+    "font": "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', system-ui, sans-serif",
+    "textPolicy": "No instructional text ever. Title wordmark on intro and a wordless replay glyph are the only 2D elements.",
+    "replayButtonSize": 76,
+    "replayCornerRadius": "50%",
+    "lineWeight": 1.5,
+    "safeAreaMargin": 24,
+    "uiOpacity": 0.85
+  },
+  "motionReduction": {
+    "prefersReducedMotion": {
+      "cameraTransitionDuration": 0.6,
+      "swayAmplitude": 0.004,
+      "moteCount": 0,
+      "breathAmplitude": 0,
+      "burstMax": 8
+    }
+  },
+  "audio": {
+    "vocabulary": "水琴窟 (water-drop koto) + music box. Synthesized at runtime, no samples.",
+    "scale": "A major pentatonic: A3 B3 C#4 E4 F#4 A4",
+    "masterGain": 0.5,
+    "ambientGain": 0.06,
+    "rule": "Sound confirms cause and effect; it never demands attention. No fanfares."
+  }
+}
