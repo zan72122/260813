@@ -13,7 +13,9 @@ const renderer = new THREE.WebGLRenderer({
   antialias: !FAST,
   powerPreference: 'high-performance',
 })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, FAST ? 1 : 2))
+// fast mode (E2E) normalizes render cost: long edge capped near 720px
+const fastRatio = Math.min(1, 720 / Math.max(window.innerWidth, window.innerHeight))
+renderer.setPixelRatio(FAST ? fastRatio : Math.min(window.devicePixelRatio || 1, 2))
 renderer.shadowMap.enabled = !FAST
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -35,7 +37,7 @@ resize()
 let last = performance.now()
 renderer.setAnimationLoop(() => {
   const now = performance.now()
-  const dt = Math.min((now - last) / 1000, 0.05) * (FAST ? 2.2 : 1)
+  const dt = Math.min((now - last) / 1000, FAST ? 0.09 : 0.05) * (FAST ? 2.2 : 1)
   last = now
   tweens.update(dt)
   game.frame(dt)

@@ -564,6 +564,7 @@ export class Game {
     let metricTimer = 0
     let finishing = false
     let emitAcc = 0
+    let totalEmitted = 0
 
     let resolveDone!: () => void
     const done = new Promise<void>((r) => (resolveDone = r))
@@ -580,6 +581,7 @@ export class Game {
     this.input.onUp = (p) => {
       // light tap = a puff of cocoa
       if (performance.now() - this.input.downTime < 260) {
+        totalEmitted += 60
         w.emitCocoa(sieveTarget.x, sieveTarget.z, 60)
         sfx.sara()
       }
@@ -596,6 +598,7 @@ export class Game {
         const n = Math.floor(emitAcc)
         if (n > 0) {
           emitAcc -= n
+          totalEmitted += n
           w.emitCocoa(w.sieve.position.x, w.sieve.position.z, n)
           sfx.sara()
         }
@@ -603,7 +606,8 @@ export class Game {
       metricTimer += dt
       if (metricTimer > 0.4 && !finishing) {
         metricTimer = 0
-        if (w.cocoaSurface.computeCoverage() > 0.55) {
+        // enough dusting always completes — the finishing pass evens it out
+        if (w.cocoaSurface.computeCoverage() > 0.55 || totalEmitted > 900) {
           finishing = true
           this.input.clearHandlers()
           void w.cocoaSurface.finishDust() // even out while the last grains fall
