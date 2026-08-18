@@ -450,8 +450,8 @@ export function openModule(): Mod {
       if (!camMoved && progress > 0.15) {
         camMoved = true;
         c.cam.setShot({
-          pos: new THREE.Vector3(0.72, 0.6, 1.95),
-          look: new THREE.Vector3(0.7, 0.24, 0.88),
+          pos: new THREE.Vector3(0.72, 0.85, 1.9),
+          look: new THREE.Vector3(0.7, 0.28, 0.88),
           fov: 40,
         });
       }
