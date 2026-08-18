@@ -157,15 +157,20 @@ if (uVoidOn > 0.5 && vLocal.x > ${CUT_X.toFixed(3)} && vLocal.z > ${CUT_Z.toFixe
     this.dirty = true
   }
 
-  /** Guaranteed finish: fade the whole map to the smoothed value. */
+  /** Guaranteed finish: fade the whole map to the smoothed value (framerate-independent). */
   finishFlatten(): Promise<void> {
+    let applied = 0
     return tweens.to({
       dur: 0.7,
       ease: easeInOut,
-      update: () => {
+      update: (v) => {
         const ctx = this.hCtx
-        ctx.fillStyle = `rgba(${TARGET},${TARGET},${TARGET},0.16)`
-        ctx.fillRect(0, 0, HM_W, HM_H)
+        const step = Math.floor(v * 16)
+        while (applied < step) {
+          applied++
+          ctx.fillStyle = `rgba(${TARGET},${TARGET},${TARGET},0.16)`
+          ctx.fillRect(0, 0, HM_W, HM_H)
+        }
         this.dirty = true
       },
     })
@@ -265,17 +270,22 @@ export class CocoaSurface {
     this.dirty = true
   }
 
-  /** Final even dusting while the last particles fall. */
+  /** Final even dusting while the last particles fall (framerate-independent). */
   finishDust(): Promise<void> {
+    let applied = 0
     return tweens.to({
       dur: 0.6,
-      update: () => {
+      update: (v) => {
         const ctx = this.ctx
-        ctx.fillStyle = 'rgba(88,58,34,0.05)'
-        ctx.fillRect(0, 0, 256, 184)
-        ctx.fillStyle = 'rgba(66,42,24,0.4)'
-        for (let i = 0; i < 24; i++) {
-          ctx.fillRect(Math.random() * 256, Math.random() * 184, 1.6, 1.6)
+        const step = Math.floor(v * 14)
+        while (applied < step) {
+          applied++
+          ctx.fillStyle = 'rgba(88,58,34,0.07)'
+          ctx.fillRect(0, 0, 256, 184)
+          ctx.fillStyle = 'rgba(66,42,24,0.4)'
+          for (let i = 0; i < 26; i++) {
+            ctx.fillRect(Math.random() * 256, Math.random() * 184, 1.6, 1.6)
+          }
         }
         this.dirty = true
       },
