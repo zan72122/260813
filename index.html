@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#fdf3e3" />
+  <title>びよーん！チーズのふくろ屋さん</title>
+  <style>
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      position: fixed;
+      background: #fdf3e3;
+      font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Rounded Mplus 1c", sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      overscroll-behavior: none;
+    }
+    #app { position: fixed; inset: 0; }
+    #gl {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+      touch-action: none;
+    }
+    /* ---------- overlay layers ---------- */
+    #hintLayer {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+    #uiLayer {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .topbar {
+      position: absolute;
+      top: calc(var(--sat) + 8px);
+      right: calc(var(--sar) + 8px);
+      display: flex; gap: 10px;
+      pointer-events: none;
+    }
+    .iconbtn {
+      pointer-events: auto;
+      width: 46px; height: 46px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.82);
+      box-shadow: 0 2px 8px rgba(120,80,40,0.25);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: #a6743c;
+    }
+    .iconbtn:active { transform: scale(0.92); }
+    .iconbtn svg { width: 26px; height: 26px; }
+    /* ---------- big picture panels (intro / replay) ---------- */
+    .panel {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: flex-end;
+      padding-bottom: calc(var(--sab) + 4vh);
+      pointer-events: none;
+      z-index: 8;
+      transition: opacity 0.4s;
+    }
+    .panel.hidden { opacity: 0; pointer-events: none !important; }
+    .panel .row {
+      display: flex; gap: 4vmin; align-items: center; justify-content: center;
+      flex-wrap: wrap;
+      pointer-events: none;
+      margin-bottom: 2vmin;
+      max-width: 96vw;
+    }
+    .bigbtn {
+      pointer-events: auto;
+      border: none;
+      background: #ffffff;
+      border-radius: 28px;
+      box-shadow: 0 6px 18px rgba(140,90,40,0.3);
+      width: clamp(84px, 21vmin, 150px);
+      height: clamp(84px, 21vmin, 150px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .bigbtn:active { transform: scale(0.9); }
+    .bigbtn.selected { outline: 5px solid #ffb3d1; }
+    .bigbtn svg { width: 68%; height: 68%; }
+    .bigbtn .lbl { font-size: clamp(11px, 2.4vmin, 16px); color: #a6743c; font-weight: bold; }
+    .playbtn {
+      pointer-events: auto;
+      border: none;
+      background: linear-gradient(180deg, #ffd166, #ffb347);
+      border-radius: 999px;
+      box-shadow: 0 8px 20px rgba(200,120,20,0.4);
+      padding: clamp(12px, 2.6vmin, 22px) clamp(36px, 9vmin, 70px);
+      font-size: clamp(20px, 5vmin, 34px);
+      font-weight: bold;
+      color: #7a4a12;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .playbtn:active { transform: scale(0.93); }
+    .paneltitle {
+      color: #a6743c;
+      font-size: clamp(16px, 4vmin, 26px);
+      font-weight: bold;
+      margin-bottom: 2.5vmin;
+      text-shadow: 0 1px 0 #fff;
+      pointer-events: none;
+    }
+    /* finger hint puck */
+    #hintPuck {
+      position: absolute;
+      width: 58px; height: 58px;
+      margin: -29px 0 0 -29px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95), rgba(255,220,235,0.65));
+      border: 3px solid rgba(255,255,255,0.9);
+      box-shadow: 0 0 18px rgba(255,170,200,0.8), 0 3px 8px rgba(0,0,0,0.15);
+      opacity: 0;
+      pointer-events: none;
+    }
+    #hintTrail { position: absolute; inset: 0; pointer-events: none; }
+    /* rotate-safe loading */
+    #boot {
+      position: absolute; inset: 0;
+      background: #fdf3e3;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px;
+      z-index: 50;
+      transition: opacity 0.5s;
+    }
+    #boot.hidden { opacity: 0; pointer-events: none; }
+    #boot .cheese {
+      width: 84px; height: 84px; border-radius: 50%;
+      background: radial-gradient(circle at 38% 32%, #fffdf5, #f7edc9);
+      box-shadow: 0 6px 16px rgba(160,110,40,0.25);
+      animation: boing 1s ease-in-out infinite;
+    }
+    @keyframes boing {
+      0%,100% { transform: scaleX(1) scaleY(1); }
+      50% { transform: scaleX(1.25) scaleY(0.8); }
+    }
+    #boot .t { color: #b8874a; font-weight: bold; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="gl"></canvas>
+    <div id="hintLayer">
+      <svg id="hintTrail"></svg>
+      <div id="hintPuck"></div>
+    </div>
+    <div id="uiLayer"></div>
+    <div id="boot"><div class="cheese"></div><div class="t">じゅんびちゅう…</div></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
