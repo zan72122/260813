@@ -160,6 +160,11 @@ export function pourModule(): Mod {
         dur: 1.4,
       };
     },
+    marker(c) {
+      const knob = c.stage.props.lever.getObjectByName('knob')!;
+      knob.getWorldPosition(knobWorld);
+      return { pos: knobWorld.clone(), r: 0.16 };
+    },
   };
 }
 
@@ -266,6 +271,9 @@ export function gatherModule(): Mod {
         ],
         dur: 1.6,
       };
+    },
+    marker(c) {
+      return { pos: c.stage.props.paddle.position.clone().add(new THREE.Vector3(0, 0.06, 0)), r: 0.18 };
     },
   };
 }

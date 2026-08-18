@@ -163,6 +163,16 @@ export function stracModule(): Mod {
       }
       return { path: [POS.sideBowl.clone().add(new THREE.Vector3(0, 0.25, 0))], circle: true, dur: 2.0 };
     },
+    marker(c) {
+      if (stage === 'tear') return { pos: stripPos.clone().add(new THREE.Vector3(0, -0.1, 0)), r: 0.15 };
+      if (stage === 'cream') {
+        const knob = c.stage.props.pitcher.getObjectByName('creamKnob')!;
+        const w = new THREE.Vector3();
+        knob.getWorldPosition(w);
+        return { pos: w, r: 0.14 };
+      }
+      return { pos: POS.sideBowl.clone().add(new THREE.Vector3(0, 0.3, 0)), r: 0.2 };
+    },
   };
 }
 
@@ -300,6 +310,17 @@ export function fillModule(): Mod {
       const w = new THREE.Vector3();
       knob.getWorldPosition(w);
       return { path: [w], hold: true, dur: 1.6 };
+    },
+    marker(c) {
+      if (stage === 'scoop') {
+        return hasScoop
+          ? { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0, 0.42, 0)), r: 0.18 }
+          : { pos: POS.sideBowl.clone().add(new THREE.Vector3(0, 0.3, 0)), r: 0.2 };
+      }
+      const knob = c.stage.props.pitcher.getObjectByName('creamKnob')!;
+      const w = new THREE.Vector3();
+      knob.getWorldPosition(w);
+      return { pos: w, r: 0.14 };
     },
   };
 

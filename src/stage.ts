@@ -317,6 +317,9 @@ export class Stage {
   ripples: RipplePool;
   coldRipples: RipplePool;
   time = 0;
+  /** 触ってよい対象を示すパルスリング */
+  private marker!: THREE.Mesh;
+  private markerBase = 0.1;
   private targetDpr: number;
   private fpsAcc = 0; private fpsN = 0; private fpsTimer = 0;
   reduceMotion = false;
@@ -378,6 +381,18 @@ export class Stage {
     const mainBowl = this.props.mainBowl;
     this.ripples = new RipplePool(mainBowl, 0xffffff, 5);
     this.coldRipples = new RipplePool(this.props.coldBowl, 0xffffff, 6);
+
+    // ターゲットマーカー (触ってよい場所を常時やさしく示す)
+    this.marker = new THREE.Mesh(
+      new THREE.TorusGeometry(1, 0.08, 8, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb347, transparent: true, opacity: 0.65,
+        blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+      }),
+    );
+    this.marker.visible = false;
+    this.marker.renderOrder = 50;
+    this.scene.add(this.marker);
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -606,8 +621,22 @@ export class Stage {
     }
   }
 
+  /** 触る場所のマーカーを表示 (null で消す)。billboard で常にカメラへ向く */
+  setMarker(pos: THREE.Vector3 | null, radius = 0.1) {
+    if (!pos) { this.marker.visible = false; return; }
+    this.marker.visible = true;
+    this.marker.position.copy(pos);
+    this.markerBase = radius;
+  }
+
   update(dt: number) {
     this.time += dt;
+    if (this.marker.visible) {
+      const pulse = 1 + Math.sin(this.time * 3.4) * 0.18;
+      this.marker.scale.setScalar(this.markerBase * pulse);
+      this.marker.quaternion.copy(this.camera.quaternion);
+      (this.marker.material as THREE.MeshBasicMaterial).opacity = 0.5 + Math.sin(this.time * 3.4) * 0.2;
+    }
     this.chef.update(dt, this.time);
     this.steam.update(dt);
     this.splash.update(dt);

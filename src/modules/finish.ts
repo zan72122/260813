@@ -55,6 +55,9 @@ export function gatherMouthModule(): Mod {
         dur: 1.4,
       };
     },
+    marker(c) {
+      return { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0.28, 0.12, 0.1)), r: 0.15 };
+    },
   };
 }
 
@@ -130,6 +133,9 @@ export function closeMouthModule(): Mod {
         ],
         dur: 1.1,
       };
+    },
+    marker(c) {
+      return { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0, 0.52, 0.05)), r: 0.13 };
     },
   };
 }
@@ -215,6 +221,10 @@ export function coldWaterModule(): Mod {
         ],
         dur: 1.6,
       };
+    },
+    marker(c) {
+      if (dropped) return null;
+      return { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0, 0.35, 0)), r: 0.18 };
     },
   };
 
@@ -334,6 +344,10 @@ export function plateModule(): Mod {
         dur: 1.6,
       };
     },
+    marker(c) {
+      if (placed) return null;
+      return { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0, 0.32, 0)), r: 0.18 };
+    },
   };
 
   function place(c: Ctx) {
@@ -365,14 +379,10 @@ export function openModule(): Mod {
         fov: 42,
       });
       c.audio.voice('なかを みてみよう。せんを なぞってね');
-      // ガイド線
+      // ガイド線 (職人が両手で引き開くのを、なぞって手伝う)
       const g = c.world.guideLine;
       g.visible = true;
       g.position.copy(POS.plate).setY(0.5);
-      // ナイフは職人が持つ
-      const knife = c.stage.props.knife;
-      knife.visible = true;
-      knife.position.copy(POS.plate).add(new THREE.Vector3(-0.4, 0.62, 0));
       // 流出プール (袋の手前側へ広がる)
       if (!pool) {
         pool = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), c.stage.mats.cream);
@@ -393,7 +403,6 @@ export function openModule(): Mod {
     },
     exit(c) {
       c.world.guideLine.visible = false;
-      c.stage.props.knife.visible = false;
       c.audio.stopChannel('flow');
       c.stage.creamStream.level = 0;
       c.stage.creamStream.width = 1;
@@ -405,7 +414,7 @@ export function openModule(): Mod {
     move(c, p) {
       if (!active || progress >= 1) return;
       const bag = c.world.bag;
-      const add = Math.abs(p.dx) / (window.innerWidth * 0.45);
+      const add = Math.abs(p.dx) / (Math.min(window.innerWidth, window.innerHeight) * 0.55);
       if (add <= 0) return;
       if (progress === 0 && Math.abs(p.dx) > 0.5) {
         c.craft.openDir = p.dx > 0 ? 0 : Math.PI;
@@ -430,12 +439,12 @@ export function openModule(): Mod {
       const mouth = bag.group.position.clone().add(new THREE.Vector3(0, 0.42 - progress * 0.1, 0));
       g.position.copy(mouth).add(new THREE.Vector3(0, 0.08, 0));
       g.visible = progress < 0.95;
-      // ナイフが進行に追従 (職人の手)
-      const knife = c.stage.props.knife;
-      knife.position.x = damp(knife.position.x, POS.plate.x - 0.3 + progress * 0.6, 8, dt);
-      knife.position.y = damp(knife.position.y, mouth.y + 0.16, 8, dt);
-      knife.position.z = POS.plate.z;
-      c.stage.chef.setHands(null, knife.position.clone().add(new THREE.Vector3(0.12, 0.12, 0)));
+      // 職人の両手が口の両側をつまみ、進行に応じて引き開く
+      const spread = 0.16 + progress * 0.22;
+      c.stage.chef.setHands(
+        mouth.clone().add(new THREE.Vector3(-spread, 0.1, -0.05)),
+        mouth.clone().add(new THREE.Vector3(spread, 0.1, -0.05)),
+      );
       c.stage.chef.look(bag.group.position);
       // 低い接写へ (開き始めたらゆっくり寄る、カットしない)
       if (!camMoved && progress > 0.15) {
@@ -446,9 +455,9 @@ export function openModule(): Mod {
           fov: 40,
         });
       }
-      // 中身の流出
-      flowOut = Math.max(0, flowOut - dt * 0.5);
-      const flowing = progress > 0.25 ? clamp(flowOut, 0.15, 1) : 0;
+      // 中身の流出 (開いている間はトロトロと流れ続ける)
+      flowOut = Math.max(0, flowOut - dt * 0.3);
+      const flowing = progress > 0.25 ? clamp(flowOut, 0.3, 1) : 0;
       c.stage.creamStream.level = damp(c.stage.creamStream.level, flowing, 6, dt);
       c.stage.creamStream.from.copy(bag.group.position).add(new THREE.Vector3(0.19, 0.33, 0.22));
       c.stage.creamStream.to.copy(pool ? pool.position : bag.group.position).setY(0.05);
@@ -481,6 +490,10 @@ export function openModule(): Mod {
         ],
         dur: 1.3,
       };
+    },
+    marker(c) {
+      if (progress >= 0.95) return null;
+      return { pos: c.world.guideLine.position.clone().add(new THREE.Vector3(-0.22, 0, 0)), r: 0.12 };
     },
   };
 }

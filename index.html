@@ -123,17 +123,14 @@
       text-shadow: 0 1px 0 #fff;
       pointer-events: none;
     }
-    /* finger hint puck */
+    /* finger hint hand */
     #hintPuck {
       position: absolute;
-      width: 58px; height: 58px;
-      margin: -29px 0 0 -29px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95), rgba(255,220,235,0.65));
-      border: 3px solid rgba(255,255,255,0.9);
-      box-shadow: 0 0 18px rgba(255,170,200,0.8), 0 3px 8px rgba(0,0,0,0.15);
+      width: 64px; height: 64px;
+      margin: -20px 0 0 -22px;
       opacity: 0;
       pointer-events: none;
+      filter: drop-shadow(0 0 10px rgba(255,166,60,0.9)) drop-shadow(0 3px 5px rgba(0,0,0,0.25));
     }
     #hintTrail { position: absolute; inset: 0; pointer-events: none; }
     /* rotate-safe loading */
@@ -164,7 +161,7 @@
     <canvas id="gl"></canvas>
     <div id="hintLayer">
       <svg id="hintTrail"></svg>
-      <div id="hintPuck"></div>
+      <div id="hintPuck"><svg viewBox="0 0 64 64" width="64" height="64"><path d="M30 6c3 0 5 2.2 5 5v17l3.4-3.2c2-1.9 5.2-1.8 7 .2 1.8 2 1.7 5-.2 6.9L33 43.5c-2.5 2.4-6 3.7-9.5 3.4-6.6-.6-11.5-6.2-11.5-12.9V22c0-2.8 2.2-5 5-5s5 2.2 5 5v-3c0-2.8 2.2-5 5-5 1.1 0 2.1.3 3 .9V11c0-2.8 2.2-5 5-5z" fill="#ffffff" stroke="#e8973c" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
     </div>
     <div id="uiLayer"></div>
     <div id="boot"><div class="cheese"></div><div class="t">じゅんびちゅう…</div></div>

@@ -67,6 +67,10 @@ export function updateTube(
 export class StretchCheese {
   group = new THREE.Group();
   tube: THREE.Mesh;
+  /** 細い副糸 (伸びるほど分かれて見える) */
+  subTubes: THREE.Mesh[] = [];
+  private subCurves: THREE.CatmullRomCurve3[] = [];
+  private subCps: THREE.Vector3[][] = [];
   blobA: THREE.Mesh;
   blobB: THREE.Mesh;
   anchor = new THREE.Vector3();
@@ -93,6 +97,17 @@ export class StretchCheese {
     this.group.add(this.tube, this.blobA, this.blobB);
     this.cps = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     this.curve = new THREE.CatmullRomCurve3(this.cps, false, 'catmullrom', 0.5);
+    // 副糸 ×2
+    for (let s = 0; s < 2; s++) {
+      const geo = makeTubeGeo(32, 8);
+      const m = new THREE.Mesh(geo, mat);
+      m.frustumCulled = false;
+      this.group.add(m);
+      this.subTubes.push(m);
+      const cps = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      this.subCps.push(cps);
+      this.subCurves.push(new THREE.CatmullRomCurve3(cps, false, 'catmullrom', 0.5));
+    }
   }
 
   get length() { return this.anchor.distanceTo(this.visHandle); }
@@ -127,13 +142,32 @@ export class StretchCheese {
     this.cps[4].copy(B);
     (this.curve as any).needsUpdate = true;
     this.curve.updateArcLengths();
-    // 伸びるほど細く
-    const thin = this.baseRadius / (0.75 + L * 0.9);
-    const rMid = clamp(thin, 0.035, this.baseRadius);
+    // 伸びるほど細く (中央へ向かって強くテーパー)
+    const thin = this.baseRadius / (0.7 + L * 1.15);
+    const rMid = clamp(thin, 0.026, this.baseRadius);
     updateTube(this.tube.geometry, this.curve, this.segs, this.rad, (t) => {
       const bell = Math.sin(t * Math.PI);
-      return lerp(this.baseRadius * 0.92, rMid, Math.pow(bell, 0.45));
+      return lerp(this.baseRadius * 0.92, rMid, Math.pow(bell, 0.3));
     });
+    // 副糸: 長く伸びた時だけ、主糸から分かれた細い糸が見える
+    const subVis = clamp((L - 0.55) / 0.5, 0, 1);
+    for (let s = 0; s < this.subTubes.length; s++) {
+      const m = this.subTubes[s];
+      m.visible = subVis > 0.01;
+      if (!m.visible) continue;
+      const sign = s === 0 ? 1 : -1;
+      const cps = this.subCps[s];
+      for (let i = 0; i < 5; i++) {
+        cps[i].copy(this.cps[i]);
+        const bell = Math.sin((i / 4) * Math.PI);
+        cps[i].y += sign * (0.03 + rMid * 1.6) * bell * subVis
+          + Math.sin(this.wobblePhase * 0.7 + s * 2 + i) * 0.008 * subVis;
+        cps[i].z += sign * 0.02 * bell * subVis;
+      }
+      this.subCurves[s].updateArcLengths();
+      updateTube(m.geometry, this.subCurves[s], 32, 8,
+        (t) => (0.012 + rMid * 0.22) * (0.4 + 0.6 * Math.sin(t * Math.PI)) * subVis + 0.002);
+    }
     const bs = this.baseRadius * 1.35;
     this.blobA.position.copy(A);
     this.blobA.scale.set(bs, bs * 0.85, bs);

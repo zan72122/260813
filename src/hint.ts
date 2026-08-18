@@ -77,11 +77,11 @@ export class HintManager {
     // 軌跡線
     if (pts.length >= 2 && !spec.circle) {
       const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(0)},${p.y.toFixed(0)}`).join(' ');
-      this.trail.innerHTML = `<path d="${d}" fill="none" stroke="rgba(255,180,210,0.55)" stroke-width="14" stroke-linecap="round" stroke-dasharray="2 22"/>`;
+      this.trail.innerHTML = `<path d="${d}" fill="none" stroke="rgba(255,166,60,0.75)" stroke-width="14" stroke-linecap="round" stroke-dasharray="2 22"/>`;
     } else if (spec.circle) {
       const cx = pts[0].x, cy = pts[0].y;
       const r = Math.min(window.innerWidth, window.innerHeight) * 0.2;
-      this.trail.innerHTML = `<ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${r * 0.7}" fill="none" stroke="rgba(255,180,210,0.5)" stroke-width="12" stroke-dasharray="2 20"/>`;
+      this.trail.innerHTML = `<ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${r * 0.7}" fill="none" stroke="rgba(255,166,60,0.7)" stroke-width="12" stroke-dasharray="2 20"/>`;
     } else {
       this.trail.innerHTML = '';
     }

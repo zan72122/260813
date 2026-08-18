@@ -121,6 +121,10 @@ export function stretchModule(): Mod {
         dur: 1.5,
       };
     },
+    marker(c) {
+      if (intro < 1 || folding > 0) return null;
+      return { pos: c.world.stretch.visHandle.clone(), r: 0.2 };
+    },
   };
 }
 
@@ -191,6 +195,10 @@ export function spreadModule(): Mod {
         ],
         dur: 1.2,
       };
+    },
+    marker(c) {
+      const P = c.world.bag.params;
+      return { pos: c.world.bag.group.position.clone().add(new THREE.Vector3(0, P.thickness + 0.06, 0)), r: 0.16 };
     },
   };
 }
@@ -271,6 +279,13 @@ export function bagFormModule(): Mod {
         ],
         dur: 1.3,
       };
+    },
+    marker(c) {
+      const b = c.world.bag.group.position;
+      const P = c.world.bag.params;
+      return stage === 'dip'
+        ? { pos: b.clone().add(new THREE.Vector3(0, 0.14, 0)), r: 0.15 }
+        : { pos: b.clone().add(new THREE.Vector3(P.R + 0.04, 0.1, 0.08)), r: 0.13 };
     },
   };
 }

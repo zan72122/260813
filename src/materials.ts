@@ -23,13 +23,13 @@ export class Materials {
 
   constructor() {
     this.mozz = new THREE.MeshPhysicalMaterial({
-      color: 0xfdf9ee,
-      roughness: 0.32,
+      color: 0xfbf2da,
+      roughness: 0.24,
       metalness: 0,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.35,
-      sheen: 0.4,
-      sheenColor: new THREE.Color(0xfff6dd),
+      clearcoat: 0.75,
+      clearcoatRoughness: 0.28,
+      sheen: 0.5,
+      sheenColor: new THREE.Color(0xfff0c8),
     });
     this.curd = new THREE.MeshStandardMaterial({
       color: 0xf8f2e2,

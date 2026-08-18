@@ -290,6 +290,8 @@ export interface Mod {
   move?(c: Ctx, p: PointerState): void;
   up?(c: Ctx, p: PointerState): void;
   hint?(c: Ctx): HintSpec | null;
+  /** 今触ってよい対象 (パルスリング表示)。押下中は自動で消える */
+  marker?(c: Ctx): { pos: THREE.Vector3; r?: number } | null;
 }
 
 export class Game {
@@ -339,7 +341,7 @@ export class Game {
         if (c === 'restart') this.goto(0);
         else if (c === 'stretch') this.goto(3);
         else this.goto(7);
-      });
+      }, true);
     };
     // デバッグ/テスト用フック
     (window as any).__game = {
@@ -392,6 +394,8 @@ export class Game {
       this.cam.update(dt);
       const spec = this.transitioning ? null : (this.cur?.hint?.(this.ctx) ?? null);
       this.hintMgr.update(dt, spec, this.input);
+      const mk = this.transitioning || this.input.p.down ? null : (this.cur?.marker?.(this.ctx) ?? null);
+      this.stage.setMarker(mk ? mk.pos : null, mk?.r ?? 0.1);
       this.stage.render();
     };
     tick();

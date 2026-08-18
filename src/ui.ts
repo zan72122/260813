@@ -113,7 +113,7 @@ export class UI {
     ));
     const play = document.createElement('button');
     play.className = 'playbtn';
-    play.textContent = 'はじめる！';
+    play.innerHTML = '<svg viewBox="0 0 24 24" style="width:1.1em;height:1.1em;vertical-align:-0.18em;margin-right:0.3em"><path d="M7 4.5v15l13-7.5z" fill="#7a4a12"/></svg>はじめる！';
     play.addEventListener('click', () => onStart());
     panel.appendChild(play);
     this.layer.appendChild(panel);
@@ -126,13 +126,20 @@ export class UI {
     this.introPanel = null;
   }
 
-  /** リプレイ選択 */
-  showReplay(onChoice: (c: ReplayChoice) => void) {
+  /** リプレイ選択。dismissable なら背景タップで閉じられる */
+  showReplay(onChoice: (c: ReplayChoice) => void, dismissable = false) {
     this.hideReplay();
     const panel = document.createElement('div');
     panel.className = 'panel';
+    if (dismissable) {
+      const backdrop = document.createElement('div');
+      backdrop.style.cssText = 'position:absolute;inset:0;pointer-events:auto;';
+      backdrop.addEventListener('click', () => this.hideReplay());
+      panel.appendChild(backdrop);
+    }
     const row = document.createElement('div');
     row.className = 'row';
+    row.style.position = 'relative';
     const defs: [ReplayChoice, string, string][] = [
       ['restart', replayIcons.restart, 'さいしょから'],
       ['stretch', replayIcons.stretch, 'びよーんだけ'],
