@@ -16,6 +16,13 @@ export const CELL = SAND_X / GRID_NX
 /** Lowest height the shovel can reach — the "bottom of the sandbox". */
 export const BEDROCK = 0.06
 
+/**
+ * Gravity for the water solver. Deliberately larger than 9.81: the sandbox is
+ * a toy-scale world and a four-year-old should see the stream arrive in a few
+ * seconds, not wait out a real river's travel time.
+ */
+export const WATER_G = 22
+
 /** Water shallower than this is treated as absent (no render, no flow). */
 export const WATER_EPS = 0.0016
 
@@ -24,15 +31,15 @@ export const CASTLE_X = 4.15
 export const CASTLE_Z = 0
 
 /** Moat geometry. */
-export const MOAT_INNER = 1.3
-export const MOAT_OUTER = 2.15
+export const MOAT_INNER = 1.45
+export const MOAT_OUTER = 2.05
 
 /** Water source basin centre. */
 export const SOURCE_X = -5.6
 export const SOURCE_Z = 0
 
 /** Water depth in the moat that counts as "full". */
-export const MOAT_TARGET_DEPTH = 0.052
+export const MOAT_TARGET_DEPTH = 0.16
 
 export const isFastE2E = (): boolean => {
   try {

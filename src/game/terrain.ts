@@ -49,6 +49,12 @@ export function unionRect(a: Rect, b: Rect): Rect {
   }
 }
 
+/** Height of the moat's flat floor. */
+const MOAT_FLOOR = 0.36
+
+/** How far below the original surface the shovel can reach. */
+const MAX_DIG_DEPTH = 0.32
+
 /** Result of a brush stroke — used to drive particles and audio. */
 export type StrokeFeedback = {
   moved: number
@@ -145,7 +151,7 @@ export class Terrain {
         const k = j * WX + i
 
         // Base slope: high at the source end, low at the castle end.
-        let y = 1.0 - ((x + SAND_X / 2) / SAND_X) * 0.46
+        let y = 1.1 - ((x + SAND_X / 2) / SAND_X) * 0.75
 
         // Gentle natural undulation — never enough to trap water on its own.
         y += (noise.fbm(x * 0.38 + 3.1, z * 0.38 - 2.4) - 0.5) * 0.045
@@ -188,13 +194,18 @@ export class Terrain {
         const d = Math.hypot(x - SOURCE_X, z - SOURCE_Z)
         const k = j * WX + i
         // A shallow bowl with a raised rim: a clear "the water starts here".
-        if (d < 1.1) {
-          const bowl = smoothstep(1.1, 0.25, d)
-          h[k] = h[k] * (1 - bowl) + 0.88 * bowl
+        if (d < 0.95) {
+          const bowl = smoothstep(0.95, 0.2, d)
+          h[k] = h[k] * (1 - bowl) + 0.87 * bowl
         }
-        if (d > 0.7 && d < 1.12) {
-          const rim = Math.sin(((d - 0.7) / 0.42) * Math.PI)
-          h[k] += rim * 0.09
+        if (d > 0.6 && d < 0.97) {
+          // The rim opens toward the castle, so poured water spills out on
+          // the side the child is meant to dig — the pond has a mouth.
+          const ang = Math.atan2(z - SOURCE_Z, x - SOURCE_X)
+          const mouth = smoothstep(0.85, 0.2, Math.abs(ang))
+          const rim = Math.sin(((d - 0.6) / 0.37) * Math.PI)
+          h[k] += rim * 0.11 * (1 - mouth)
+          if (mouth > 0.2) h[k] = Math.min(h[k], 0.89 + (1 - mouth) * 0.1)
         }
       }
     }
@@ -222,24 +233,28 @@ export class Terrain {
         }
 
         if (d > MOAT_INNER - 0.05 && d < MOAT_OUTER + 0.05) {
+          // A flat floor at a constant height, so the moat fills evenly all
+          // the way round rather than only on the low side.
           const t = 1 - Math.min(1, Math.abs(d - mid) / halfW)
           const dip = smoothstep(0, 1, t)
-          h[k] = h[k] * (1 - dip) + 0.2 * dip
+          h[k] = Math.min(h[k], MOAT_FLOOR + (1 - dip) * 0.62)
           if (t > 0.25) this.moatMask[k] = 1
         }
 
         // Outer bank keeps the moat holding water, with a notch on the
         // source side: the gate the child's river has to reach.
+        const ang = Math.atan2(dz, dx)
+        const gate = smoothstep(0.46, 0.12, Math.abs(ang - Math.PI))
         if (d > MOAT_OUTER - 0.05 && d < MOAT_OUTER + 0.6) {
-          const ang = Math.atan2(dz, dx)
-          const gate = smoothstep(0.5, 0.14, Math.abs(ang - Math.PI))
           const bank = Math.sin(((d - (MOAT_OUTER - 0.05)) / 0.65) * Math.PI)
-          h[k] += bank * 0.24 * (1 - gate)
-          if (gate > 0.2) {
-            // A short inviting channel leading outward from the gate.
-            const t = gate * smoothstep(MOAT_OUTER + 0.65, MOAT_OUTER - 0.05, d)
-            h[k] = h[k] * (1 - t * 0.85) + 0.34 * t * 0.85
-          }
+          h[k] += bank * 0.26 * (1 - gate)
+        }
+        if (gate > 0.05 && d > MOAT_INNER && d < MOAT_OUTER + 0.9) {
+          // A short entry channel that visibly runs downhill into the moat:
+          // the castle states where the river is supposed to arrive.
+          const beyond = Math.max(0, d - MOAT_OUTER)
+          const target = MOAT_FLOOR + beyond * 0.2
+          h[k] = Math.min(h[k], h[k] * (1 - gate) + target * gate)
         }
       }
     }
@@ -343,9 +358,14 @@ export class Terrain {
         if (d > outer) continue
 
         if (d < r) {
+          // A groove gets harder to deepen as it approaches the bottom of
+          // the sandbox, so a child scrubbing back and forth ends up with a
+          // channel rather than a bottomless pit.
+          const floor = Math.max(BEDROCK, this.baseHeight[k] - MAX_DIG_DEPTH)
           const fall = smoothstep(r, r * 0.15, d)
-          const take = strength * fall * (1 - this.compaction[k] * 0.28)
-          const target = Math.max(BEDROCK, h[k] - take)
+          const resist = smoothstep(floor, floor + 0.14, h[k])
+          const take = strength * fall * resist * (1 - this.compaction[k] * 0.28)
+          const target = Math.max(floor, h[k] - take)
           moved += h[k] - target
           h[k] = target
           this.compaction[k] = Math.min(1, this.compaction[k] + 0.1)
@@ -359,7 +379,7 @@ export class Terrain {
     }
 
     // Smooth the groove so a wobbly child finger still yields a clean channel.
-    this.smoothRegion(i0, j0, i1, j1, 0.45, x0, z0, x1, z1, outer)
+    this.smoothRegion(i0, j0, i1, j1, 0.62, x0, z0, x1, z1, outer)
     return { moved, x: x1, z: z1, height: this.heightAt(x1, z1) }
   }
 
@@ -473,7 +493,7 @@ export class Terrain {
   dryOut(dt: number, rect: Rect): void {
     const wetn = this.wetness
     if (!rectValid(rect)) return
-    const rate = 0.028 * dt
+    const rate = 0.008 * dt
     for (let j = rect.j0; j <= rect.j1; j++) {
       for (let i = rect.i0; i <= rect.i1; i++) {
         const k = j * WX + i

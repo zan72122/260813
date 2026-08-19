@@ -148,7 +148,7 @@ export class SandMesh {
         // sand (a bank) catches light — so a dug channel is legible even
         // before a single drop of water arrives.
         const curv = (hl + hr + hu + hd) * 0.25 - hk
-        const ao = clamp(curv * 4.2, -0.5, 0.85)
+        const ao = clamp(curv * 5.0, -0.5, 0.85)
         const relief = ao > 0 ? 1 - ao * 0.42 : 1 - ao * 0.14
 
         const speck = 0.9 + t.grainTint[k] * 0.18

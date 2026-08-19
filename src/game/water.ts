@@ -1,10 +1,13 @@
-import { CELL, GRID_NX, GRID_NZ, MOAT_TARGET_DEPTH, WATER_EPS } from '../core/config'
+import { CELL, GRID_NX, GRID_NZ, MOAT_TARGET_DEPTH, WATER_EPS, WATER_G } from '../core/config'
 import { clamp } from '../core/util'
 import { Rect, Terrain, emptyRect, growRect, rectValid } from './terrain'
 
 const WX = GRID_NX + 1
 const WZ = GRID_NZ + 1
 const COUNT = WX * WZ
+
+/** Below this the film is genuinely negligible and may be dropped. */
+const MIN_KEEP = 2e-5
 
 /**
  * A "virtual pipe" shallow-water model (Mei-style): each cell exchanges volume
@@ -72,7 +75,8 @@ export class Water {
       }
     }
     if (weightSum <= 0) return 0
-    const per = volume / weightSum
+    // `volume` is a volume; the grid stores depth, so divide by the cell area.
+    const per = volume / (weightSum * CELL * CELL)
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const d = Math.hypot(terrain.wx(i) - x, terrain.wz(j) - z)
@@ -105,10 +109,13 @@ export class Water {
       j1: Math.min(WZ - 2, r.j1 + 2),
     }
 
-    const A = CELL * CELL * 0.42 // effective pipe cross-section
-    const g = 9.81
-    const kFlux = (dt * A * g) / CELL
-    const damping = 0.965
+    // Pipe cross-section scales with how much water is actually in the pipe,
+    // so a deep channel carries far more than a thin film. That is what makes
+    // "dig it deeper and the water really goes" true in play.
+    const g = WATER_G
+    const PIPE = 2.6
+    const kBase = dt * g * PIPE
+    const damping = 0.96
     const cellArea = CELL * CELL
 
     // --- 1. flux update -------------------------------------------------
@@ -124,10 +131,16 @@ export class Water {
         const nu = k - WX
         const nd = k + WX
 
-        fL[k] = Math.max(0, fL[k] * damping + kFlux * (sk - (h[nl] + d[nl])))
-        fR[k] = Math.max(0, fR[k] * damping + kFlux * (sk - (h[nr] + d[nr])))
-        fU[k] = Math.max(0, fU[k] * damping + kFlux * (sk - (h[nu] + d[nu])))
-        fD[k] = Math.max(0, fD[k] * damping + kFlux * (sk - (h[nd] + d[nd])))
+        const dl = d[nl]
+        const dr = d[nr]
+        const du = d[nu]
+        const dd = d[nd]
+        const pipe = (a: number, b: number) => kBase * Math.min(0.3, (a + b) * 0.5 + 0.004)
+
+        fL[k] = Math.max(0, fL[k] * damping + pipe(dk, dl) * (sk - (h[nl] + dl)))
+        fR[k] = Math.max(0, fR[k] * damping + pipe(dk, dr) * (sk - (h[nr] + dr)))
+        fU[k] = Math.max(0, fU[k] * damping + pipe(dk, du) * (sk - (h[nu] + du)))
+        fD[k] = Math.max(0, fD[k] * damping + pipe(dk, dd) * (sk - (h[nd] + dd)))
 
         // Never move out more water than the cell holds.
         const out = (fL[k] + fR[k] + fU[k] + fD[k]) * dt
@@ -152,7 +165,8 @@ export class Water {
     let frontZ = 0
     let moatVol = 0
     const wetn = terrain.wetness
-    const absorbRate = 0.13 * dt
+    const absorbRate = 0.05 * dt
+    const seep = 0.0008 * dt
 
     for (let j = r.j0; j <= r.j1; j++) {
       for (let i = r.i0; i <= r.i1; i++) {
@@ -169,10 +183,15 @@ export class Water {
           if (wk < 1) {
             const soak = Math.min(nd, absorbRate * (1 - wk) * (nd > 0.004 ? 1 : 0.35))
             nd -= soak
-            wetn[k] = Math.min(1, wk + soak * 9)
+            wetn[k] = Math.min(1, wk + soak * 60)
           } else {
             wetn[k] = 1
           }
+          // Even soaked sand keeps seeping, so a river fades once the child
+          // stops pouring and the sandbox can never become a permanent lake.
+          // The moat is the exception: it is stone-lined and holds what it
+          // is given, which is the whole point of filling it.
+          if (!terrain.moatMask[k]) nd = Math.max(0, nd - seep)
         }
 
         d[k] = nd
@@ -182,23 +201,26 @@ export class Water {
         this.velX[k] = vx
         this.velZ[k] = vz
 
-        if (nd > WATER_EPS) {
+        if (nd > MIN_KEEP) {
+          // The active rect follows even the thinnest film, so no water is
+          // ever quietly discarded: a poured litre stays a poured litre.
           growRect(next, i, j)
-          const vol = nd * cellArea
-          total += vol
-          energy += (Math.abs(vx) + Math.abs(vz)) * Math.min(nd, 0.05)
-          const x = terrain.wx(i)
-          const z = terrain.wz(j)
-          cx += x * vol
-          cz += z * vol
-          if (x > frontX) {
-            frontX = x
-            frontZ = z
+          if (nd > WATER_EPS) {
+            const vol = nd * cellArea
+            total += vol
+            energy += (Math.abs(vx) + Math.abs(vz)) * Math.min(nd, 0.05)
+            const x = terrain.wx(i)
+            const z = terrain.wz(j)
+            cx += x * vol
+            cz += z * vol
+            if (x > frontX) {
+              frontX = x
+              frontZ = z
+            }
+            if (terrain.moatMask[k]) moatVol += Math.min(nd, MOAT_TARGET_DEPTH * 2.2)
           }
-          if (terrain.moatMask[k]) moatVol += Math.min(nd, MOAT_TARGET_DEPTH * 2.2)
         } else if (nd > 0) {
-          // Snuff out sub-visible films so the active rect can shrink.
-          wetn[k] = Math.min(1, wetn[k] + nd * 6)
+          wetn[k] = Math.min(1, wetn[k] + nd * 20)
           d[k] = 0
         }
       }

@@ -10,7 +10,7 @@ import {
   isFastE2E,
 } from '../core/config'
 import { Settings, loadSettings, saveSettings } from '../core/settings'
-import { clamp, damp, lerp, smoothstep } from '../core/util'
+import { clamp, lerp, smoothstep } from '../core/util'
 import { Audio } from '../audio/audio'
 import { CameraRig, Orientation } from '../render/cameraRig'
 import { Environment } from '../render/environment'
@@ -298,6 +298,7 @@ export class Game {
     if (!hit) return
     this.activePointer = id
     this.pointerDown = true
+    this.rig.hold = true
     this.hasLast = true
     this.lastX = hit.x
     this.lastZ = hit.z
@@ -323,6 +324,7 @@ export class Game {
   onPointerUp(id: number): void {
     if (id !== this.activePointer) return
     this.activePointer = null
+    this.rig.hold = false
     if (!this.pointerDown) return
     this.pointerDown = false
     this.hasLast = false
@@ -332,6 +334,7 @@ export class Game {
 
   cancelPointer(): void {
     this.activePointer = null
+    this.rig.hold = false
     this.pointerDown = false
     this.hasLast = false
     this.worldTool.release()
@@ -352,7 +355,7 @@ export class Game {
         x,
         z,
         radius,
-        0.042 * push,
+        0.022 * push,
       )
       this.totalDug += fb.moved
       this.sandMesh.update()
@@ -436,11 +439,11 @@ export class Game {
 
     if (this.pointerDown && this.tray.selected === 'pour' && this.phase !== 'menu') {
       this.pourTime += dt
-      const rate = 0.95
+      const rate = 0.1
       const ramp = smoothstep(0, 0.18, this.pourTime)
       const vol = rate * ramp * dt
       const h = this.terrain.heightAt(this.lastX, this.lastZ)
-      this.water.add(this.terrain, this.lastX, this.lastZ, 0.26, vol)
+      this.water.add(this.terrain, this.lastX, this.lastZ, 0.34, vol)
       this.totalPoured += vol
       this.audio.setPour(0.55 + ramp * 0.45)
       const n = this.settings.calmMotion ? 1 : 2
@@ -449,9 +452,11 @@ export class Game {
       this.audio.setPour(0)
     }
 
-    // Water is stepped in two sub-steps for stability at 60 Hz.
-    const sub = Math.min(2, Math.max(1, Math.round(dt / 0.012)))
-    const sdt = Math.min(dt, 0.033) / sub
+    // The solver is explicit, so the sub-step has to stay near 8 ms whatever
+    // the frame rate. A very slow frame runs the water slightly slow rather
+    // than exploding it.
+    const sub = clamp(Math.ceil(dt / 0.0085), 2, 4)
+    const sdt = Math.min(dt, 0.034) / sub
     for (let s = 0; s < sub; s++) this.water.step(this.terrain, sdt)
 
     const rect = this.water.renderRect()
@@ -470,7 +475,7 @@ export class Game {
 
     this.updateAudioBed()
     this.updatePhase(dt)
-    this.updateCamera(dt)
+    this.updateCamera()
     this.rig.update(dt, this.settings.calmMotion)
   }
 
@@ -558,7 +563,7 @@ export class Game {
     if (
       !this.hasPoured &&
       this.phase === 'dig' &&
-      (this.totalDug > 1.6 || this.idleTime > 3.2)
+      (this.totalDug > 3 || this.idleTime > 3.2)
     ) {
       this.phase = 'invitePour'
     }
@@ -590,7 +595,7 @@ export class Game {
     else this.env.lookAt(CASTLE_X, 1.4, CASTLE_Z)
   }
 
-  private updateCamera(dt: number): void {
+  private updateCamera(): void {
     const w = this.water
     let fx = 0.1
     let fz = 0
@@ -604,15 +609,9 @@ export class Game {
         break
       case 'dig':
       case 'invitePour':
-        if (this.pointerDown) {
-          fx = lerp(0.1, this.lastX, 0.55)
-          fz = lerp(0, this.lastZ, 0.55)
-          zoom = 0.84
-        } else {
-          fx = 0.1
-          fz = 0
-          zoom = 0.97
-        }
+        fx = lerp(0.1, this.lastX, 0.4)
+        fz = lerp(0, this.lastZ, 0.4)
+        zoom = 0.93
         break
       case 'flow': {
         // Ride with the leading edge, but never lose the castle.
@@ -621,26 +620,26 @@ export class Game {
         const tz = w.totalVolume > 0.03 ? lerp(w.centroidZ, w.frontZ, 0.65) : this.lastZ
         fx = lerp(tx, (tx + CASTLE_X) / 2, t * 0.5)
         fz = lerp(tz, (tz + CASTLE_Z) / 2, t * 0.5)
-        zoom = 0.9
+        zoom = 0.95
         break
       }
       case 'repair':
-        fx = lerp(this.repairX, 0.1, 0.25)
-        fz = lerp(this.repairZ, 0, 0.25)
-        zoom = 0.78
+        fx = lerp(this.repairX, 0.1, 0.2)
+        fz = lerp(this.repairZ, 0, 0.2)
+        zoom = 0.82
         break
       case 'fill': {
         const f = w.moatFill
         fx = lerp(lerp(w.centroidX, CASTLE_X, 0.55), CASTLE_X - 0.6, f)
         fz = lerp(w.centroidZ * 0.5, CASTLE_Z, f)
-        zoom = lerp(0.86, 0.94, f)
+        zoom = lerp(0.9, 0.96, f)
         break
       }
       case 'reveal': {
         const t = smoothstep(0, 2.2, this.revealTime)
         fx = lerp(CASTLE_X - 0.5, 0.7, t)
         fz = lerp(CASTLE_Z, 0, t)
-        zoom = lerp(0.8, 1.02, t)
+        zoom = lerp(0.86, 1.0, t)
         break
       }
       case 'menu':
@@ -648,11 +647,6 @@ export class Game {
         fz = 0
         zoom = 1.0
         break
-    }
-    // Keep the pouring hand's target on screen while the child holds down.
-    if (this.pointerDown && this.tray.selected === 'pour' && this.phase === 'flow') {
-      fx = damp(fx, (fx + this.lastX) / 2, 6, dt)
-      fz = damp(fz, (fz + this.lastZ) / 2, 6, dt)
     }
     this.rig.focus(fx, fz, zoom)
   }

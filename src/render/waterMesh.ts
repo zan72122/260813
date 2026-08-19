@@ -46,13 +46,13 @@ uniform vec3 uCam;
 
 void main() {
   float d = vDepth;
-  if (d < 0.0008) discard;
+  if (d < 0.0018) discard;
 
   vec3 n = normalize(vNormalW);
   vec3 v = normalize(uCam - vWorld);
 
-  float depthT = clamp(d / 0.055, 0.0, 1.0);
-  vec3 base = mix(uShallow, uDeep, depthT);
+  float depthT = clamp(d / 0.075, 0.0, 1.0);
+  vec3 base = mix(uShallow, uDeep, depthT * depthT);
 
   // Moving highlight bands read as "this water is going somewhere".
   float band = sin((vWorld.x + vWorld.z * 0.55) * 9.0 - uTime * 2.6) * 0.5 + 0.5;
@@ -68,7 +68,13 @@ void main() {
   float foam = clamp(vFoam, 0.0, 1.0);
   col = mix(col, vec3(0.97, 0.99, 1.0), foam * 0.75);
 
-  float alpha = clamp(smoothstep(0.0008, 0.010, d) * 0.90 + fres * 0.16 + foam * 0.35, 0.0, 0.97);
+  // Thin films stay see-through so a damp sheet reads as wet sand, not paint;
+  // only real depth turns properly blue.
+  float alpha = clamp(
+    smoothstep(0.0015, 0.038, d) * 0.80 + fres * 0.15 + foam * 0.30,
+    0.0,
+    0.94
+  );
   gl_FragColor = vec4(col, alpha);
 }
 `
@@ -132,8 +138,8 @@ export class WaterMesh {
       side: DoubleSide,
       uniforms: {
         uTime: { value: 0 },
-        uShallow: { value: new Color(0.44, 0.78, 0.88) },
-        uDeep: { value: new Color(0.12, 0.42, 0.68) },
+        uShallow: { value: new Color(0.52, 0.84, 0.9) },
+        uDeep: { value: new Color(0.08, 0.38, 0.66) },
         uSun: { value: new Vector3(-0.45, 0.82, 0.36) },
         uCam: { value: new Vector3() },
       },

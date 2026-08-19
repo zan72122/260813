@@ -168,10 +168,23 @@ export class CameraRig {
     this.debugBoxes = { boxAll, boxSand, xLo, xHi, yLo, yHi, wantY: (yLo + yHi) / 2 - (boxSand.y0 + boxSand.y1) / 2 }
   }
 
+  /**
+   * While a finger is down the rig stops re-targeting. Moving the camera
+   * under a held finger would change which patch of sand the finger is over,
+   * which turns "follow the tool" into a runaway feedback loop.
+   */
+  hold = false
+
   focus(x: number, z: number, zoom: number): void {
-    this.wantX = x
-    this.wantZ = z
-    this.wantZoom = zoom
+    if (this.hold) return
+    const z0 = clamp(zoom, 0.4, 1.4)
+    // Never let a push-in drag the composition off the sandbox.
+    const slack = 1 - z0
+    const maxX = (SAND_X / 2) * slack * 0.95
+    const maxZ = (SAND_Z / 2) * slack * 0.95
+    this.wantX = clamp(x, -maxX, maxX)
+    this.wantZ = clamp(z, -maxZ, maxZ)
+    this.wantZoom = z0
   }
 
   pulse(strength: number): void {

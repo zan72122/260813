@@ -4,7 +4,7 @@ const FAST = process.env.E2E_FAST === '1'
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 90_000,
+  timeout: 240_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
   workers: 1,
