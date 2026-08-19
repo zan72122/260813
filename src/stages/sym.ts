@@ -44,6 +44,8 @@ export const symStage: Stage = {
       u.sym = 1
       u.spread = TARGET_SPREAD
       u.bloom = 0.85
+      u.bloomV = 0
+      g.shake(0.4)
       sfx.ok(4)
       sfx.fasa()
       g.flash = 0.32

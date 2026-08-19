@@ -48,6 +48,12 @@ export class Game {
   stageIndex = 0
   totalSteps = 10
   flash = 0
+  /** screen-space impact shake */
+  shakeAmt = 0
+  shakeT = 0
+  /** brief slow-motion, used to let the big moments land */
+  timeScale = 1
+  private timeScaleT = 0
   /** counts finished uchiwa this session so the gallery grows */
   made: number[] = []
   seedCounter = 1
@@ -160,8 +166,28 @@ export class Game {
     }
   }
 
-  frameStep(dt: number) {
+  /** punch the camera — impacts only, never as decoration */
+  shake(amount: number) {
+    this.shakeAmt = Math.max(this.shakeAmt, amount)
+    this.shakeT = 0
+  }
+
+  /** slow the world down briefly so a big change is readable */
+  slowmo(scale: number, seconds: number) {
+    this.timeScale = scale
+    this.timeScaleT = seconds
+  }
+
+  frameStep(realDt: number) {
+    if (this.timeScaleT > 0) {
+      this.timeScaleT -= realDt
+      if (this.timeScaleT <= 0) this.timeScale = 1
+    }
+    const dt = realDt * this.timeScale
     this.time += dt
+    this.shakeT += realDt
+    this.shakeAmt *= Math.exp(-7 * realDt)
+    if (this.shakeAmt < 0.02) this.shakeAmt = 0
     this.input.begin(dt)
     const mb = this.muteBtn()
     if (this.input.p.tapped && hitBtn(mb, this.input.p.x, this.input.p.y, 1.2)) {
@@ -171,15 +197,38 @@ export class Game {
     }
     if (this.camTarget) this.cam.approachSpec(this.camTarget, this.camRate, dt)
     this.cur?.update(this, dt)
+    this.idleNudge(dt)
     this.particles.update(dt)
     this.words.update(dt)
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 2.4)
   }
 
+  /**
+   * When nothing has been touched for a while the workpiece itself asks to be
+   * played with — no sentence ever appears telling the child what to do.
+   */
+  private idleNudge(_dt: number) {
+    if (this.input.idle < this.hintDelay) return
+    if (this.curId === 'title' || this.curId === 'finish') return
+    const k = Math.min(1, (this.input.idle - this.hintDelay) / 0.8)
+    if (this.u.paperOn > 0.5) {
+      this.u.xf.rotZ = Math.sin(this.time * 2.1) * 0.022 * k
+    } else if (!this.curId.startsWith('fluff') && this.u.progress > 0.5) {
+      this.u.twist = Math.sin(this.time * 3.1) * 0.17 * k
+    }
+  }
+
   render() {
     const { ctx } = this
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
-    ctx.clearRect(0, 0, this.layout.w, this.layout.h)
+    if (this.shakeAmt > 0) {
+      const a = this.shakeAmt * Math.min(this.layout.w, this.layout.h) * 0.02
+      ctx.translate(
+        Math.sin(this.shakeT * 61) * a,
+        Math.cos(this.shakeT * 47) * a * 0.8
+      )
+    }
+    ctx.clearRect(-40, -40, this.layout.w + 80, this.layout.h + 80)
     this.cur?.draw(this)
     ctx.save()
     ctx.globalAlpha = 0.72

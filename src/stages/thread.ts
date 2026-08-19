@@ -11,6 +11,7 @@ import { drawSpool } from '../game/tools'
 let doneT = -1
 let lastRib = -1
 let hits = 0
+let autoT = -1
 
 function layoutButtons(g: Game) {
   const L = g.layout
@@ -47,6 +48,7 @@ export const threadStage: Stage = {
     doneT = -1
     lastRib = -1
     hits = 0
+    autoT = -1
     g.stageIndex = 4
     g.hintDelay = 2.6
     g.setCam(fanCam(g, 0.35), 2.6)
@@ -66,7 +68,7 @@ export const threadStage: Stage = {
 
     if (p.down && doneT < 0 && p.moveDist > 0.5) {
       const near = ribAtScreen(g, p.x, p.y)
-      const slack = Math.min(L.w, L.h) * 0.26
+      const slack = Math.min(L.w, L.h) * 0.31
       if (near.i >= 0 && near.d < slack) {
         const from = lastRib < 0 ? near.i : lastRib
         const step = near.i >= from ? 1 : -1
@@ -86,6 +88,26 @@ export const threadStage: Stage = {
     }
     if (!p.down) lastRib = -1
     u.thread = clamp01(hits / u.N)
+
+    // once nearly every rib is caught the thread finishes the last few by
+    // itself — reaching the very outermost rib is not a skill test
+    if (autoT < 0 && hits >= u.N - 3 && hits < u.N) autoT = 0
+    if (autoT >= 0 && hits < u.N) {
+      autoT += dt
+      if (autoT > 0.16) {
+        autoT = 0
+        for (let i = 0; i < u.N; i++) {
+          if (!u.threadHit[i]) {
+            u.threadHit[i] = true
+            hits++
+            sfx.chi(i)
+            const q = g.cam.project(u.ribPoint(i, 0.62))
+            if (q.ok) g.particles.burstSpark(q.x, q.y, 3, 0.7, THREAD_COLORS[u.threadColor].css)
+            break
+          }
+        }
+      }
+    }
 
     if (hits >= u.N && doneT < 0) {
       doneT = 0
@@ -112,9 +134,11 @@ export const threadStage: Stage = {
     const L = g.layout
     const ctx = g.ctx
     if (g.buttons.length) {
-      const r = g.buttons[0].r
-      if (L.portrait) drawPanel(ctx, L.w * 0.5 - r * 6.6, g.buttons[0].y - r * 1.5, r * 13.2, r * 3, r, 0.45)
-      else drawPanel(ctx, g.buttons[0].x - r * 1.5, L.h * 0.5 - r * 6.6, r * 3, r * 13.2, r, 0.45)
+      const bs = g.buttons
+      const r = bs[0].r
+      const a = bs[0], z = bs[bs.length - 1]
+      if (L.portrait) drawPanel(ctx, a.x - r * 1.5, a.y - r * 1.5, (z.x - a.x) + r * 3, r * 3, r, 0.45)
+      else drawPanel(ctx, a.x - r * 1.5, a.y - r * 1.5, r * 3, (z.y - a.y) + r * 3, r, 0.45)
     }
     for (const b of g.buttons) drawButton(ctx, b as Btn, g.time)
     // spool trailing the finger

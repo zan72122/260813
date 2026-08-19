@@ -25,6 +25,7 @@ export class Uchiwa {
   handleLen = 1.28
   spread = 2.50     // total fan angle (rad) when fully opened & symmetrised
   bloom = 0         // extra spread from the final "fasa" burst
+  bloomV = 0
   dome = 0.15       // forward curvature of the fan
 
   ribs: RibState[] = []
@@ -81,6 +82,7 @@ export class Uchiwa {
     this.progress = 0
     this.twist = 0
     this.bloom = 0
+    this.bloomV = 0
     this.bow = 0
     this.thread = 0
     this.threadHit = new Array(this.N).fill(false)
@@ -214,7 +216,10 @@ export class Uchiwa {
       rib.sway += rib.swayV * dt
       rib.sway = clamp(rib.sway, -0.42, 0.42)
     }
-    this.bloom += (0 - this.bloom) * (1 - Math.exp(-2.2 * dt))
+    // the fan overshoots and rocks back — that little wobble is most of the
+    // "fasa" feeling
+    this.bloomV += (-this.bloom * 26 - this.bloomV * 5.2) * dt
+    this.bloom += this.bloomV * dt
   }
 
   allOpen() { return this.progress >= this.N }

@@ -318,17 +318,20 @@ export function drawRibs(s: Scene, u: Uchiwa, ribs: RibDraw[], opts: { glueAlpha
     ctx.restore()
 
     // split edge highlight — reads as a crisp freshly-cut edge
+    // start past the hub: twenty highlights meeting at one point read as a
+    // bright ring artefact rather than as bamboo
+    const K0 = 3
     ctx.strokeStyle = `rgba(255,250,224,${0.28 + 0.4 * rd.t})`
     ctx.lineWidth = px * 1.2
     ctx.beginPath()
-    for (let k = 0; k < rd.L.length; k++) {
-      if (k === 0) ctx.moveTo(rd.L[k].x, rd.L[k].y); else ctx.lineTo(rd.L[k].x, rd.L[k].y)
+    for (let k = K0; k < rd.L.length; k++) {
+      if (k === K0) ctx.moveTo(rd.L[k].x, rd.L[k].y); else ctx.lineTo(rd.L[k].x, rd.L[k].y)
     }
     ctx.stroke()
     ctx.strokeStyle = `rgba(90,66,30,${0.22 + 0.26 * rd.t})`
     ctx.beginPath()
-    for (let k = 0; k < rd.R.length; k++) {
-      if (k === 0) ctx.moveTo(rd.R[k].x, rd.R[k].y); else ctx.lineTo(rd.R[k].x, rd.R[k].y)
+    for (let k = K0; k < rd.R.length; k++) {
+      if (k === K0) ctx.moveTo(rd.R[k].x, rd.R[k].y); else ctx.lineTo(rd.R[k].x, rd.R[k].y)
     }
     ctx.stroke()
 
@@ -529,6 +532,10 @@ function strokePoly(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }
 /* washi paper (modules 8-10)                                          */
 /* ------------------------------------------------------------------ */
 
+/** a lifted sheet floats up and toward the viewer, so it visibly descends */
+const paperY = (lift: number) => lift * 1.6
+const paperZ = (lift: number) => 0.06 + lift * 0.35
+
 function paperOutline(u: Uchiwa, cam: Camera, lift: number, scaleK = 1) {
   const N = 46
   const half = u.halfSpread
@@ -557,8 +564,8 @@ function paperOutline(u: Uchiwa, cam: Camera, lift: number, scaleK = 1) {
   const pts: { x: number; y: number }[] = []
   for (const l of local) {
     const ang = Math.atan2(l.x, Math.max(0.001, l.y))
-    const z = u.dome * Math.sin(0.8 * Math.PI * 0.86) * Math.cos(ang * 1.05) + 0.06 + lift
-    const p = cam.project(u.toWorld({ x: l.x, y: l.y, z }, tmpA))
+    const z = u.dome * Math.sin(0.8 * Math.PI * 0.86) * Math.cos(ang * 1.05) + paperZ(lift)
+    const p = cam.project(u.toWorld({ x: l.x, y: l.y + paperY(lift), z }, tmpA))
     if (!p.ok) return null
     pts.push({ x: p.x, y: p.y })
   }
@@ -574,9 +581,10 @@ function paperPath(ctx: CanvasRenderingContext2D, o: { outer: { x: number; y: nu
 
 /** basis for mapping a repeating tile onto the fan plane */
 function planeBasis(u: Uchiwa, cam: Camera, lift: number, tileWorld: number, tilePx: number) {
-  const o = cam.project(u.toWorld({ x: 0, y: 0, z: 0.06 + lift }, tmpA))
-  const px = cam.project(u.toWorld({ x: tileWorld, y: 0, z: 0.06 + lift }, tmpA))
-  const py = cam.project(u.toWorld({ x: 0, y: tileWorld, z: 0.06 + lift }, tmpA))
+  const yo = paperY(lift), zo = paperZ(lift)
+  const o = cam.project(u.toWorld({ x: 0, y: yo, z: zo }, tmpA))
+  const px = cam.project(u.toWorld({ x: tileWorld, y: yo, z: zo }, tmpA))
+  const py = cam.project(u.toWorld({ x: 0, y: tileWorld + yo, z: zo }, tmpA))
   if (!o.ok || !px.ok || !py.ok) return null
   return {
     a: (px.x - o.x) / tilePx, b: (px.y - o.y) / tilePx,
@@ -585,9 +593,9 @@ function planeBasis(u: Uchiwa, cam: Camera, lift: number, tileWorld: number, til
   }
 }
 
-export function drawPaper(s: Scene, u: Uchiwa, lift: number, alpha = 1) {
+export function drawPaper(s: Scene, u: Uchiwa, lift: number, alpha = 1, scaleK = 1) {
   const { ctx, cam } = s
-  const o = paperOutline(u, cam, lift)
+  const o = paperOutline(u, cam, lift, scaleK)
   if (!o) return
   const def = PATTERNS[u.paperPattern % PATTERNS.length]
   ctx.save()
@@ -596,7 +604,7 @@ export function drawPaper(s: Scene, u: Uchiwa, lift: number, alpha = 1) {
   // drop shadow onto the ribs while the sheet is still floating
   if (lift > 0.001) {
     ctx.save()
-    ctx.translate(lift * 115, lift * 132)
+    ctx.translate(lift * 90, lift * 104)
     ctx.fillStyle = `rgba(52,32,12,${clamp01(lift * 4.5) * 0.26})`
     ctx.fill()
     ctx.restore()
@@ -673,8 +681,8 @@ function drawRibShowThrough(s: Scene, u: Uchiwa, lift: number) {
     const steps = 9
     for (let k = 0; k <= steps; k++) {
       const uu = lerp(0.08, maxU * 0.99, k / steps)
-      const z = u.dome * Math.sin(uu * Math.PI * 0.86) * Math.cos(ang * 1.05) + 0.05 + lift
-      const p = cam.project(u.toWorld({ x: Math.sin(ang) * uu * u.L, y: Math.cos(ang) * uu * u.L, z }, tmpA))
+      const z = u.dome * Math.sin(uu * Math.PI * 0.86) * Math.cos(ang * 1.05) + paperZ(lift) - 0.01
+      const p = cam.project(u.toWorld({ x: Math.sin(ang) * uu * u.L, y: Math.cos(ang) * uu * u.L + paperY(lift), z }, tmpA))
       if (!p.ok) { pts.length = 0; break }
       pts.push(p)
     }
@@ -700,7 +708,7 @@ function drawWrinkles(s: Scene, u: Uchiwa, lift: number) {
   ctx.save()
   const half = u.halfSpread
   const step = (half * 2 * 1.05) / (BINS - 1)
-  for (let b = 0; b < BINS; b += 2) {
+  for (let b = 1; b < BINS; b += 3) {
     const smoothed = clamp01(u.wrinkle[b] ?? 0)
     const amt = 1 - smoothed
     if (amt < 0.03) continue
@@ -716,13 +724,12 @@ function drawWrinkles(s: Scene, u: Uchiwa, lift: number) {
       if (rr <= rStart || rr >= outer) continue
       const pts: { x: number; y: number }[] = []
       for (let k = 0; k <= 5; k++) {
-        const a2 = ang + (k / 5 - 0.5) * step * 2.6
-        const wob = Math.sin(k * 1.6 + b * 2.3 + j * 2.1) * 0.028 * amt
-        const z = 0.062 + lift
+        const a2 = ang + (k / 5 - 0.5) * step * 3.0
+        const wob = Math.sin(k * 1.4 + b * 2.3 + j * 2.1) * 0.02 * amt
         const p = cam.project(u.toWorld({
           x: Math.sin(a2) * (rr + wob) * u.L,
-          y: Math.cos(a2) * (rr + wob) * u.L,
-          z
+          y: Math.cos(a2) * (rr + wob) * u.L + paperY(lift),
+          z: paperZ(lift) + 0.002
         }, tmpA))
         if (!p.ok) { pts.length = 0; break }
         pts.push(p)

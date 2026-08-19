@@ -48,7 +48,7 @@ export function drawWorld(g: Game, o: WorldOpts = {}) {
 function drawProps(g: Game) {
   const s = g.scene
   const spots: [number, number, number][] = [
-    [-2.95, -0.86, -3.1], [-2.05, -0.92, -3.5], [2.75, -0.86, -3.0]
+    [-3.6, -0.95, -4.3], [-2.6, -1.0, -4.7], [3.4, -0.95, -4.2]
   ]
   spots.forEach((p, i) => {
     const q = s.cam.project({ x: p[0], y: p[1], z: p[2] })
@@ -56,7 +56,7 @@ function drawProps(g: Game) {
     const r = q.s * 0.5
     if (r < 4) return
     s.ctx.save()
-    s.ctx.globalAlpha = 0.72
+    s.ctx.globalAlpha = 0.55
     drawUchiwaGlyph(s.ctx, q.x, q.y, r, i + 1, (i - 1) * 0.22, 0.9)
     s.ctx.restore()
   })

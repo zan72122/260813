@@ -11,12 +11,15 @@ let slideAcc = 0
 export function fanCam(g: Game, tight = 0) {
   const L = g.layout
   // the untrimmed washi blank is wider than the ribs, so the frame grows for it
-  const wide = Math.max(WORLD.halfWOpen, g.u.paperHalfWidth() * 1.06)
+  const wide = Math.max(WORLD.halfWOpen, g.u.paperHalfWidth() * 1.12)
+  // landscape crops the lower handle so the head can use the full width
+  const baseH = L.portrait ? WORLD.halfH : 1.26
+  const baseY = L.portrait ? 0.02 : 0.16
   return frame({
-    center: { x: 0, y: lerp(0.02, 0.18, tight), z: 0 },
+    center: { x: 0, y: lerp(baseY, baseY + 0.16, tight), z: 0 },
     halfW: lerp(wide, wide * 0.9, tight),
-    halfH: lerp(WORLD.halfH, WORLD.halfH * 0.86, tight),
-    dist: 6.4, yaw: 0.12, pitch: 0.07,
+    halfH: lerp(baseH, baseH * 0.88, tight),
+    dist: 6.4, yaw: 0.12, pitch: 0.11,
     screenY: L.portrait ? 0.40 : 0.47,
     screenX: L.portrait ? 0.5 : 0.44
   }, L)

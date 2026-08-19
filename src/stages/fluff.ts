@@ -34,12 +34,13 @@ function cam(g: Game) {
   // continuous dolly: tight on the splitting fibre, then pull back for the reveal
   const k = Math.max(q, b)
   const halfW = lerp(0.48, 1.72, smooth(k))
-  const halfH = lerp(1.22, 1.54, smooth(k))
+  // in landscape the fan gets the whole width: the handle may leave the frame
+  const halfH = lerp(1.22, L.portrait ? 1.54 : 1.02, smooth(k))
   const yaw = lerp(0.40, 0.13, smooth(k))
   const pitch = lerp(0.13, 0.06, smooth(k))
   const dist = lerp(4.8, 6.4, smooth(k))
   return frame({
-    center: { x: 0, y: lerp(0.32, 0.02, k), z: 0 },
+    center: { x: 0, y: lerp(0.32, L.portrait ? 0.02 : 0.42, k), z: 0 },
     halfW, halfH, dist, yaw, pitch,
     screenY: L.portrait ? 0.43 : 0.5,
     screenX: L.portrait ? 0.5 : (st.free ? 0.5 : 0.46)
@@ -144,10 +145,13 @@ function make(id: string, free: boolean): Stage {
       if (!st.bloomed && u.progress >= u.N - 0.02) {
         st.bloomed = true
         st.bloomT = 0
-        u.bloom = 1
+        u.bloom = 1.15
+        u.bloomV = 0
         u.progress = u.N
         sfx.fasa()
-        g.flash = 0.5
+        g.flash = 0.55
+        g.shake(1)
+        g.slowmo(0.42, 0.42)
         g.say('ひろがった！', L.w * 0.5, L.h * (L.portrait ? 0.2 : 0.18), 1.15)
         for (let i = 0; i < u.N; i += 2) {
           const s = g.scene

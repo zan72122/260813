@@ -16,7 +16,7 @@ let soundAcc = 0
 const map = new FanMap()
 let frameId = 0
 
-const PICK = 5   // how many patterns are offered
+const PICK = 6   // how many patterns are offered
 
 /** MODULE 8 — choose the washi, lower it on, then stroke the wrinkles out */
 export const paperStage: Stage = {
@@ -42,20 +42,22 @@ export const paperStage: Stage = {
     g.buttons = []
 
     if (phase === 'choose') {
-      const r = unit * 0.072
+      const r = unit * (L.portrait ? 0.062 : 0.056)
       if (L.portrait) {
         const y = L.h - Math.max(r * 2.1, L.safeBottom + r * 1.9)
         for (let i = 0; i < PICK; i++) {
           g.addButton({
-            id: 'p' + i, x: L.w * 0.5 + (i - (PICK - 1) / 2) * r * 2.35, y, r,
+            id: 'p' + i, x: L.w * 0.5 + (i - (PICK - 1) / 2) * r * 2.28, y, r,
             patternIndex: i, selected: u.paperPattern === i
           })
         }
       } else {
         const x = L.w - Math.max(r * 2.1, L.safeRight + r * 1.9)
+        // nudged below the sound button so the two never collide
+        const cy = L.h * 0.5 + Math.min(L.h * 0.04, r * 0.9)
         for (let i = 0; i < PICK; i++) {
           g.addButton({
-            id: 'p' + i, x, y: L.h * 0.5 + (i - (PICK - 1) / 2) * r * 2.35, r,
+            id: 'p' + i, x, y: cy + (i - (PICK - 1) / 2) * r * 2.28, r,
             patternIndex: i, selected: u.paperPattern === i
           })
         }
@@ -135,12 +137,14 @@ export const paperStage: Stage = {
       const u = g.u
       const keep = u.paperOn
       u.paperOn = 1
-      drawPaper(g.scene, u, 0.30 + Math.sin(g.time * 1.6) * 0.012, 0.62)
+      drawPaper(g.scene, u, 0.1 + Math.sin(g.time * 1.6) * 0.012, 0.46, 0.9)
       u.paperOn = keep
       if (g.buttons.length) {
-        const r = g.buttons[0].r
-        if (L.portrait) drawPanel(ctx, L.w * 0.5 - r * 6.2, g.buttons[0].y - r * 1.45, r * 12.4, r * 2.9, r, 0.45)
-        else drawPanel(ctx, g.buttons[0].x - r * 1.45, L.h * 0.5 - r * 6.2, r * 2.9, r * 12.4, r, 0.45)
+        const bs = g.buttons
+        const r = bs[0].r
+        const a = bs[0], z = bs[bs.length - 1]
+        if (L.portrait) drawPanel(ctx, a.x - r * 1.45, a.y - r * 1.45, (z.x - a.x) + r * 2.9, r * 2.9, r, 0.45)
+        else drawPanel(ctx, a.x - r * 1.45, a.y - r * 1.45, r * 2.9, (z.y - a.y) + r * 2.9, r, 0.45)
       }
       for (const b of g.buttons) drawButton(ctx, b as Btn, g.time)
     }

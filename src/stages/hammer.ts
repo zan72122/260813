@@ -37,6 +37,7 @@ export const hammerStage: Stage = {
       sfx.ton()
       u.trim = clamp01(taps / TAPS)
       g.flash = 0.12
+      g.shake(0.55)
       const f = 0.5 + (taps % 2 ? 0.32 : -0.32) * (taps / TAPS)
       const q = fanScreen(g, clamp01(f), 0.97)
       g.particles.burstChips(q.x, q.y, 5, 0.9, '#f2e6c4')
