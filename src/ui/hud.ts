@@ -42,7 +42,6 @@ export class Hud {
   private flashEl: HTMLElement
   private potButtons: HTMLButtonElement[] = []
   private vacuumBtn: HTMLButtonElement | null = null
-  private toastTimer = 0
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -198,7 +197,6 @@ export class Hud {
     this.toastEl.classList.remove('go')
     void this.toastEl.offsetWidth
     this.toastEl.classList.add('go')
-    this.toastTimer = performance.now()
   }
 
   flash() {
@@ -346,9 +344,5 @@ export class Hud {
     b.setAttribute('aria-label', 'べつの おしろ')
     b.addEventListener('click', () => this.onNewCastle())
     top.insertBefore(b, top.firstChild)
-  }
-
-  get toastAge(): number {
-    return (performance.now() - this.toastTimer) / 1000
   }
 }

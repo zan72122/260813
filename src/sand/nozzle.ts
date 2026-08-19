@@ -77,10 +77,6 @@ export class Nozzle {
     this.bagMat.color.set(hex)
   }
 
-  setPressing(p: boolean) {
-    this.squeeze += (( p ? 1 : 0) - this.squeeze) * 0.25
-  }
-
   update(dt: number, pressing: boolean, motion: number) {
     const target = pressing ? 1 : 0
     this.squeeze += (target - this.squeeze) * Math.min(1, dt * 12)

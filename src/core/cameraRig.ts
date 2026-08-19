@@ -72,14 +72,19 @@ export class CameraRig {
     const dH = (f.halfH * pad) / Math.tan(fovR / 2)
     const dW = (f.halfW * pad) / (Math.tan(fovR / 2) * this.camera.aspect)
     const d = Math.max(dH, dW, 2.4)
+    // On a tall screen the framing is width-limited, which leaves spare
+    // vertical room. Spend it above the castle so the towers have sky to
+    // grow into and the seabed sits in the lower third.
+    const visibleHalfH = Math.tan(fovR / 2) * d
+    const bias = Math.min(Math.max(visibleHalfH - f.halfH * pad, 0) * 0.35, f.halfH * 1.6)
     const e = THREE.MathUtils.degToRad(f.elev)
     const a = THREE.MathUtils.degToRad(f.azim)
     outPos.set(
       f.center.x + Math.sin(a) * Math.cos(e) * d,
-      f.center.y + Math.sin(e) * d,
+      f.center.y + Math.sin(e) * d + bias,
       f.center.z + Math.cos(a) * Math.cos(e) * d
     )
-    outLook.copy(f.center)
+    outLook.set(f.center.x, f.center.y + bias, f.center.z)
   }
 
   goTo(f: Framing, duration = 1.3) {

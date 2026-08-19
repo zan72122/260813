@@ -372,6 +372,10 @@ export class SandSystem {
     return n
   }
 
+  strokeOf(i: number): number {
+    return this.stroke[i]
+  }
+
   info(i: number, out: BlobInfo): BlobInfo {
     out.x = this.px[i]
     out.y = this.py[i]

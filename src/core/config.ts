@@ -82,7 +82,7 @@ export const SAND = {
   /** distance between sampled trace points, as a fraction of radius */
   spacing: 0.46,
   /** how strongly a new blob is pulled onto its neighbours */
-  snapPull: 0.42,
+  snapPull: 0.55,
   maxSegmentsHigh: 2400,
   maxSegmentsLow: 1400,
 }

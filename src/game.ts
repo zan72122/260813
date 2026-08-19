@@ -98,6 +98,7 @@ export class Game {
   private grainT = -1
   private heroDone = true
   private glowUp = 0
+  private lastConnect = -10
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     const dprRaw = Math.min(window.devicePixelRatio || 1, 2)
@@ -146,6 +147,7 @@ export class Game {
 
     this.emitter = new Emitter(this.sand)
     this.emitter.onPlace = (e) => this.handlePlace(e.x, e.y, e.z, e.r, e.landed, e.first)
+    this.emitter.onConnect = (x, y, z) => this.handleConnect(x, y, z)
 
     this.bubbles = new Bubbles(this.quality === 'high' ? 170 : 90)
     this.scene.add(this.bubbles.points)
@@ -278,6 +280,11 @@ export class Game {
       this.oldGuides.push(this.guide)
       this.guide = null
     }
+    if (id !== 'finale') {
+      this.rig.setShowcase(false)
+      this.disposeGateGlow()
+    }
+
     const def = STAGES[id]
     const g = def.guide()
     if (g) {
@@ -510,14 +517,22 @@ export class Game {
     void r
   }
 
+  /** Two separate pieces of the castle just became one. */
+  private handleConnect(x: number, y: number, z: number) {
+    if (this.time - this.lastConnect < 0.9) return
+    this.lastConnect = this.time
+    audio.chime(false)
+    this.bubbles.burst(x, y + 0.15, z, 8, 0.85, 0.3)
+  }
+
   // -------------------------------------------------------------- finale
   private revealFraming() {
     this.sand.bounds(_box)
     if (_box.isEmpty()) return STAGES.finale.view()
     const cx = (_box.min.x + _box.max.x) * 0.5
     const cy = (_box.min.y + _box.max.y) * 0.5 + 0.15
-    const halfW = THREE.MathUtils.clamp((_box.max.x - _box.min.x) * 0.5 + 0.9, 2.4, 5.4)
-    const halfH = THREE.MathUtils.clamp((_box.max.y - _box.min.y) * 0.5 + 0.95, 1.8, 3.8)
+    const halfW = THREE.MathUtils.clamp((_box.max.x - _box.min.x) * 0.5 + 0.35, 2.2, 5.0)
+    const halfH = THREE.MathUtils.clamp((_box.max.y - _box.min.y) * 0.5 + 0.5, 1.6, 3.6)
     return framing(cx * 0.6, Math.max(cy, 1.1), halfW, halfH, 12, 0)
   }
 
@@ -657,16 +672,22 @@ export class Game {
       return
     }
     if (this.stageDone) return
-    const fresh = g.check((x, y, z, r) => this.sand.hasNeighbor(x, y, z, r))
+    const leniency = 1 + THREE.MathUtils.clamp(this.stageTime / def.patience, 0, 1) * 0.85
+    const fresh = g.check((x, y, z, r) => this.sand.hasNeighbor(x, y, z, r), leniency)
     if (fresh > 0) {
       audio.blob(1.25)
       const c = g.nextCell()
       if (c) this.bubbles.spawn(c.p.x, c.p.y, c.p.z, 0.6, 0.2)
     }
     const p = g.progress
-    if (p >= def.soft && !this.stageDone) this.hud.showNext(true)
+    // the grown-up can always move things along once there is something built
+    if (p >= def.soft || (this.stageTime > def.patience * 0.8 && this.sand.count > 8)) {
+      this.hud.showNext(true)
+    }
     const patienceHit = this.stageTime > def.patience && p >= def.soft
-    if (p >= def.need || patienceHit) {
+    // last resort: never leave a four-year-old stuck on one screen
+    const timedOut = this.stageTime > def.patience * 2.4 && this.sand.count > 8
+    if (p >= def.need || patienceHit || timedOut) {
       this.stageDone = true
       this.hud.showNext(false)
       this.completeStage()
@@ -865,6 +886,11 @@ export class Game {
       put(x, y, 0.28)
       put(x, y, -0.28)
     }
+  }
+
+  __nozzlePos() {
+    const p = this.nozzle.group.position
+    return { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), vis: this.nozzle.group.visible }
   }
 
   get debugLayout() {

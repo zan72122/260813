@@ -153,12 +153,19 @@ export class PathGuide {
     return n / this.cells.length
   }
 
-  /** Marks any checkpoint that now has sand in it. Returns newly hit count. */
-  check(has: (x: number, y: number, z: number, r: number) => boolean): number {
+  /**
+   * Marks any checkpoint that now has sand in it. `leniency` grows the
+   * catch radius the longer a stage runs, so a child who is enjoying
+   * themselves off to one side still finishes the shape.
+   */
+  check(
+    has: (x: number, y: number, z: number, r: number) => boolean,
+    leniency = 1
+  ): number {
     let fresh = 0
     for (const c of this.cells) {
       if (c.hit) continue
-      if (has(c.p.x, c.p.y, c.p.z, c.r * 0.92)) {
+      if (has(c.p.x, c.p.y, c.p.z, c.r * 0.92 * leniency)) {
         c.hit = true
         fresh++
       }

@@ -34,6 +34,8 @@ export class Emitter {
   emitting = false
   strokeId = 0
   onPlace: ((e: PlaceEvent) => void) | null = null
+  /** fired when a new blob fuses two separate runs of sand together */
+  onConnect: ((x: number, y: number, z: number) => void) | null = null
   /** blocked when the segment budget is exhausted */
   budgetBlocked = false
   /** makes the next press the slow, extra-chunky "first squeeze" */
@@ -169,7 +171,8 @@ export class Emitter {
     }
 
     // visual weld: close the last sliver of gap to the nearest blob
-    const ni = this.sand.nearest(_v.x, _v.y, _v.z, r * 2.6)
+    let bridge = -1
+    const ni = this.sand.nearest(_v.x, _v.y, _v.z, r * 3.2)
     if (ni >= 0) {
       this.sand.info(ni, _blob)
       _n.set(_blob.x - _v.x, _blob.y - _v.y, _blob.z - _v.z)
@@ -178,6 +181,16 @@ export class Emitter {
       if (d > want && d > 1e-4) {
         _n.multiplyScalar(((d - want) * SAND.snapPull) / d)
         _v.add(_n)
+      }
+      // a gap left over between two SEPARATE runs gets a bead so the two
+      // pieces read as one solid thing — this is the "they joined!" moment
+      const gap = Math.hypot(_blob.x - _v.x, _blob.y - _v.y, _blob.z - _v.z)
+      if (
+        this.sand.strokeOf(ni) !== this.strokeId &&
+        gap > want * 1.02 &&
+        gap < (_blob.r + r) * 2.1
+      ) {
+        bridge = ni
       }
     }
 
@@ -204,6 +217,15 @@ export class Emitter {
         grow * 1.15
       )
       this.sideFlip *= -1
+    }
+
+    if (bridge >= 0) {
+      this.sand.info(bridge, _blob)
+      const bx = (_blob.x + _v.x) * 0.5
+      const by = (_blob.y + _v.y) * 0.5
+      const bz = (_blob.z + _v.z) * 0.5
+      this.sand.add(bx, by, bz, r * 0.86, this.pickColor(bx, by), spark, this.strokeId, now, grow)
+      if (this.onConnect) this.onConnect(bx, by, bz)
     }
 
     this.placedThisStroke++
