@@ -898,13 +898,19 @@ export class Game {
       if (rng.next() < 0.25) audio.bubble(0, 0.35)
     }
 
-    // dry sand trickling out of the pot, above the water, during the intro
-    if (this.stage === 'surface' || (this.stage === 'dive' && !this.crossed)) {
+    // dry sand trickling out of the pot, above the water — a slow tease on the
+    // title screen, then a proper pour once the game starts
+    const pouring =
+      this.stage === 'title' ||
+      this.stage === 'surface' ||
+      (this.stage === 'dive' && !this.crossed)
+    if (pouring) {
       this.grainT -= dt
       if (this.grainT <= 0) {
-        this.grainT = 0.022
+        const title = this.stage === 'title'
+        this.grainT = title ? 0.075 : 0.022
         const np = this.nozzle.group.position
-        for (let i = 0; i < 3; i++) this.grains.spawn(np.x, np.y + 0.06, np.z)
+        for (let i = 0; i < (title ? 1 : 3); i++) this.grains.spawn(np.x, np.y + 0.06, np.z)
       }
     }
     this.grains.update(dt)
