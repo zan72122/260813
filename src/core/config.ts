@@ -6,12 +6,7 @@ export const WORLD = {
   waterY: 6.4,
   buildZ: 0, // the construction plane the finger draws on
   halfWidth: 4.6,
-  towerX: 1.85,
-  towerTop: 3.1,
-  gateHalf: 0.85,
-  wallTop: 1.55,
-  archTop: 2.2,
-  foundationRX: 2.35,
+  /** how far the base spreads away from the camera */
   foundationRZ: 0.9,
 }
 

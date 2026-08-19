@@ -268,7 +268,7 @@ export function makeFoundationDecal(): THREE.Mesh {
       }`,
   })
   const m = new THREE.Mesh(geo, mat)
-  m.scale.set(WORLD.foundationRX + 0.35, 1, WORLD.foundationRZ + 0.45)
+  m.scale.set(1, 1, WORLD.foundationRZ + 0.45)
   m.position.y = WORLD.seabedY + 0.035
   m.renderOrder = 7
   m.userData.mat = mat

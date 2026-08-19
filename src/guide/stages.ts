@@ -16,22 +16,25 @@ export type StageId =
   | 'finale'
   | 'free'
 
-/** Castle proportions. Mutable so "another castle" can change the shape. */
-export const LAYOUT = {
-  towerX: WORLD.towerX,
-  towerTop: WORLD.towerTop,
-  gateHalf: WORLD.gateHalf,
-  wallTop: WORLD.wallTop,
-  archTop: WORLD.archTop,
-  foundationRX: WORLD.foundationRX,
-  wallY: 1.02,
+export interface CastleLayout {
+  towerX: number
+  towerTop: number
+  gateHalf: number
+  wallTop: number
+  archTop: number
+  foundationRX: number
+  wallY: number
 }
 
-export const VARIANTS = [
+/** "Another castle" picks a different set of proportions. */
+export const VARIANTS: CastleLayout[] = [
   { towerX: 1.85, towerTop: 3.1, gateHalf: 0.85, wallTop: 1.55, archTop: 2.2, foundationRX: 2.35, wallY: 1.0 },
   { towerX: 2.2, towerTop: 2.5, gateHalf: 1.0, wallTop: 1.3, archTop: 1.95, foundationRX: 2.7, wallY: 0.85 },
   { towerX: 1.55, towerTop: 3.6, gateHalf: 0.7, wallTop: 1.72, archTop: 2.45, foundationRX: 2.1, wallY: 1.12 },
 ]
+
+/** The proportions currently in play. Mutated by `setVariant`. */
+export const LAYOUT: CastleLayout = { ...VARIANTS[0] }
 
 export function setVariant(i: number) {
   const v = VARIANTS[((i % VARIANTS.length) + VARIANTS.length) % VARIANTS.length]

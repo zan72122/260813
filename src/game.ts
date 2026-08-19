@@ -593,10 +593,20 @@ export class Game {
     this.sand.bounds(_box)
     const x0 = _box.isEmpty() ? -2 : _box.min.x
     const x1 = _box.isEmpty() ? 2 : _box.max.x
-    const shellGeo = new THREE.SphereGeometry(0.17, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55)
-    const pearlGeo = new THREE.SphereGeometry(0.13, 12, 9)
-    const shellMat = new THREE.MeshPhongMaterial({ color: 0xffe4ef, shininess: 90, specular: 0xffffff })
-    const pearlMat = new THREE.MeshPhongMaterial({ color: 0xf2f6ff, shininess: 120, specular: 0xffffff })
+    const shellGeo = new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55)
+    const pearlGeo = new THREE.SphereGeometry(0.1, 12, 9)
+    const shellMat = new THREE.MeshPhongMaterial({
+      color: 0xffd7e6,
+      emissive: 0x4a2c38,
+      shininess: 110,
+      specular: 0xffffff,
+    })
+    const pearlMat = new THREE.MeshPhongMaterial({
+      color: 0xfbf6ff,
+      emissive: 0x3d3a55,
+      shininess: 140,
+      specular: 0xffffff,
+    })
     for (let i = 0; i < 6; i++) {
       const pearl = i % 2 === 1
       const m = new THREE.Mesh(pearl ? pearlGeo : shellGeo, pearl ? pearlMat : shellMat)
@@ -604,7 +614,7 @@ export class Game {
       m.position.set(
         THREE.MathUtils.lerp(x0 - 0.5, x1 + 0.5, t) + rng.range(-0.2, 0.2),
         WORLD.seabedY + 0.04,
-        rng.range(0.9, 1.7)
+        rng.range(0.75, 1.25)
       )
       m.rotation.set(rng.range(-0.3, 0.3), rng.range(0, 6.28), rng.range(-0.3, 0.3))
       m.scale.setScalar(0.001)
