@@ -300,7 +300,9 @@ export function drawRibs(s: Scene, u: Uchiwa, ribs: RibDraw[], opts: { glueAlpha
     const km = Math.floor(rd.L.length / 2)
     const g = ctx.createLinearGradient(rd.L[km].x, rd.L[km].y, rd.R[km].x, rd.R[km].y)
     // outer skin vs freshly-split inner face
-    const mixT = clamp01(rd.t * 0.92)
+    // split bamboo keeps a lot of its green; a pure cream rib stops reading
+    // as the same object the child just saw as a pole
+    const mixT = clamp01(rd.t * 0.62)
     const col = {
       r: lerp(skin.r, INNER.r, mixT),
       g: lerp(skin.g, INNER.g, mixT),

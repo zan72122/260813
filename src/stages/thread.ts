@@ -155,9 +155,12 @@ export const threadStage: Stage = {
       const a = fanScreen(g, 0, 0.62)
       const b = fanScreen(g, 1, 0.62)
       ctx.save()
-      ctx.globalAlpha = 0.22
-      ctx.setLineDash([Math.min(L.w, L.h) * 0.02, Math.min(L.w, L.h) * 0.02])
-      ctx.strokeStyle = '#fffbe8'
+      // the guide is drawn in the chosen thread colour, so the child can see
+      // where their thread is going to go
+      ctx.globalAlpha = 0.38
+      ctx.setLineDash([Math.min(L.w, L.h) * 0.022, Math.min(L.w, L.h) * 0.022])
+      const gc = THREAD_COLORS[g.u.threadColor % THREAD_COLORS.length]
+      ctx.strokeStyle = gc.id === 'rainbow' ? '#eab9e0' : gc.css
       ctx.lineWidth = Math.max(2, Math.min(L.w, L.h) * 0.006)
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
       ctx.restore()
