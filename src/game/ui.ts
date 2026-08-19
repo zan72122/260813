@@ -132,11 +132,14 @@ export function drawUchiwaGlyph(ctx: C, x: number, y: number, r: number, pattern
   ctx.globalAlpha = alpha
   ctx.translate(x, y)
   ctx.rotate(rot)
-  // handle
-  ctx.strokeStyle = '#b7864a'
-  ctx.lineWidth = r * 0.16
+  // green bamboo handle, so the promise matches the object the child builds
+  ctx.strokeStyle = '#8ba55f'
+  ctx.lineWidth = r * 0.17
   ctx.lineCap = 'round'
   ctx.beginPath(); ctx.moveTo(0, r * 0.55); ctx.lineTo(0, r * 1.5); ctx.stroke()
+  ctx.strokeStyle = 'rgba(96,74,34,0.45)'
+  ctx.lineWidth = Math.max(1, r * 0.035)
+  ctx.beginPath(); ctx.moveTo(-r * 0.09, r * 1.12); ctx.lineTo(r * 0.09, r * 1.12); ctx.stroke()
   // paper
   ctx.beginPath()
   ctx.ellipse(0, -r * 0.1, r * 0.86, r * 0.95, 0, 0, TAU)
