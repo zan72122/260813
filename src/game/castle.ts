@@ -1,4 +1,5 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -8,12 +9,13 @@ import {
   CylinderGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PointsMaterial,
   Points,
+  RingGeometry,
   SphereGeometry,
-
 } from 'three'
 import { CASTLE_X, CASTLE_Z, MOAT_INNER, MOAT_OUTER } from '../core/config'
 import { clamp, damp, smoothstep } from '../core/util'
@@ -46,6 +48,8 @@ export class Castle {
   private readonly fountainLife: Float32Array
   private readonly disposables: Array<{ dispose: () => void }> = []
 
+  private readonly moatGlow: Mesh
+  private hintOn = false
   private wheelSpeed = 0
   private bridgeAngle = -Math.PI / 2
   private flagRaise = 0
@@ -256,6 +260,28 @@ export class Castle {
     this.group.add(this.fountain)
     for (let i = 0; i < n; i++) this.fountainPos[i * 3 + 1] = -999
 
+    // --- the empty moat's own invitation ----------------------------------
+    // When the child hesitates, this is the castle's small light: the ring
+    // the water is supposed to land in glows, once, gently.
+    const glowGeo = new RingGeometry(MOAT_INNER - 0.02, MOAT_OUTER + 0.06, 48)
+    this.disposables.push(glowGeo)
+    const glowMat = new MeshBasicMaterial({
+      color: new Color('#9beaff'),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    })
+    this.disposables.push(glowMat)
+    this.moatGlow = new Mesh(glowGeo, glowMat)
+    this.moatGlow.rotation.x = -Math.PI / 2
+    // A soft light hanging just over the moat rather than lying in it: the
+    // trough's walls would bury a flat ring almost everywhere.
+    this.moatGlow.position.y = 0.78
+    this.moatGlow.renderOrder = 5
+    this.moatGlow.visible = false
+    this.group.add(this.moatGlow)
+
     // --- pebble ring so the island edge has texture ------------------------
     const pebbleGeo = new SphereGeometry(0.09, 7, 5)
     this.disposables.push(pebbleGeo)
@@ -291,9 +317,19 @@ export class Castle {
     }
   }
 
+  /** Ask the castle to glow — used while the child is still deciding. */
+  setHint(on: boolean): void {
+    this.hintOn = on
+  }
+
   update(dt: number, calmMotion: boolean): void {
     this.t += dt
     const a = clamp(this.activation, 0, 1)
+
+    const glowMat = this.moatGlow.material as MeshBasicMaterial
+    const want = this.hintOn && a < 0.02 ? 0.2 + Math.sin(this.t * 2.1) * 0.14 : 0
+    glowMat.opacity = damp(glowMat.opacity, Math.max(0, want), 4, dt)
+    this.moatGlow.visible = glowMat.opacity > 0.01
 
     // The wheel starts turning as soon as the moat has any real water in it.
     const targetSpeed = smoothstep(0.1, 0.6, a) * (calmMotion ? 1.1 : 2.4)
@@ -356,6 +392,9 @@ export class Castle {
 
   reset(): void {
     this.activation = 0
+    this.hintOn = false
+    ;(this.moatGlow.material as MeshBasicMaterial).opacity = 0
+    this.moatGlow.visible = false
     this.wheelSpeed = 0
     this.bridgeAngle = -Math.PI / 2
     this.bridge.rotation.z = -Math.PI / 2

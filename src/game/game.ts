@@ -583,7 +583,14 @@ export class Game {
       if (this.idleTime > 4.5 && Math.random() < dt * 0.5) this.audio.droplet()
     }
 
-    // Idle nudges.
+    // Idle nudges. The chain is always the same: tool, then the path across
+    // the sand, then the castle at the end of it.
+    this.castle.setHint(
+      !this.pointerDown &&
+        (this.phase === 'intro' ||
+          this.phase === 'invitePour' ||
+          (this.phase === 'dig' && this.idleTime > 3.5)),
+    )
     if (this.phase === 'intro') {
       this.tray.hinted = 'dig'
       this.hintPath.setVisible(true)
