@@ -60,8 +60,10 @@ export const symStage: Stage = {
       if (doneT > 1.4) g.goto('glue')
     }
 
-    const lp = fanScreen(g, 0.03, 0.9)
-    const rp = fanScreen(g, 0.97, 0.9)
+    const m = Math.min(L.w, L.h) * 0.13
+    const lp = fanScreen(g, 0.08, 0.82)
+    const rp = fanScreen(g, 0.92, 0.82)
+    lp.x = Math.max(lp.x, m); rp.x = Math.min(rp.x, L.w - m)
     const useLeft = Math.floor(g.time * 0.5) % 2 === 0
     g.hint = doneT >= 0 ? { kind: 'none', x: 0, y: 0 } : {
       kind: 'drag',

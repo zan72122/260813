@@ -41,7 +41,7 @@ export const splitStage: Stage = {
     if (p.down && doneT < 0) {
       // any downward-ish motion cuts; sideways counts a little too (no failure)
       const along = (p.dy * (bot.y - top.y) + p.dx * (bot.x - top.x)) / span
-      const gain = Math.max(0, along) + Math.abs(p.dx) * 0.22
+      const gain = Math.max(0, along) + Math.abs(p.dx) * 0.1
       if (gain > 0) {
         g.u.notch = clamp01(g.u.notch + gain / span)
         lastShu += gain

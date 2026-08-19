@@ -189,7 +189,7 @@ export class Uchiwa {
     // the oversized blank, then the trimmed uchiwa head: the side ribs really
     // do get shorter when the shape is hammered out
     const raw = ell(1.02, 1.16) * (1 + 0.05 * Math.pow(Math.abs(sa), 4))
-    const trimmed = ell(0.80, 1.05)
+    const trimmed = ell(0.71, 1.04)
     return lerp(raw, trimmed, smooth(this.trim))
   }
 

@@ -27,7 +27,8 @@ export const titleStage: Stage = {
       sfx.tap()
       if (b.id === 'start') g.goto('intro')
       else g.goto('fluff-free')
-    } else if (g.input.p.justDown) {
+    } else if (g.input.p.justDown && !g.overButton(g.input.p.x, g.input.p.y)) {
+      // tap anywhere starts — but never steal a press aimed at a button
       g.unlock()
       sfx.tap()
       g.goto('intro')

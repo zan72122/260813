@@ -136,6 +136,11 @@ export class Game {
 
   addButton(b: Btn) { this.buttons.push(b); return b }
 
+  /** true when the press landed on any stage button */
+  overButton(x: number, y: number) {
+    return this.buttons.some(b => hitBtn(b, x, y))
+  }
+
   pickButton(): Btn | null {
     const p = this.input.p
     if (!p.tapped) return null
@@ -197,15 +202,17 @@ export class Game {
     this.shakeAmt *= Math.exp(-7 * realDt)
     if (this.shakeAmt < 0.02) this.shakeAmt = 0
     this.input.begin(dt)
-    const mb = this.muteBtn()
-    if (this.input.p.tapped && hitBtn(mb, this.input.p.x, this.input.p.y, 1.2)) {
-      this.unlock()
-      this.toggleMute()
-      this.input.p.tapped = false
-    } else if (this.curId !== 'title') {
-      const hb = this.homeBtn()
-      if (this.input.p.tapped && hitBtn(hb, this.input.p.x, this.input.p.y, 1.2)) {
-        this.input.p.tapped = false
+    // These fire on touch-down and swallow the gesture: stages that advance on
+    // "tap anywhere" would otherwise steal the press before it is released.
+    const p = this.input.p
+    const eat = () => { p.justDown = false; p.tapped = false }
+    if (p.justDown) {
+      if (hitBtn(this.muteBtn(), p.x, p.y, 1.2)) {
+        eat()
+        this.unlock()
+        this.toggleMute()
+      } else if (this.curId !== 'title' && hitBtn(this.homeBtn(), p.x, p.y, 1.2)) {
+        eat()
         sfx.tap()
         this.goto('title')
       }

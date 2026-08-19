@@ -9,18 +9,24 @@ import { drawLooseBow } from '../game/render'
 let doneT = -1
 let slideAcc = 0
 
-export function fanCam(g: Game, tight = 0) {
+export function fanCam(g: Game, tight = 0, reservePaper = false) {
   const L = g.layout
   // the untrimmed washi blank is wider than the ribs, so the frame grows for it
+  // during the paper stage the sheet is previewed and lifted before paperOn
+  // becomes 1, so the frame has to reserve the room up front
+  const wasOn = g.u.paperOn
+  if (reservePaper && wasOn <= 0.01) g.u.paperOn = 1
   const wide = Math.max(WORLD.halfWOpen, g.u.paperHalfWidth() * 1.12)
   // landscape crops the lower handle so the head can use the full width
   const baseH = L.portrait ? WORLD.halfH : 1.26
   const baseY = L.portrait ? 0.02 : 0.16
   const cy = lerp(baseY, baseY + 0.16, tight)
   // the untrimmed washi blank reaches higher than the ribs do; never clip it
+  const LIFT = 0.34 * 1.6   // the highest the sheet floats while being lowered
   const paperTop = g.u.paperOn > 0.01
-    ? g.u.pivot.y + g.u.paperRadius(0.5) * g.u.L + 0.08
+    ? g.u.pivot.y + g.u.paperRadius(0.5) * g.u.L + 0.08 + (reservePaper ? LIFT : 0)
     : -Infinity
+  g.u.paperOn = wasOn
   const tall = Math.max(lerp(baseH, baseH * 0.88, tight), paperTop - cy)
   return frame({
     center: { x: 0, y: cy, z: 0 },

@@ -1,5 +1,5 @@
 import { Game, Stage } from '../game/game'
-import { drawWorld, drawHint } from '../game/scene'
+import { drawWorld, drawWorkshopBack, drawHint } from '../game/scene'
 import { frame } from '../game/framing'
 import { sfx, setAmbientWind } from '../core/audio'
 import { clamp, clamp01 } from '../core/math'
@@ -27,12 +27,12 @@ function cam(g: Game) {
     ? frame({
         center: { x: 0, y: 0.42, z: 0 },
         halfW: 1.92, halfH: 2.3, dist: 6.6, yaw: 0.06, pitch: 0.05,
-        screenY: 0.46
+        screenY: 0.42
       }, L)
     : frame({
         center: { x: 0, y: 0.12, z: 0 },
         halfW: 2.8, halfH: 1.84, dist: 6.6, yaw: 0.06, pitch: 0.05,
-        screenY: 0.48, screenX: 0.5
+        screenY: 0.43, screenX: 0.5
       }, L)
 }
 
@@ -153,7 +153,9 @@ export const finishStage: Stage = {
     const L = g.layout
     const ctx = g.ctx
     const spots = propSpots(g)
-    drawWorld(g, { props: false })
+    drawWorkshopBack(g)
+    leaves.draw(ctx)           // behind the uchiwa, so nothing sticks to its face
+    drawWorld(g, { props: false, background: false })
 
     // props sit in the same 3D space, so they scale with the camera
     const unit = Math.min(L.w, L.h)
@@ -164,7 +166,6 @@ export const finishStage: Stage = {
     const pw = g.cam.project(spots.wheel)
     if (pw.ok) drawPinwheel(ctx, pw.x, pw.y, pw.s * 0.22, spin)
 
-    leaves.draw(ctx)
     drawWindStreaks(ctx, g, wind, windDir)
     drawHint(g)
     for (const b of g.buttons) drawButton(ctx, b as Btn, g.time)

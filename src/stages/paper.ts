@@ -30,10 +30,10 @@ export const paperStage: Stage = {
     g.hintDelay = 2.6
     g.u.paperOn = 0
     for (let i = 0; i < g.u.wrinkle.length; i++) g.u.wrinkle[i] = 0
-    g.setCam(fanCam(g, 0.15), 2.6)
+    g.setCam(fanCam(g, 0.15, true), 2.6)
   },
   update(g, dt) {
-    g.setCam(fanCam(g, 0.15), 2.6)
+    g.setCam(fanCam(g, 0.15, true), 2.6)
     map.build(g, ++frameId, 0.18, 0.95)
     const u = g.u
     const p = g.input.p
@@ -62,6 +62,8 @@ export const paperStage: Stage = {
           })
         }
       }
+      const first = g.buttons[Math.floor(g.buttons.length / 2)]
+      if (first) g.hint = { kind: 'tap', x: first.x, y: first.y, r: first.r * 1.5 }
       const b = g.pickButton()
       if (b) {
         u.paperPattern = parseInt(b.id.slice(1), 10)

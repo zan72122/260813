@@ -58,9 +58,16 @@ export const glueStage: Stage = {
     }
 
     // point at the driest part of the fan
-    let worst = 0
-    for (let i = 1; i < u.glue.length; i++) if (u.glue[i] < u.glue[worst]) worst = i
-    const q = fanScreen(g, worst / (u.glue.length - 1), 0.6)
+    // among the driest bins, point at the one nearest the middle — the very
+    // outermost rib sits over the background and reads as "touch the wall"
+    const n = u.glue.length
+    let worst = Math.floor(n / 2)
+    for (let i = 0; i < n; i++) {
+      const better = u.glue[i] < u.glue[worst] - 0.02
+      const same = Math.abs(u.glue[i] - u.glue[worst]) <= 0.02
+      if (better || (same && Math.abs(i - (n - 1) / 2) < Math.abs(worst - (n - 1) / 2))) worst = i
+    }
+    const q = fanScreen(g, worst / (n - 1), 0.6)
     g.hint = doneT >= 0 ? { kind: 'none', x: 0, y: 0 }
       : { kind: 'trace', x: q.x, y: q.y + off, dx: 1, dy: 0 }
   },

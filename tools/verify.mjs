@@ -104,6 +104,64 @@ for (const vp of Object.keys(VIEWPORTS)) {
   await page.context().close()
 }
 
+// --- system and title buttons are reachable, and never stolen by "tap anywhere" ---
+for (const vp of ['iphone-p', 'ipad-l']) {
+  const page = await newPage(b, vp)
+  await page.waitForTimeout(700)
+  const btns = await page.evaluate(() => window.__game.buttons.map(x => ({ id: x.id, x: x.x, y: x.y })))
+  const para = btns.find(x => x.id === 'para')
+  await tap(page, para.x, para.y)
+  await page.waitForTimeout(600)
+  const s1 = (await state(page)).stage
+  await page.context().close()
+
+  const p2 = await newPage(b, vp)
+  await p2.waitForTimeout(600)
+  const mb = await p2.evaluate(() => {
+    const g = window.__game, L = g.layout
+    const r = Math.max(16, Math.min(L.w, L.h) * 0.042)
+    return [L.portrait ? L.w - r * 1.5 : r * 1.5, r * 1.5]
+  })
+  await tap(p2, mb[0], mb[1])
+  await p2.waitForTimeout(400)
+  const m = await p2.evaluate(() => ({ muted: window.__game.muted(), stage: window.__game.curId }))
+  out.push(`${vp}: title para button -> ${s1}; mute -> muted=${m.muted} stage=${m.stage}`)
+  await p2.context().close()
+}
+
+// --- the idle hand hint always lands on screen ---
+for (const vp of ['iphone-p', 'ipad-l']) {
+  const page = await newPage(b, vp)
+  const bad = []
+  for (const st of ['split', 'bow', 'thread', 'sym', 'glue', 'paper', 'hammer', 'edge']) {
+    await page.evaluate((s) => {
+      const g = window.__game, u = g.u
+      u.progress = u.N; u.ribs.forEach(r => { r.t = 1 }); u.notch = 1; u.sym = 1
+      u.bow = 1; u.thread = 1; u.threadHit.fill(true); u.glue.fill(1)
+      if (s === 'hammer' || s === 'edge') { u.paperOn = 1; u.wrinkle.fill(1); u.trim = 1 }
+      g.goto(s)
+      if (s === 'split') { u.notch = 0; u.progress = 0; u.ribs.forEach(r => { r.t = 0 }) }
+      g.input.idle = 8
+    }, st)
+    await page.waitForTimeout(800)
+    const h = await page.evaluate(() => {
+      const g = window.__game, h = g.hint
+      const unit = Math.min(g.layout.w, g.layout.h)
+      const len = Math.hypot(h.dx ?? 0, h.dy ?? 0) || 1
+      const wob = unit * 0.035
+      return {
+        kind: h.kind,
+        hx: h.x + ((h.dx ?? 0) / len) * wob,
+        hy: h.y + ((h.dy ?? 0) / len) * wob + unit * 0.035,
+        w: innerWidth, hgt: innerHeight
+      }
+    })
+    if (h.kind !== 'none' && (h.hx < 0 || h.hx > h.w || h.hy < 0 || h.hy > h.hgt)) bad.push(st)
+  }
+  out.push(`${vp}: hints drawn off screen -> ${bad.length ? bad.join(',') : 'none'}`)
+  await page.context().close()
+}
+
 // --- ribs never clip off screen in any orientation ---
 for (const vp of Object.keys(VIEWPORTS)) {
   const page = await newPage(b, vp)

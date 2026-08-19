@@ -142,7 +142,7 @@ export function drawUchiwaGlyph(ctx: C, x: number, y: number, r: number, pattern
   ctx.beginPath(); ctx.moveTo(-r * 0.09, r * 1.12); ctx.lineTo(r * 0.09, r * 1.12); ctx.stroke()
   // paper
   ctx.beginPath()
-  ctx.ellipse(0, -r * 0.1, r * 0.86, r * 0.95, 0, 0, TAU)
+  ctx.ellipse(0, -r * 0.08, r * 0.9, r * 0.92, 0, 0, TAU)
   ctx.closePath()
   ctx.fillStyle = def.base
   ctx.fill()
@@ -171,7 +171,7 @@ export function drawUchiwaGlyph(ctx: C, x: number, y: number, r: number, pattern
   ctx.strokeStyle = def.accent
   ctx.lineWidth = Math.max(1.4, r * 0.075)
   ctx.beginPath()
-  ctx.ellipse(0, -r * 0.1, r * 0.86, r * 0.95, 0, 0, TAU)
+  ctx.ellipse(0, -r * 0.08, r * 0.9, r * 0.92, 0, 0, TAU)
   ctx.stroke()
   ctx.restore()
 }

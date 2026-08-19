@@ -5,7 +5,7 @@ import {
 } from './render'
 import { drawUchiwaGlyph } from './ui'
 import { drawPulse, drawChevrons, drawHandHint } from './tools'
-import { clamp01, lerp } from '../core/math'
+import { clamp, clamp01, lerp } from '../core/math'
 
 export type WorldOpts = {
   bowGhost?: boolean
@@ -13,6 +13,15 @@ export type WorldOpts = {
   paperAlpha?: number
   hideRibs?: boolean
   props?: boolean
+  /** skip the room + bench, for stages that draw something between them */
+  background?: boolean
+}
+
+/** just the room and the bench, so a stage can layer things behind the work */
+export function drawWorkshopBack(g: Game) {
+  const s = g.scene
+  drawWorkshop(s, 0, g.layout.portrait ? -1 : 1)
+  drawBench(s)
 }
 
 /**
@@ -22,9 +31,11 @@ export type WorldOpts = {
  */
 export function drawWorld(g: Game, o: WorldOpts = {}) {
   const s = g.scene
-  drawWorkshop(s, 0, g.layout.portrait ? -1 : 1)
-  if (o.props !== false) drawProps(g)
-  drawBench(s)
+  if (o.background !== false) {
+    drawWorkshop(s, 0, g.layout.portrait ? -1 : 1)
+    if (o.props !== false) drawProps(g)
+    drawBench(s)
+  }
   drawContactShadow(s, { x: g.u.pivot.x, y: -1.6, z: g.u.pivot.z + 0.1 }, 0.9 + g.u.progress * 0.05, 0.28, 0.3)
   drawHandle(s, g.u)
   drawThread(s, g.u, 'back')
@@ -82,14 +93,21 @@ export function drawHint(g: Game, force = false) {
   ctx.save()
   if (h.kind === 'tap') {
     drawPulse(ctx, h.x, h.y, h.r ?? unit * 0.11, g.time, a)
+    // fall through to the hand below
     drawHandHint(ctx, h.x + unit * 0.035, h.y + unit * 0.05, unit * 0.0022 * (1 + 0.05 * Math.sin(g.time * 5)), a * 0.9)
   } else if (h.kind === 'swipeH' || h.kind === 'swipeV' || h.kind === 'drag' || h.kind === 'trace') {
-    const dx = h.dx ?? (h.kind === 'swipeV' ? 0 : 1)
-    const dy = h.dy ?? (h.kind === 'swipeV' ? 1 : 0)
+    const rx = h.dx ?? (h.kind === 'swipeV' ? 0 : 1)
+    const ry = h.dy ?? (h.kind === 'swipeV' ? 1 : 0)
+    // stages pass raw pixel deltas here; without normalising, the hand flies
+    // hundreds of screens away
+    const len = Math.hypot(rx, ry) || 1
+    const dx = rx / len, dy = ry / len
     const size = unit * 0.09
     drawChevrons(ctx, h.x, h.y, dx, dy, size, g.time, a)
     const wob = Math.sin(g.time * 3.2) * unit * 0.035
-    drawHandHint(ctx, h.x + dx * wob, h.y + dy * wob + unit * 0.035, unit * 0.0022, a * 0.85)
+    const hx = clamp(h.x + dx * wob, unit * 0.06, g.layout.w - unit * 0.06)
+    const hy = clamp(h.y + dy * wob + unit * 0.035, unit * 0.06, g.layout.h - unit * 0.06)
+    drawHandHint(ctx, hx, hy, unit * 0.0022, a * 0.85)
   }
   ctx.restore()
 }
