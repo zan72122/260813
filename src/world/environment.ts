@@ -58,7 +58,7 @@ export class Environment {
             col = mix(mix(uShallow, uSky, 0.55), uSky, t);
           } else {
             float t = clamp((uWaterY - y) / 30.0, 0.0, 1.0);
-            col = mix(uShallow, uDeep, pow(t, 0.72));
+            col = mix(mix(uShallow, uSky, 0.30), uDeep, pow(t, 0.6));
             float band = sin(y * 0.6 + uTime * 0.35) * 0.5 + 0.5;
             col += vec3(0.02, 0.045, 0.05) * band * (1.0 - t);
           }
@@ -139,7 +139,7 @@ export class Environment {
     this.group.add(this.seabed)
 
     // -------------------------------------------------------- water surface
-    const waterGeo = new THREE.PlaneGeometry(60, 60, hi ? 40 : 20, hi ? 40 : 20)
+    const waterGeo = new THREE.PlaneGeometry(84, 84, hi ? 44 : 22, hi ? 44 : 22)
     waterGeo.rotateX(-Math.PI / 2)
     this.waterMat = new THREE.ShaderMaterial({
       transparent: true,
@@ -177,14 +177,26 @@ export class Environment {
         void main() {
           vec3 vd = normalize(vWPos - cameraPosition);
           float facing = abs(vd.y);
-          // Snell's-window-ish bright centre when looking up from below
+          float above = step(vWPos.y, cameraPosition.y);
+
+          // seen from below: bright Snell's window straight up, water at the edges
           float win = smoothstep(0.25, 0.95, facing);
-          vec3 col = mix(uShallow * 0.75, uSky, win * 0.85);
+          vec3 under = mix(uShallow * 0.75, uSky, win * 0.85);
+          float aUnder = 0.36 + win * 0.42;
+
+          // seen from above: sky reflection at grazing angles, water looking down
+          float fres = pow(1.0 - facing, 4.0);
+          vec3 over = mix(uShallow * 0.82, uSky, clamp(fres * 1.05 + 0.42, 0.0, 1.0));
+          float aOver = 0.62 + fres * 0.34;
+
+          vec3 col = mix(under, over, above);
+          float a = mix(aUnder, aOver, above);
+
           float rip = sin(vWPos.x * 3.1 + uTime * 1.7) * sin(vWPos.z * 2.6 - uTime * 1.3);
-          col += vec3(0.14, 0.18, 0.16) * smoothstep(0.55, 1.0, rip) ;
-          col += vec3(0.2) * smoothstep(0.03, 0.12, vWave);
+          col += vec3(0.14, 0.18, 0.16) * smoothstep(0.55, 1.0, rip);
+          col += vec3(0.16) * smoothstep(0.03, 0.12, vWave) * (0.5 + above * 0.8);
           float d = length(vWPos.xz);
-          float a = (0.36 + win * 0.42) * (1.0 - smoothstep(16.0, 30.0, d));
+          a *= 1.0 - smoothstep(24.0, 39.0, d);
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
         }`,

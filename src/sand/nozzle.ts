@@ -19,10 +19,10 @@ export class Nozzle {
 
   constructor() {
     this.bagMat = new THREE.MeshPhongMaterial({
-      color: 0xffd98c,
+      color: 0xffd07a,
       shininess: 70,
       specular: 0xffffff,
-      emissive: 0x3a2c10,
+      emissive: 0x1c1408,
       transparent: true,
       opacity: 0.97,
     })
@@ -30,7 +30,7 @@ export class Nozzle {
       color: 0xf2fbff,
       shininess: 110,
       specular: 0xffffff,
-      emissive: 0x24333a,
+      emissive: 0x141c20,
       transparent: true,
       opacity: 0.92,
     })
