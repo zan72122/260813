@@ -88,11 +88,12 @@ export const bowStage: Stage = {
     drawWorld(g, { bowGhost: g.u.bow < 0.99 })
     // a real stick sitting on the bench, waiting to be pushed through
     if (g.u.bow < 0.02 && doneT < 0) {
-      const a = fanScreen(g, 0, 0.30)
+      // rests on the bench in front of the fan, clear of the background props
+      const hub = fanScreen(g, 0.5, 0.12)
       const L = g.layout
       const wob = Math.sin(g.time * 2.4) * L.w * 0.012
-      drawLooseBow(g.scene, a.x - L.w * 0.1 + wob, a.y + L.h * 0.055,
-        Math.min(L.w, L.h) * 0.3, -0.12)
+      drawLooseBow(g.scene, hub.x - L.w * 0.2 + wob, hub.y + L.h * 0.17,
+        Math.min(L.w, L.h) * 0.3, -0.1)
     }
     drawHint(g)
     // the leading tip of the bow, so the child can see what is moving

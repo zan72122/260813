@@ -436,14 +436,26 @@ export function drawBow(s: Scene, u: Uchiwa, insertion: number, ghost = false) {
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   const w = Math.max(3, s.h * 0.011)
-  ctx.strokeStyle = ghost ? 'rgba(86,54,22,0.75)' : 'rgba(120,92,44,0.55)'
-  ctx.lineWidth = w * (ghost ? 1.7 : 1.25)
+  if (ghost) {
+    // a soft halo first, so the dashed guide reads on top of the rib bundle
+    ctx.save()
+    ctx.setLineDash([])
+    ctx.globalAlpha = 0.22 + 0.1 * Math.sin(s.time * 3.4)
+    ctx.strokeStyle = '#fff6d2'
+    ctx.lineWidth = w * 3.4
+    ctx.beginPath()
+    for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
+    ctx.stroke()
+    ctx.restore()
+  }
+  ctx.strokeStyle = ghost ? 'rgba(86,54,22,0.85)' : 'rgba(120,92,44,0.55)'
+  ctx.lineWidth = w * (ghost ? 2.0 : 1.25)
   ctx.beginPath()
   for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
   ctx.stroke()
   if (ghost) {
-    ctx.strokeStyle = 'rgba(255,252,228,0.95)'
-    ctx.lineWidth = w * 0.9
+    ctx.strokeStyle = 'rgba(255,252,228,0.98)'
+    ctx.lineWidth = w * 1.15
     ctx.beginPath()
     for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
     ctx.stroke()
