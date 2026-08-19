@@ -16,6 +16,32 @@ const out = []
   await page.context().close()
 }
 
+// --- the synth actually produces sound (nodes get created and started) ---
+{
+  const page = await newPage(b, 'iphone-p')
+  await page.evaluate(() => {
+    window.__counts = { osc: 0, buf: 0 }
+    const AC = window.AudioContext.prototype
+    const o = AC.createOscillator, s = AC.createBufferSource
+    AC.createOscillator = function () { window.__counts.osc++; return o.apply(this, arguments) }
+    AC.createBufferSource = function () { window.__counts.buf++; return s.apply(this, arguments) }
+  })
+  await tap(page, 195, 500)
+  await page.waitForTimeout(500)
+  await page.evaluate(() => { window.__game.goto('fluff-free'); window.__counts = { osc: 0, buf: 0 } })
+  await page.waitForTimeout(300)
+  for (let i = 0; i < 8; i++) {
+    await swipe(page, [60, 640], [330, 640], 10, 5)
+    await swipe(page, [330, 640], [60, 640], 10, 5)
+    if ((await state(page)).open >= 20) break
+  }
+  await page.waitForTimeout(700)
+  const c = await page.evaluate(() => window.__counts)
+  out.push('audio nodes fired in one para-para round: ' + JSON.stringify(c) +
+    (c.osc + c.buf > 20 ? ' (ok)' : ' (SUSPICIOUS — synth may be silent)'))
+  await page.context().close()
+}
+
 // --- para-para toy mode, ten consecutive rounds ---
 {
   const page = await newPage(b, 'iphone-p')
