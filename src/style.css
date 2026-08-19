@@ -164,6 +164,8 @@ body {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+/* The suggested card glows rather than moves: a target that shifts under a
+   small finger is harder to hit, and a steady one is just as easy to spot. */
 .card.primary {
   outline: 0.7vmin solid #ffb8d2;
   outline-offset: -0.2vmin;
@@ -172,10 +174,12 @@ body {
 @keyframes cardPulse {
   0%,
   100% {
-    transform: scale(1);
+    box-shadow: 0 6px 18px rgba(96, 62, 20, 0.32), 0 0 0 0 rgba(255, 145, 185, 0.55);
+    outline-color: #ffb8d2;
   }
   50% {
-    transform: scale(1.035);
+    box-shadow: 0 6px 18px rgba(96, 62, 20, 0.32), 0 0 0 1.6vmin rgba(255, 145, 185, 0);
+    outline-color: #ff7fb0;
   }
 }
 

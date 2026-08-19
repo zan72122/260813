@@ -1,7 +1,7 @@
 import './style.css'
 import { NoToneMapping, PCFSoftShadowMap, SRGBColorSpace, WebGLRenderer } from 'three'
 import { Game } from './game/game'
-import { SOURCE_X, isFastE2E } from './core/config'
+import { CASTLE_X, SAND_X, SAND_Z, SOURCE_X, isFastE2E } from './core/config'
 import { clamp, now } from './core/util'
 
 const canvas = document.getElementById('gl') as HTMLCanvasElement
@@ -23,7 +23,7 @@ renderer.shadowMap.type = PCFSoftShadowMap
 renderer.setClearColor(0xbfe4f2, 1)
 
 const game = new Game(renderer, uiRoot)
-;(window as unknown as { __srcx: number }).__srcx = SOURCE_X
+;(window as unknown as { __sandCfg: unknown }).__sandCfg = { SOURCE_X, CASTLE_X, SAND_X, SAND_Z }
 
 // ---------------------------------------------------------------- viewport
 

@@ -73,7 +73,8 @@ export class Game {
   private hasLast = false
   private idleTime = 0
   private strokeDist = 0
-  private moundCooldown = 0
+  private moundTimer = 0
+  private moundDist = 0
   private pourTime = 0
 
   // progress
@@ -185,7 +186,7 @@ export class Game {
     }
   }
 
-  private openMenu(celebrate: boolean): void {
+  openMenu(celebrate: boolean): void {
     this.phase = 'menu'
     this.overlay.showMenu(celebrate)
     this.tray.visible = false
@@ -369,11 +370,14 @@ export class Game {
         this.hintPath.setVisible(false)
       }
     } else if (tool === 'mound') {
-      this.moundCooldown -= 1
-      if (!first && this.moundCooldown > 0 && segLen < 0.06) return
-      this.moundCooldown = 3
+      // Gate on real time and real distance, not on event count, so the
+      // amount of sand dropped does not depend on the frame rate.
+      this.moundDist += segLen
+      if (!first && this.moundTimer > 0 && this.moundDist < 0.16) return
+      this.moundTimer = 0.07
+      this.moundDist = 0
       const snapped = this.snapMound(x, z)
-      const fb = this.terrain.mound(snapped.x, snapped.z, 0.58, 0.03)
+      const fb = this.terrain.mound(snapped.x, snapped.z, 0.6, 0.045)
       this.totalDug += fb.moved * 0.2
       this.sandMesh.update()
       this.worldTool.place(snapped.x, fb.height, snapped.z, dirX, dirZ)
@@ -436,6 +440,7 @@ export class Game {
   update(dt: number): void {
     this.time += dt
     this.idleTime += dt
+    if (this.moundTimer > 0) this.moundTimer = Math.max(0, this.moundTimer - dt)
 
     if (this.pointerDown && this.tray.selected === 'pour' && this.phase !== 'menu') {
       this.pourTime += dt
@@ -676,6 +681,7 @@ export class Game {
   debugState() {
     return {
       phase: this.phase,
+      revealTime: this.revealTime,
       pattern: this.currentPattern,
       moatFill: this.water.moatFill,
       waterVolume: this.water.totalVolume,
