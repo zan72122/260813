@@ -431,6 +431,7 @@ export class Game {
         await this.tweens.wait(0.7);
         this.phase = 'coil';
         this.coilChimeMark = 0;
+        this.hair.setHeartVisible(true);
         this.rig.moveTo('coil');
         this.busy = false;
         this.armStep();

@@ -6,14 +6,19 @@ const game = new Game(app);
 
 // E2E / screenshot mode: ?fast=1 → dpr 1, deterministic-friendly.
 const params = new URLSearchParams(location.search);
-if (params.get('fast') === '1') {
+const fast = params.get('fast') === '1';
+if (fast) {
   game.stage.renderer.setPixelRatio(1);
 }
 
+// On a real device the dt clamp only smooths hiccups. Under SwiftShader
+// (headless CI) real FPS can drop so low that the clamp would slow virtual
+// time to a crawl — in fast mode, let logical time follow the wall clock.
+const dtCap = fast ? 0.5 : 1 / 20;
 let last = performance.now();
 let framed = false;
 function frame(now: number): void {
-  const dt = Math.min((now - last) / 1000, 1 / 20);
+  const dt = Math.min((now - last) / 1000, dtCap);
   last = now;
   game.tick(dt);
   if (!framed) {

@@ -17,7 +17,7 @@ export const BRAID_CYCLES = 4;
 /** Drop/pick loops between crossings. */
 export const DROP_COUNT = 3;
 
-const SPINE_R = HEAD_RADIUS + 0.055;
+const SPINE_R = HEAD_RADIUS + 0.075;
 const PHI_START = -1.15; // azimuth (0 = straight back, +Z), radians
 const PHI_END = 1.15;
 
@@ -75,8 +75,9 @@ export function waterfallControls(t: number, settle: number): THREE.Vector3[] {
     const s = i / (N - 1);
     const fall = settle * s;
     const p = start.clone();
-    // Drift outward (toward the camera) so the falls layer in front of the base hair.
-    p.addScaledVector(out, s * (0.05 + 0.09 * settle));
+    // Root tucks INTO the braid (no visible tube mouth); the rest drifts
+    // outward toward the camera so the falls layer in front of the base hair.
+    p.addScaledVector(out, i === 0 ? -0.05 : s * (0.05 + 0.09 * settle));
     p.y -= dropLen * fall * s * (2 - s) * 0.9;
     p.x += sway * s * s * settle + out.x * 0.02;
     p.z += 0.05 * Math.sin(s * Math.PI) * settle;
@@ -91,11 +92,11 @@ export function waterfallControls(t: number, settle: number): THREE.Vector3[] {
 export function hangControls(): THREE.Vector3[] {
   return [
     braidSpine(1),
-    new THREE.Vector3(0.40, 1.36, 0.13),
-    new THREE.Vector3(0.46, 1.18, 0.16),
-    new THREE.Vector3(0.48, 0.98, 0.14),
-    new THREE.Vector3(0.46, 0.80, 0.10),
-    new THREE.Vector3(0.43, 0.66, 0.07)
+    new THREE.Vector3(0.37, 1.36, 0.16),
+    new THREE.Vector3(0.42, 1.18, 0.19),
+    new THREE.Vector3(0.44, 0.98, 0.17),
+    new THREE.Vector3(0.42, 0.80, 0.13),
+    new THREE.Vector3(0.40, 0.68, 0.09)
   ];
 }
 
@@ -127,8 +128,8 @@ export const FLOWER_CENTER = new THREE.Vector3(0.36, 1.42, 0.16);
 // Tilted toward the camera so the spiral FACE (not the tube wall) is what
 // reads in the coil, gem and reveal shots.
 export const FLOWER_NORMAL = new THREE.Vector3(0.5, 0.3, 0.9).normalize();
-export const FLOWER_RADIUS = 0.155;
-export const COIL_TURNS = 2.1;
+export const FLOWER_RADIUS = 0.17;
+export const COIL_TURNS = 1.9;
 
 /** Orthonormal basis (u,v) of the flower plane. */
 export function flowerBasis(): { u: THREE.Vector3; v: THREE.Vector3 } {
@@ -153,7 +154,7 @@ export function coilPoint(s: number, c: number, hangPt: THREE.Vector3, basis: { 
   const v01 = THREE.MathUtils.clamp((s - woundStart) / Math.max(c, 1e-4), 0, 1);
   const theta = (1 - v01) * COIL_TURNS * Math.PI * 2 * c - Math.PI * 0.4;
   // Tip winds to the very heart (no ear-canal hole) — the gem sits ON it.
-  const radius = FLOWER_RADIUS * (0.05 + 0.95 * (1 - v01) * c + 0.12 * (1 - c));
+  const radius = FLOWER_RADIUS * (0.10 + 0.90 * (1 - v01) * c + 0.12 * (1 - c));
   const lift = 0.024 * (1 - v01) * c; // tiny helix pitch so loops never z-fight
   const spiral = FLOWER_CENTER.clone()
     .addScaledVector(basis.u, Math.cos(theta) * radius)

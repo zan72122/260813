@@ -44,6 +44,7 @@ export class HairSystem {
   readonly pickMat: THREE.MeshPhysicalMaterial;
 
   private tailMesh: THREE.Mesh | null = null;
+  private heartMesh: THREE.Mesh | null = null;
   private tailGeo: THREE.BufferGeometry | null = null;
   readonly tailMat: THREE.MeshPhysicalMaterial;
   private tailHangPts: THREE.Vector3[] = [];
@@ -82,6 +83,9 @@ export class HairSystem {
     }
 
     this.fallMat = makeHairMaterial({ sway: 1.6 });
+    // The falls are the signature: a touch brighter and silkier than the base.
+    this.fallMat.color.offsetHSL(0.005, 0.04, 0.06);
+    this.fallMat.sheen = 0.5;
     this.pickMat = makeHairMaterial({ sway: 0.8 });
     this.tailMat = makeHairMaterial({ sway: 0.6 });
 
@@ -164,7 +168,7 @@ export class HairSystem {
         .addScaledVector(up, o.u * 0.034 * (0.5 + 0.9 * d * fan))
         .addScaledVector(out, o.w * 0.024 + 0.012 + 0.028 * d * fan);
       // gravity: every strand sags toward the tip; the drop candidate sags more
-      p.y -= Math.pow(d, 1.7) * (0.11 + 0.05 * fan + (isLow ? droopK * 0.16 : 0));
+      p.y -= Math.pow(d, 1.5) * (0.17 + 0.05 * fan + (isLow ? droopK * 0.16 : 0));
       // finger follow, weighted toward the free end
       p.addScaledVector(this.trioFollow, d * d);
       pts.push(p);
@@ -204,9 +208,13 @@ export class HairSystem {
   // ---------- waterfall (fallen strands) ----------
 
   /** Create a falling strand leaving the braid at spine t. Returns its index. */
+  private fallRadius(s: number): number {
+    return 0.034 * (1 - 0.4 * s) * (1 + 0.08 * Math.sin(s * Math.PI * 2 * 5)) * tipTaper(s);
+  }
+
   spawnFall(t: number): number {
     const pts = sampleSpline(waterfallControls(t, 0), FALL_SEGS);
-    const geo = sweepTube(pts, (s) => HAIR.strandRadius * (1 - 0.4 * s) * tipTaper(s), { radial: 7 });
+    const geo = sweepTube(pts, (s) => this.fallRadius(s), { radial: 7 });
     const mesh = new THREE.Mesh(geo, this.fallMat);
     mesh.frustumCulled = false;
     mesh.userData.spineT = t;
@@ -220,7 +228,7 @@ export class HairSystem {
   setFall(i: number, settle: number): void {
     const t = this.fallMeshes[i].userData.spineT as number;
     const pts = sampleSpline(waterfallControls(t, settle), FALL_SEGS);
-    updateSweep(this.fallGeos[i], pts, (s) => HAIR.strandRadius * (1 - 0.4 * s) * tipTaper(s), { radial: 7 });
+    updateSweep(this.fallGeos[i], pts, (s) => this.fallRadius(s), { radial: 7 });
   }
 
   get fallCount(): number {
@@ -230,13 +238,18 @@ export class HairSystem {
   // ---------- pick (new strand arriving from above) ----------
 
   private pickPoints(anim: number): THREE.Vector3[] {
-    // Sweeps from the crown down to the braid front as anim 0→1.
-    const crown = new THREE.Vector3(this.frontT * 0.25 - 0.02, 1.45 + 0.32, 0.12);
-    const front = this.frontPoint().clone().add(new THREE.Vector3(0.02, 0.05, 0.03));
-    const mid = crown.clone().lerp(front, 0.5).add(new THREE.Vector3(0.06, 0.10 * (1 - anim), 0.10));
-    const reach = crown.clone().lerp(front, anim);
-    const ctrl = [crown, mid.lerp(reach, anim * 0.5), reach];
-    return sampleSpline(ctrl, TRIO_SEGS);
+    // At rest: a loose lock lying on the crown, root buried in the hair,
+    // tip offered toward the braid front. anim 0→1 sweeps the tip down
+    // into the front so the new strand visibly joins the weave.
+    const root = new THREE.Vector3(0.02, 1.67, 0.06);
+    const restTip = new THREE.Vector3(0.26, 1.56, 0.21);
+    const front = this.frontPoint().clone().add(new THREE.Vector3(0.02, 0.04, 0.03));
+    const tip = restTip.clone().lerp(front, anim);
+    const mid = root
+      .clone()
+      .lerp(tip, 0.55)
+      .add(new THREE.Vector3(0.02, 0.05 * (1 - anim) + 0.03, 0.07));
+    return sampleSpline([root, mid, tip], TRIO_SEGS);
   }
 
   showPick(): void {
@@ -255,8 +268,10 @@ export class HairSystem {
     updateSweep(this.pickGeo, this.pickPoints(anim), (t) => HAIR.strandRadius * (1 - 0.3 * t), { radial: 7 });
   }
 
+  /** The visible resting tip — hint target and touch anchor. */
   pickStartPoint(): THREE.Vector3 {
-    return this.pickPoints(0)[0].clone();
+    const pts = this.pickPoints(0);
+    return pts[pts.length - 4].clone();
   }
 
   hidePick(): void {
@@ -265,9 +280,20 @@ export class HairSystem {
 
   // ---------- tail: petals & coil ----------
 
+  /** Tail thickness: petal profile x a braided-bead ripple that melts away
+   * as the tail coils into the flower. */
+  private tailRadius(s: number, bloom = 1): number {
+    // Petals slim down mid-coil (so the winding spiral stays legible) and
+    // reopen fully as the flower completes.
+    const midCoilSlim = 1 - 0.45 * Math.sin(Math.min(this.coil, 1) * Math.PI);
+    const base = petalRadius(s, this.petalPulls, 0.030 * (1 - 0.08 * this.coil), 0.085 * bloom * midCoilSlim);
+    const ripple = 1 + 0.14 * (1 - 0.7 * this.coil) * Math.sin(s * Math.PI * 2 * 9);
+    return base * ripple;
+  }
+
   buildTail(): void {
     this.tailHangPts = sampleSpline(hangControls(), TAIL_SEGS);
-    this.tailGeo = sweepTube(this.tailHangPts, (s) => petalRadius(s, this.petalPulls, 0.030, 0.085), {
+    this.tailGeo = sweepTube(this.tailHangPts, (s) => this.tailRadius(s), {
       radial: TAIL_RADIAL,
       flatten: () => 0.42,
       ref: FLOWER_NORMAL
@@ -275,6 +301,20 @@ export class HairSystem {
     this.tailMesh = new THREE.Mesh(this.tailGeo, this.tailMat);
     this.tailMesh.frustumCulled = false;
     this.group.add(this.tailMesh);
+
+    // Flower heart: a small dark disc behind the spiral's center, so the
+    // rosette never opens onto empty sky before the gem is pinned.
+    const heartMat = makeHairMaterial({ shadowTint: true, sway: 0 });
+    this.heartMesh = new THREE.Mesh(new THREE.CircleGeometry(0.06, 20), heartMat);
+    this.heartMesh.position.copy(FLOWER_CENTER).addScaledVector(FLOWER_NORMAL, -0.004);
+    this.heartMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), FLOWER_NORMAL);
+    this.heartMesh.visible = false;
+    this.group.add(this.heartMesh);
+  }
+
+  /** Fade the heart in once winding begins. */
+  setHeartVisible(v: boolean): void {
+    if (this.heartMesh) this.heartMesh.visible = v;
   }
 
   get hasTail(): boolean {
@@ -289,8 +329,8 @@ export class HairSystem {
       pts.push(coilPoint(s, this.coil, this.tailHangPts[i], this.basis));
     }
     // As it coils, petals flare a touch wider — the flower blooming.
-    const bloom = 1 + this.coil * 0.3;
-    updateSweep(this.tailGeo, pts, (s) => petalRadius(s, this.petalPulls, 0.030 * (1 - 0.3 * this.coil), 0.085 * bloom), {
+    const bloom = 1 + this.coil * 0.45;
+    updateSweep(this.tailGeo, pts, (s) => this.tailRadius(s, bloom), {
       radial: TAIL_RADIAL,
       flatten: () => 0.42 - 0.14 * this.coil,
       ref: FLOWER_NORMAL
@@ -345,6 +385,11 @@ export class HairSystem {
       this.tailGeo?.dispose();
       this.tailMesh = null;
       this.tailGeo = null;
+    }
+    if (this.heartMesh) {
+      this.group.remove(this.heartMesh);
+      this.heartMesh.geometry.dispose();
+      this.heartMesh = null;
     }
     this.hidePick();
     this.petalPulls.fill(0);

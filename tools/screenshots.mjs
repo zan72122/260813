@@ -40,8 +40,11 @@ const BEATS = [
   {
     name: '03-waterfalls',
     run: async (p) => {
-      await p.evaluate(() => window.__whg.to('petal'));
-      await p.waitForTimeout(1200);
+      // Stay in the braid phase: all three falls down, camera on the braid shot.
+      await p.evaluate(async () => {
+        const w = window.__whg;
+        while (w.getPhase() === 'braid' && w.getBraidStep() < 8) await w.auto();
+      });
       await p.evaluate(() => window.__whg.snapCamera());
       await p.waitForTimeout(400);
     }
@@ -49,6 +52,9 @@ const BEATS = [
   {
     name: '04-petals',
     run: async (p) => {
+      await p.evaluate(() => window.__whg.to('petal'));
+      await p.waitForTimeout(1200);
+      await p.evaluate(() => window.__whg.snapCamera());
       await p.evaluate(async () => {
         await window.__whg.auto();
         await window.__whg.auto();
@@ -64,7 +70,7 @@ const BEATS = [
       await p.waitForTimeout(1200);
       await p.evaluate(() => {
         const g = window.__whg.game;
-        g.hair.coil = 0.75;
+        g.hair.coil = 0.5;
         g.hair.refreshTail();
       });
       await p.waitForTimeout(400);

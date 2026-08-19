@@ -19,6 +19,7 @@ export class Character {
 
     // Head (mostly hidden by hair, but its curve shapes the silhouette).
     const head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS, 28, 22), skin);
+    head.name = 'skin-head';
     head.position.copy(HEAD_CENTER);
     head.scale.set(0.94, 1.05, 1.0);
     this.group.add(head);
@@ -60,53 +61,118 @@ export class Character {
     const hairDark = makeHairMaterial({ shadowTint: true, sway: 0.4 });
     const hairMid = makeHairMaterial({ sway: 0.7 });
 
-    // Hair cap hugging the skull — a touch deeper than the strands so the
-    // smooth dome reads as combed hair, not skin.
-    const capMat = makeHairMaterial({ sway: 0 });
-    capMat.color.offsetHSL(0, 0.03, -0.05);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS + 0.028, 28, 22), capMat);
-    cap.position.copy(HEAD_CENTER).add(new THREE.Vector3(0, 0.025, 0.015));
-    cap.scale.set(0.97, 1.02, 1.02);
-    this.group.add(cap);
-
-    // Long back-hair mass: a fan of strands from the crown down the back.
     // Deterministic variety (no Math.random — reproducible goldens).
     let seed = 7;
     const rand = () => {
       seed = (seed * 16807) % 2147483647;
       return seed / 2147483647;
     };
+
+    // Under-cap: sits just beneath the crown strands so any sliver of gap
+    // reads as the dark interior of the hair — never as scalp. It is a
+    // shadow, not a surface: deep, rough, no highlight.
+    // Same scale ratios as the skull with a small uniform offset, so the
+    // margin to the strand shell is constant everywhere — any local bulge
+    // would poke between strands and read as a bald patch.
+    const underCap = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS + 0.002, 28, 22), makeHairMaterial({ shadowTint: true, sway: 0 }));
+    underCap.name = 'underCap';
+    underCap.position.copy(HEAD_CENTER);
+    underCap.scale.set(0.94, 1.05, 1.0);
+    this.group.add(underCap);
+
+    // Crown: hair must read as flowing strands, never as a smooth dome.
+    // A whorl (つむじ) at the top sends combed strands spiralling down the
+    // skull on every side, tucking under the braid line and the back mass.
+    const headScale = new THREE.Vector3(0.94, 1.05, 1.0);
+    const onSkull = (theta: number, phi: number, off: number): THREE.Vector3 => {
+      const u = new THREE.Vector3(Math.sin(theta) * Math.sin(phi), Math.cos(theta), Math.sin(theta) * Math.cos(phi));
+      return HEAD_CENTER.clone().add(
+        new THREE.Vector3(
+          u.x * (headScale.x * HEAD_RADIUS + off),
+          u.y * (headScale.y * HEAD_RADIUS + off),
+          u.z * (headScale.z * HEAD_RADIUS + off)
+        )
+      );
+    };
+    // One continuous strand system: each strand runs whorl → skull → hanging
+    // tip in a single sweep, so there is no seam, no exposed "hole", and no
+    // row of tips across the middle of the head.
+    const STRANDS = 36;
+    for (let i = 0; i < STRANDS; i++) {
+      const phi0 = (i / STRANDS) * Math.PI * 2 + 0.09;
+      const swirl = 0.45 + rand() * 0.2; // one combing direction for the whole whorl
+      const theta0 = 0.03 + rand() * 0.05;
+      const backness = 0.5 * (1 + Math.cos(phi0 + swirl * 0.7)); // 1 = lands on the back
+      const baseOff = 0.020 + (i % 3) * 0.003;
+
+      // Skull-hugging section: whorl down to just past the widest point.
+      // Dense control points — a sparse spline cuts chords INSIDE the skull
+      // and buries the strand under the shadow cap.
+      const thetaExit = 1.55 + 0.25 * backness;
+      const skullPts: THREE.Vector3[] = [];
+      for (const t of [0, 0.12, 0.26, 0.42, 0.6, 0.8, 1]) {
+        const theta = theta0 + (thetaExit - theta0) * Math.pow(t, 0.9);
+        const phi = phi0 + swirl * t;
+        skullPts.push(onSkull(theta, phi, baseOff + 0.010 * Math.sin(t * Math.PI)));
+      }
+      const exit = skullPts[skullPts.length - 1];
+
+      // Hanging section: falls with gravity, gathering gently inward.
+      // Hem heights vary only a little — a calm U-hem, not a sawtooth.
+      const hemY = 0.70 + 0.035 * (((i * 7) % 5) / 4) + 0.06 * (1 - backness);
+      const behind = exit.z > 0;
+      const hang1 = new THREE.Vector3(
+        exit.x * 0.98,
+        (exit.y + hemY) / 2,
+        behind ? Math.max(exit.z * 0.9, 0.06) + 0.03 : exit.z * 1.02
+      );
+      const hang2 = new THREE.Vector3(
+        exit.x * 0.9,
+        hemY,
+        behind ? Math.max(exit.z * 0.75, 0.05) : exit.z * 0.95
+      );
+      const pts = sampleSpline([...skullPts, hang1, hang2], 30, 0.4);
+      const thick = 0.040 + rand() * 0.008;
+      const radiusFn = (t: number): number =>
+        thick * (0.5 + 0.5 * Math.min(t * 4, 1)) * (1 - 0.25 * t) * tipTaper(t);
+      const mesh = new THREE.Mesh(sweepTube(pts, radiusFn, { radial: 7 }), i % 4 === 0 ? hairDark : hairMid);
+      mesh.name = 'strand';
+      this.group.add(mesh);
+    }
+    // Deep filler layer: coarse dark strands hugging the skull under the top
+    // layer, so wherever the combed strands part, the gap shows more hair —
+    // ridged and strand-like — instead of a smooth surface.
+    for (let i = 0; i < 12; i++) {
+      const phiF = -1.0 + (i / 11) * 2.0;
+      const ptsF: THREE.Vector3[] = [];
+      for (const t of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const theta = 0.10 + t * 1.6;
+        ptsF.push(onSkull(theta, phiF + 0.25 * t, 0.007));
+      }
+      const fill = new THREE.Mesh(
+        sweepTube(sampleSpline(ptsF, 20, 0.4), (t) => 0.055 * (0.7 + 0.3 * Math.min(t * 3, 1)), { radial: 7 }),
+        hairDark
+      );
+      fill.name = 'filler';
+      this.group.add(fill);
+    }
+
     // A deep-shadow bulge of gathered hair filling the space between strands —
     // it must read as the dark interior of the hair, never as scalp.
     const hairUnder = makeHairMaterial({ under: true, sway: 0 });
     const volume = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), hairUnder);
-    volume.position.copy(HEAD_CENTER).add(new THREE.Vector3(0, -0.10, 0.06));
-    volume.scale.set(0.235, 0.34, 0.20);
+    volume.name = 'volume';
+    volume.position.copy(HEAD_CENTER).add(new THREE.Vector3(0, -0.16, 0.05));
+    volume.scale.set(0.215, 0.28, 0.16);
     this.group.add(volume);
 
-    const crown = HEAD_CENTER.clone().add(new THREE.Vector3(0, HEAD_RADIUS * 0.85, 0.05));
-    for (let i = 0; i < 14; i++) {
-      const a = -0.95 + (i / 13) * 1.9; // fan azimuth across the back
-      const r = HEAD_RADIUS + 0.03;
-      const mid = new THREE.Vector3(
-        Math.sin(a) * r * 1.05,
-        HEAD_CENTER.y - 0.05,
-        Math.cos(a) * r * (0.8 + rand() * 0.2)
-      );
-      const low = new THREE.Vector3(
-        Math.sin(a) * (r * 0.85) + (rand() - 0.5) * 0.06,
-        0.72 + rand() * 0.12,
-        0.10 + rand() * 0.08
-      );
-      const tip = low.clone().add(new THREE.Vector3((rand() - 0.5) * 0.03, -0.14 - rand() * 0.06, -0.01));
-      const pts = sampleSpline([crown, mid, low, tip], 24, 0.35);
-      const thick = 0.055 + rand() * 0.025;
-      const mesh = new THREE.Mesh(
-        sweepTube(pts, (t) => thick * (1 - 0.5 * t) * (0.7 + 0.3 * Math.sin(t * Math.PI)) * tipTaper(t), { radial: 7 }),
-        i % 3 === 0 ? hairMid : hairDark
-      );
-      this.group.add(mesh);
-    }
+    // A lower shadow mass behind the hem, so the valleys between strand tips
+    // read as the dark inside of the hair — never as gaps onto the dress.
+    const hemShadow = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), hairUnder);
+    hemShadow.name = 'hemShadow';
+    hemShadow.position.set(0, 1.02, 0.03);
+    hemShadow.scale.set(0.24, 0.34, 0.12);
+    this.group.add(hemShadow);
 
     // Two brighter side strands framing the face edges (seen as silhouette).
     for (const side of [-1, 1]) {

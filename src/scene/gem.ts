@@ -30,7 +30,7 @@ export class Gem {
       blending: THREE.AdditiveBlending
     });
     this.halo = new THREE.Sprite(haloMat);
-    this.halo.scale.setScalar(GEM.radius * 6);
+    this.halo.scale.setScalar(GEM.radius * 4.5);
     this.group.add(this.halo);
     this.group.visible = false;
   }
@@ -55,7 +55,7 @@ export class Gem {
       this.pulse
     );
     (this.halo.material as THREE.SpriteMaterial).opacity = 0.4 + 0.25 * breathe + 0.3 * this.pulse;
-    this.halo.scale.setScalar(GEM.radius * (5.5 + breathe * 1.2 + this.pulse * 3));
+    this.halo.scale.setScalar(GEM.radius * (4.2 + breathe * 0.9 + this.pulse * 2));
     this.group.rotation.y += dt * 0.6;
   }
 }
