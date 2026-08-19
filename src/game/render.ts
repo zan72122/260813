@@ -595,10 +595,20 @@ function paperOutline(u: Uchiwa, cam: Camera, lift: number, scaleK = 1) {
   return { outer: pts, rim: N }
 }
 
+/** closed, corner-free outline — the join where the rim meets the bottom wrap
+ *  showed as a visible kink when drawn with straight segments */
 function paperPath(ctx: CanvasRenderingContext2D, o: { outer: { x: number; y: number }[] }) {
+  const p = o.outer
+  const n = p.length
   ctx.beginPath()
-  ctx.moveTo(o.outer[0].x, o.outer[0].y)
-  for (let i = 1; i < o.outer.length; i++) ctx.lineTo(o.outer[i].x, o.outer[i].y)
+  const mid = (i: number, j: number) => ({ x: (p[i].x + p[j].x) / 2, y: (p[i].y + p[j].y) / 2 })
+  let m = mid(n - 1, 0)
+  ctx.moveTo(m.x, m.y)
+  for (let i = 0; i < n; i++) {
+    const nx = (i + 1) % n
+    const q = mid(i, nx)
+    ctx.quadraticCurveTo(p[i].x, p[i].y, q.x, q.y)
+  }
   ctx.closePath()
 }
 
@@ -824,22 +834,37 @@ export function drawEdgeStrip(s: Scene, u: Uchiwa) {
   const o = paperOutline(u, s.cam, 0)
   if (!o) return
   const { ctx } = s
-  const pts = o.outer
-  const shown = Math.max(1, Math.floor((pts.length - 1) * clamp01(u.edge)))
+  const p = o.outer
+  const n = p.length
+  const done = u.edge >= 0.999
+  const shown = done ? n : Math.max(1, Math.floor(n * clamp01(u.edge)))
+  // smoothed, and closed when finished, so the rim has no seam at the join
+  const trace = (dy: number) => {
+    ctx.beginPath()
+    const mid = (i: number, j: number) => ({ x: (p[i].x + p[j].x) / 2, y: (p[i].y + p[j].y) / 2 + dy })
+    let m = done ? mid(n - 1, 0) : { x: p[0].x, y: p[0].y + dy }
+    ctx.moveTo(m.x, m.y)
+    for (let k = 0; k < shown; k++) {
+      const i = k % n
+      const nx = (i + 1) % n
+      const q = k === shown - 1 && !done
+        ? { x: p[i].x, y: p[i].y + dy }
+        : mid(i, nx)
+      ctx.quadraticCurveTo(p[i].x, p[i].y + dy, q.x, q.y)
+    }
+    if (done) ctx.closePath()
+    ctx.stroke()
+  }
   ctx.save()
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
   const def = PATTERNS[u.paperPattern % PATTERNS.length]
   ctx.strokeStyle = def.accent
   ctx.lineWidth = Math.max(3, s.h * 0.0082)
-  ctx.beginPath()
-  for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
-  ctx.stroke()
+  trace(0)
   ctx.strokeStyle = 'rgba(255,255,255,0.42)'
   ctx.lineWidth = Math.max(1, s.h * 0.0026)
-  ctx.beginPath()
-  for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y - 1.5); else ctx.lineTo(pts[k].x, pts[k].y - 1.5) }
-  ctx.stroke()
+  trace(-1.5)
   ctx.restore()
 }
 
