@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#8fc3e8" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="description" content="ちゅーりっぷを うえて、おみずを あげて、いちめんの おはなばたけを つくろう。" />
+<title>ちゅーりっぷ ばたけ</title>
+<style>
+  :root {
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --ui: clamp(14px, 3.6vmin, 30px);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden; position: fixed;
+    overscroll-behavior: none; touch-action: none;
+    background: #0d1a24;
+    font-family: "Hiragino Maru Gothic ProN", "ヒラギノ丸ゴ ProN", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-text-size-adjust: 100%;
+    color: #fff;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  .layer { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  .layer.on { pointer-events: auto; }
+
+  /* ---------- boot / start ---------- */
+  #boot {
+    position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4vmin;
+    background: radial-gradient(120% 100% at 50% 30%, #bfe3f7 0%, #8ec7e8 45%, #6aa9cf 100%);
+    transition: opacity .6s ease; color: #3d2a1c;
+  }
+  #boot.hidden { opacity: 0; pointer-events: none; }
+  #bootTitle { font-size: clamp(26px, 8vmin, 76px); font-weight: 800; letter-spacing: .06em;
+    color: #fff; text-shadow: 0 .35vmin 0 #e46f9b, 0 1.2vmin 2.4vmin rgba(0,0,0,.18); }
+  #startBtn {
+    width: min(46vmin, 340px); height: min(46vmin, 340px); border: none; border-radius: 50%;
+    background: radial-gradient(60% 60% at 40% 32%, #fff4f8 0%, #ffd0e0 40%, #f0779f 100%);
+    box-shadow: 0 2vmin 5vmin rgba(0,0,0,.25), inset 0 -1.6vmin 3vmin rgba(180,40,90,.35);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    animation: pulse 1.9s ease-in-out infinite; touch-action: manipulation;
+  }
+  #startBtn svg { width: 62%; height: 62%; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+  #bootSub { font-size: clamp(15px, 3.4vmin, 30px); font-weight: 700; color: #fff;
+    text-shadow: 0 .3vmin 1vmin rgba(0,0,0,.25); }
+  #loadBar { width: 40vmin; height: 1.2vmin; min-height: 6px; border-radius: 99px; background: rgba(255,255,255,.35); overflow: hidden; }
+  #loadBar i { display: block; height: 100%; width: 0%; background: #fff; transition: width .3s ease; }
+
+  /* ---------- in-game hint ---------- */
+  #hand {
+    position: fixed; left: 0; top: 0; width: clamp(48px, 12vmin, 120px); height: auto;
+    transform: translate(-50%, -20%); opacity: 0; transition: opacity .35s ease;
+    filter: drop-shadow(0 .6vmin 1.2vmin rgba(0,0,0,.35)); z-index: 12;
+  }
+  #hand.on { opacity: .95; }
+
+  /* ---------- top-left tiny mark (progress dots) ---------- */
+  #dots {
+    position: fixed; z-index: 12;
+    left: calc(var(--safe-l) + var(--ui)); top: calc(var(--safe-t) + var(--ui));
+    display: flex; gap: 1.4vmin; opacity: 0; transition: opacity .5s ease;
+  }
+  #dots.on { opacity: 1; }
+  #dots b {
+    display: block; width: clamp(10px, 2.4vmin, 22px); height: clamp(10px, 2.4vmin, 22px);
+    border-radius: 50%; background: rgba(255,255,255,.34);
+    box-shadow: 0 .2vmin .6vmin rgba(0,0,0,.2); transition: background .3s ease, transform .3s ease;
+  }
+  #dots b.done { background: #ffd94f; transform: scale(1.18); }
+
+  /* ---------- end menu ---------- */
+  #end {
+    position: fixed; z-index: 20; left: 0; right: 0;
+    bottom: calc(var(--safe-b) + var(--ui));
+    display: flex; justify-content: center; align-items: flex-end;
+    gap: clamp(10px, 3vmin, 34px); padding: 0 calc(var(--safe-l) + 2vmin) 0 calc(var(--safe-r) + 2vmin);
+    opacity: 0; transform: translateY(30%); pointer-events: none;
+    transition: opacity .8s ease, transform .8s cubic-bezier(.2,.9,.3,1);
+  }
+  #end.on { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .bigbtn {
+    -webkit-appearance: none; appearance: none; border: none; cursor: pointer;
+    width: clamp(74px, 21vmin, 168px); padding: clamp(6px,1.4vmin,14px) 0 clamp(4px,1vmin,10px);
+    border-radius: clamp(16px, 4vmin, 34px);
+    background: rgba(255,255,255,.9);
+    box-shadow: 0 1vmin 3vmin rgba(0,0,0,.28), inset 0 -0.7vmin 0 rgba(0,0,0,.08);
+    display: flex; flex-direction: column; align-items: center; gap: .4vmin;
+    color: #4a3320; font-weight: 800; font-size: clamp(11px, 2.5vmin, 21px);
+    transition: transform .12s ease;
+    touch-action: manipulation;
+  }
+  .bigbtn:active { transform: scale(.93); }
+  .bigbtn svg { width: clamp(38px, 11vmin, 92px); height: clamp(38px, 11vmin, 92px); }
+
+  /* ---------- rotate-free: nothing blocks ---------- */
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 30; }
+  .noselect { pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<img id="hand" alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 130'><g fill='%23fff' stroke='%23000' stroke-opacity='.25' stroke-width='3'><path d='M38 70V22a9 9 0 0 1 18 0v38h4V32a9 9 0 0 1 18 0v34h4V44a8 8 0 0 1 16 0v46c0 22-14 36-34 36S30 112 30 96l-14-22a9 9 0 0 1 14-11l8 10z'/></g></svg>" />
+
+<div id="dots"><b></b><b></b><b></b><b></b></div>
+
+<div id="end">
+  <button class="bigbtn" id="btnAgain">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="#4aa564" stroke-width="7" stroke-linecap="round"><path d="M52 32a20 20 0 1 1-6-14"/></g><path d="M50 6v16H34z" fill="#4aa564"/></svg>
+    <span>もういちど</span>
+  </button>
+  <button class="bigbtn" id="btnColor">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="22" cy="22" r="13" fill="#ef5a7a"/><circle cx="42" cy="22" r="13" fill="#ffd24a"/>
+      <circle cx="22" cy="42" r="13" fill="#a86ede"/><circle cx="42" cy="42" r="13" fill="#ff9a4a"/>
+    </svg>
+    <span>ちがう いろ</span>
+  </button>
+  <button class="bigbtn" id="btnField">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M4 44h56v14H4z" fill="#a97c4e"/>
+      <path d="M4 44c8-8 18-12 28-12s20 4 28 12z" fill="#7fc06a"/>
+      <circle cx="16" cy="30" r="7" fill="#ef5a7a"/><circle cx="32" cy="24" r="7" fill="#ffd24a"/><circle cx="48" cy="30" r="7" fill="#f489b6"/>
+    </svg>
+    <span>べつの はたけ</span>
+  </button>
+</div>
+
+<div id="flash"></div>
+
+<div id="boot">
+  <div id="bootTitle">ちゅーりっぷ ばたけ</div>
+  <button id="startBtn" aria-label="はじめる">
+    <svg viewBox="0 0 100 130" aria-hidden="true">
+      <path d="M50 118V60" stroke="#3f8f4d" stroke-width="9" stroke-linecap="round" fill="none"/>
+      <path d="M50 96c-16 0-26-10-28-24 16-2 26 8 28 24z" fill="#4aa564"/>
+      <path d="M50 88c14 0 24-9 26-22-15-2-24 7-26 22z" fill="#5cbb6e"/>
+      <path d="M22 46c0-14 12-26 28-26s28 12 28 26c0 16-12 30-28 30S22 62 22 46z" fill="#ffffff"/>
+      <path d="M22 46c0-14 12-26 28-26s28 12 28 26c0 16-12 30-28 30S22 62 22 46z" fill="#e8467d"/>
+      <path d="M50 20c-9 5-14 16-14 30 0 10 5 20 14 26 9-6 14-16 14-26 0-14-5-25-14-30z" fill="#ff7ba8"/>
+    </svg>
+  </button>
+  <div id="bootSub">ゆびで タップ してね</div>
+  <div id="loadBar"><i></i></div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

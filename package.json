@@ -1,0 +1,23 @@
+{
+  "name": "tulip-garden",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A tulip planting game for 4-year-olds, playable on iPhone/iPad Safari.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/three": "^0.185.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  }
+}
