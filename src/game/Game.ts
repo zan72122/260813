@@ -81,6 +81,8 @@ export class Game {
   private popped = [false, false, false, false];
   private waveRadius = -1;
   private lastSwellAt = 0;
+  private waterHintShown = false;
+  private scr = new THREE.Vector2();
 
   constructor(canvasHost: HTMLElement) {
     this.layout.update();
@@ -113,6 +115,19 @@ export class Game {
     this.bindUi();
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', () => setTimeout(this.onResize, 60));
+    // iOS reports the real viewport here when the toolbar slides in or out
+    window.visualViewport?.addEventListener('resize', this.onResize);
+
+    // Let the browser try to give the context back rather than dying silently.
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.audio.stopAll();
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.renderer.setPixelRatio(this.quality.pixelRatio);
+      this.renderer.setSize(this.layout.width, this.layout.height, false);
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.audio.stopAll();
     });
@@ -209,9 +224,12 @@ export class Game {
     this.sky.setPalette(p);
     this.ground.rebuild(p, this.seed);
 
-    // a different sweep direction each time keeps replays from feeling identical
+    // a different sweep direction, and a slightly different breeze, each time
     const a = (this.seed % 628) / 100;
     (this.env.u.uWaveDir.value as THREE.Vector2).set(Math.cos(a) * 0.5, Math.sin(a) * 0.5);
+    const wa = a * 1.7 + 0.6;
+    (this.env.u.uWindDir.value as THREE.Vector2).set(Math.cos(wa), Math.sin(wa));
+    this.env.u.uWindSpeed.value = 1.05 + ((this.seed >> 3) % 7) * 0.09;
 
     if (newField) {
       this.scene.remove(this.field.group);
@@ -244,10 +262,12 @@ export class Game {
     this.fillAnim = null;
     this.gateDrag = false;
     this.gateOpened = false;
+    this.waterHintShown = false;
     this.waterFront = CHANNEL.fromX - 0.2;
     this.seepY = 0.06;
     this.waveRadius = -1;
     this.popped = [false, false, false, false];
+    this.lastSwellAt = 0;
     this.env.u.uWaveRadius.value = -1;
     this.env.u.uWindAmp.value = 0.022;
     this.heroes.setLead(-6);
@@ -256,8 +276,10 @@ export class Game {
     this.ground.setCut(0);
     this.ground.setWet(new THREE.Vector2(0, CHANNEL.z), 0.3, 0);
     this.puffs.clear();
+    this.plot.setBulbGlow(0);
     this.plot.basket.scale.setScalar(1);
     this.plot.frame.scale.setScalar(1);
+    this.water.gate.scale.setScalar(1);
     for (let i = 0; i < HOLES.length; i++) {
       this.plot.setHoleOpen(i, 1);
       this.plot.setRingGlow(i, 0);
@@ -353,7 +375,7 @@ export class Game {
       if (this.dropAnim || this.planted >= HOLES.length) return;
       const i = this.planted;
       const s = this.screenOf(this.bulbPos[i], new THREE.Vector2());
-      const grab = Math.min(this.layout.width, this.layout.height) * 0.38;
+      const grab = Math.min(this.layout.width, this.layout.height) * 0.52;
       if (s.distanceTo(this.input.current.px) < grab) {
         this.carried = i;
         this.audio.hint();
@@ -393,6 +415,18 @@ export class Game {
 
   private onUp() {
     this.idle = 0;
+    if (this.state === 'plant' && this.carried < 0 && !this.dropAnim && this.planted < HOLES.length) {
+      // Fallback for a child who taps instead of dragging: touch anywhere near
+      // the glowing hole and the bulb flies over by itself.
+      const i = this.planted;
+      this.tmp.set(HOLES[i].x, BED.top + 0.06, HOLES[i].z);
+      const near = Math.min(this.layout.width, this.layout.height) * 0.34;
+      if (this.screenOf(this.tmp, this.scr).distanceTo(this.input.current.px) < near) {
+        this.bulbPos[i].set(HOLES[i].x, BED.top + 0.16, HOLES[i].z);
+        this.dropAnim = { i, t: -0.55 };   // negative: the fly-over happens first
+      }
+      return;
+    }
     if (this.state === 'plant' && this.carried >= 0) {
       const i = this.carried;
       const h = HOLES[i];
@@ -411,9 +445,13 @@ export class Game {
       if (!this.gateOpened) {
         const swipe = (this.input.start.px.y - this.input.current.px.y) / this.layout.height;
         // a flick, a slow drag or even a plain tap on the lever all open it
-        const tappedLever = this.screenOf(this.water.handleWorld(this.tmp), new THREE.Vector2())
-          .distanceTo(this.input.current.px) < Math.min(this.layout.width, this.layout.height) * 0.22;
-        if (swipe > 0.035 || this.water.openAmount > 0.25 || tappedLever) this.openGate();
+        const tappedLever = this.screenOf(this.water.handleWorld(this.tmp), this.scr)
+          .distanceTo(this.input.current.px) < Math.min(this.layout.width, this.layout.height) * 0.24;
+        // once the hand has been shown, any touch at all counts: by then the
+        // child has been asked twice and nothing else in the scene does anything
+        if (swipe > 0.035 || this.water.openAmount > 0.25 || tappedLever || this.waterHintShown) {
+          this.openGate();
+        }
         else this.water.setOpen(0);
       }
     }
@@ -472,7 +510,7 @@ export class Game {
   }
 
   private stepIntro() {
-    if (this.t > 3.6) this.enter('plant');
+    if (this.t > 4.4) this.enter('plant');
   }
 
   private stepPlant(dt: number) {
@@ -484,7 +522,7 @@ export class Game {
       const i = a.i;
       const from = BED.top + 0.16;
       const y = lerp(from, PLANT_REST_Y, easeOutBounceSoft(clamp01(a.t)));
-      this.bulbPos[i].y = y;
+      if (a.t >= 0) this.bulbPos[i].y = y;
       if (a.t >= 1) {
         this.dropAnim = null;
         this.fillAnim = { i, t: 0 };
@@ -547,10 +585,11 @@ export class Game {
       const b = 1 + 0.10 * Math.sin(this.env.u.uTime.value * 3.4);
       this.water.handle.scale.setScalar(b);
       if (this.idle > 2.2) {
+        this.waterHintShown = true;
         const p = this.screenOf(this.water.handleWorld(this.tmp), new THREE.Vector2());
         const k = (this.env.u.uTime.value * 0.7) % 1;
         // offset to the right so the hand never covers the thing it points at
-        const dx = Math.min(this.layout.width, this.layout.height) * 0.10;
+        const dx = Math.min(this.layout.width, this.layout.height) * 0.17;
         this.ui.showHand(true, p.x + dx, p.y + 30 - smootherstep(0, 1, k) * this.layout.height * 0.11);
         if (this.env.u.uTime.value - this.hintBeat > 4.5) {
           this.hintBeat = this.env.u.uTime.value;
@@ -592,10 +631,14 @@ export class Game {
         color: new THREE.Color('#9fe4f5'), grav: -0.55, drag: 0.4,
       });
     }
+    // the bulbs answer the water with a soft glow: cause, then effect
+    const reached = clamp01((this.t - 1.5) / 1.0);
+    this.plot.setBulbGlow(reached * (0.75 + 0.25 * Math.sin(this.t * 5)));
     if (this.t > 2.7) this.enter('grow');
   }
 
   private stepGrow(dt: number) {
+    this.plot.setBulbGlow(Math.max(0, 1 - this.t / 1.6));
     const root = clamp01(this.t / 2.0);
     this.section.roots.setGrow(smootherstep(0, 1, root));
     const sp = clamp01((this.t - 1.0) / 2.2);
@@ -616,9 +659,13 @@ export class Game {
 
   private stepSurface(dt: number) {
     const close = clamp01(this.t / 1.5);
-    this.ground.setCut(1 - smootherstep(0, 1, close));
+    const filled = smootherstep(0, 1, close);
+    this.ground.setCut(1 - filled);
+    // the bed's wooden edging comes back with the soil that was taken away
+    this.plot.frame.scale.setScalar(Math.max(0.001, filled));
     const sp = clamp01(0.55 + this.t / 2.2);
-    this.section.sprouts.setGrow(sp);
+    // as the soil returns, the shoots' feet ride up to the surface with it
+    this.section.sprouts.setGrow(sp, lerp(-0.02, BED.top - 0.004, filled));
 
     // "ポコッ" as each shoot clears the surface, staggered, never a machine gun
     for (let i = 0; i < HOLES.length; i++) {
@@ -659,6 +706,15 @@ export class Game {
 
   private stepWave(dt: number) {
     this.heroes.setLead(10.5);
+    // the channel has done its job: drain it, retire the lever, let the damp
+    // patch dry out, so the final vista is nothing but flowers
+    this.water.setLevel(Math.max(0, 1 - this.t / 1.2));
+    const gone = Math.max(0.001, 1 - smoothstep(0.4, 2.0, this.t));
+    this.water.gate.scale.setScalar(gone);
+    this.ground.setWet(
+      new THREE.Vector2(0, CHANNEL.z), 2.0,
+      0.95 * Math.max(0, 1 - this.t / 3.0),
+    );
     // accelerating front: slow enough to follow at first, then it takes off
     const speed = 4.5 + this.t * this.t * 2.6;
     this.waveRadius += speed * dt;
@@ -672,7 +728,7 @@ export class Game {
       if (this.waveRadius < 8) this.audio.bloom(1.12 - this.waveRadius * 0.02);
       else this.audio.bloomSwell(clamp(1 - this.waveRadius / 260, 0.25, 1));
     }
-    if (this.t > 8.4) { this.lastSwellAt = -10; this.enter('reveal'); }
+    if (this.t > 9.0) { this.lastSwellAt = -10; this.enter('reveal'); }
   }
 
   private stepReveal(dt: number) {
@@ -685,7 +741,7 @@ export class Game {
       this.lastSwellAt = this.t;
       this.audio.bloomSwell(0.4);
     }
-    if (this.t > 10.5) this.enter('end');
+    if (this.t > 12.5) this.enter('end');
   }
 
   // ==========================================================================
@@ -722,9 +778,9 @@ export class Game {
       const a = (i / HOLES.length) * Math.PI * 2 + 0.7;
       // sitting proud of the rim, so a child can see there are bulbs in there
       this.bulbHome[i].set(
-        b.x + Math.cos(a) * R * 0.70,
-        b.y + 0.088 + (i === this.planted ? 0.055 : 0),
-        b.z + Math.sin(a) * R * 0.70,
+        b.x + Math.cos(a) * R * 1.15,
+        b.y + 0.086 + (i === this.planted ? 0.055 : 0),
+        b.z + Math.sin(a) * R * 1.15,
       );
     }
   }
@@ -810,7 +866,9 @@ export class Game {
         this.plot.bulbs[i].position.copy(this.bulbPos[i]);
       }
       this.plot.basket.scale.setScalar(0.001);
-      this.plot.frame.scale.setScalar(0.001);
+      // the bed's edging is only out of the way while the trench is open
+      const trenchOpen = s === 'dive' || s === 'water' || s === 'seep' || s === 'grow';
+      this.plot.frame.scale.setScalar(trenchOpen ? 0.001 : 1);
       this.plot.refresh();
     }
     if (s === 'water' || s === 'seep' || s === 'grow') {
@@ -819,6 +877,13 @@ export class Game {
     }
     if (s === 'seep' || s === 'grow') { this.gateOpened = true; this.water.setOpen(1); this.water.setLevel(1); this.water.setFront(CHANNEL.toX + 0.35); }
     if (s === 'grow') { this.section.setWet(-0.22, 1); }
+    if (s === 'surface') {
+      this.section.group.visible = true;
+      this.ground.setCut(1);
+      this.section.setWet(-0.5, 0.9);
+      this.section.roots.setGrow(1);
+    }
+    if (s === 'wave' || s === 'reveal' || s === 'end') this.water.gate.scale.setScalar(0.001);
     if (s === 'firstBloom' || s === 'wave' || s === 'reveal' || s === 'end') {
       this.ground.setCut(0);
       this.section.group.visible = false;

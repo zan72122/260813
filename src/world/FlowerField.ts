@@ -240,13 +240,13 @@ export class FlowerField {
     // ------------------------------------------------------------- near ----
     this.near = this.makeTulipMesh(
       buildTulipGeometry(NEAR_TULIP),
-      logPoints(this.q.nearFlowers, 0.85, 6.5, rng),
+      logPoints(this.q.nearFlowers, 0.78, 6.5, rng),
       { min: 0.38, max: 0.54 }, greenU, rng, 3.0,
     );
     // ------------------------------------------------------------- mid -----
     this.mid = this.makeTulipMesh(
       buildTulipGeometry(MID_TULIP),
-      logPoints(this.q.midFlowers, 1.1, 36, rng),
+      logPoints(this.q.midFlowers, 0.88, 36, rng),
       { min: 0.34, max: 0.52 }, greenU, rng, 3.6,
     );
     // ------------------------------------------------------------- far -----

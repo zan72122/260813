@@ -42,9 +42,9 @@ export const BULB = {
 };
 
 /** Where the basket sits, blended between portrait and landscape framings. */
-export const BASKET_P = new THREE.Vector3(0.0, 0, 0.84);
-export const BASKET_L = new THREE.Vector3(-1.05, 0, 0.52);
-export const BASKET_R = 0.245;
+export const BASKET_P = new THREE.Vector3(0.0, 0, 1.06);
+export const BASKET_L = new THREE.Vector3(-1.34, 0, 0.54);
+export const BASKET_R = 0.21;
 
 /** Irrigation channel: runs left to right just beyond the planting row. */
 export const CHANNEL = {

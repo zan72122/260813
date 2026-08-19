@@ -39,21 +39,26 @@ export const SHOTS: Record<string, Shot> = {
   ),
 
   /** Scene 3 + 4: the cut-away. Bulbs below, channel and gate above. */
+  /*
+   * Landscape gets a much narrower vertical field, so the cut-away is framed in
+   * two steps rather than one: the water shot holds the lever and the bulbs,
+   * and the growth shot drops to hold the bulbs and their roots.
+   */
   section: biShot(
     { pos: [0, 0.74, 2.42], look: [0, -0.34, -0.06], fov: 62 },
-    { pos: [0, 0.34, 2.62], look: [0, -0.28, -0.06], fov: 46 },
+    { pos: [0, 0.42, 1.55], look: [0, 0.13, -0.45], fov: 40 },
   ),
 
   /** Water reaching down through the soil - a small push in. */
   seep: biShot(
     { pos: [0, 0.62, 2.28], look: [0, -0.26, -0.06], fov: 60 },
-    { pos: [0, 0.30, 2.42], look: [0, -0.22, -0.06], fov: 44 },
+    { pos: [0, 0.34, 1.46], look: [0, 0.02, -0.36], fov: 40 },
   ),
 
   /** Scene 5: roots down, shoot up. The look-at rides the growing tip. */
   grow: biShot(
     { pos: [0, 0.48, 2.20], look: [0, -0.30, -0.06], fov: 60 },
-    { pos: [0, 0.26, 2.34], look: [0, -0.24, -0.06], fov: 44 },
+    { pos: [0, 0.10, 1.62], look: [0, -0.28, -0.06], fov: 46 },
     (s, life) => {
       const t = smootherstep(0.6, 3.4, life);
       s.look.y = lerp(-0.30, 0.02, t);
@@ -63,8 +68,8 @@ export const SHOTS: Record<string, Shot> = {
 
   /** Scene 6: continuous climb out of the trench to ground level. */
   surface: biShot(
-    { pos: [0, 0.50, 1.30], look: [0, 0.14, -0.02], fov: 60 },
-    { pos: [0, 0.40, 1.10], look: [0, 0.12, -0.02], fov: 47 },
+    { pos: [0, 0.62, 2.06], look: [0, 0.10, -0.02], fov: 58 },
+    { pos: [0, 0.60, 1.98], look: [0, 0.10, -0.02], fov: 45 },
     (s, life) => {
       const t = smootherstep(0, 2.6, life);
       s.pos.y += t * 0.10;
@@ -86,8 +91,10 @@ export const SHOTS: Record<string, Shot> = {
 
   /** Scene 7b: ride the bloom wave outwards, still low among the flowers. */
   wave: biShot(
-    { pos: [0.1, 0.46, 1.35], look: [0, 0.30, -2.4], fov: 66 },
-    { pos: [0.1, 0.40, 1.15], look: [0, 0.26, -2.2], fov: 56 },
+    // stood just behind the child's own bed, so their four flowers stay in the
+    // foreground while everything past them turns into a field
+    { pos: [0.10, 0.96, 2.30], look: [0, 0.36, -2.2], fov: 66 },
+    { pos: [0.10, 0.88, 2.05], look: [0, 0.32, -2.0], fov: 56 },
     (s, life) => {
       const t = clamp01(life / 9);
       const e = smootherstep(0, 1, t);
@@ -103,13 +110,13 @@ export const SHOTS: Record<string, Shot> = {
    * the field opens all at once, then hold still and let them look.
    */
   reveal: biShot(
-    { pos: [0.15, 0.42, 1.30], look: [0, 0.34, -3.0], fov: 62 },
-    { pos: [0.15, 0.38, 1.10], look: [0, 0.30, -3.0], fov: 55 },
+    { pos: [0.15, 0.94, 2.20], look: [0, 0.40, -3.0], fov: 62 },
+    { pos: [0.15, 0.88, 1.95], look: [0, 0.36, -3.0], fov: 55 },
     (s, life, wide) => {
-      // 0 - 1.6s  drift forward between the front flowers
+      // 0 - 1.8s  drift forward, in among the front flowers
       const glide = smootherstep(0, 1.8, life);
-      s.pos.z -= glide * 1.1;
-      s.pos.y += glide * 0.06;
+      s.pos.z -= glide * 1.75;
+      s.pos.y += glide * 0.07;
 
       // 1.6 - 6.0s  crane up and pull back: the whole field arrives at once
       const crane = smootherstep(1.6, 6.4, life);

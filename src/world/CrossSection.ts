@@ -127,6 +127,9 @@ export class CrossSection {
     this.setWet(2, 0);
     this.roots.setGrow(0);
     this.sprouts.setGrow(0);
+    // the surface beat hides the cut face when the trench fills back in, so a
+    // replay has to put it back
+    this.wall.visible = true;
     this.group.visible = false;
   }
 
@@ -298,14 +301,20 @@ export class Sprouts {
     this.setGrow(0);
   }
 
-  /** 0 = nothing, 1 = the tip has fully cleared the surface. */
-  setGrow(t: number) {
+  /**
+   * 0 = nothing, 1 = the tip has fully cleared the surface.
+   *
+   * `baseY` lifts the bottom of the shoot as the trench fills back in. Without
+   * it the buried half of each shoot stays visible through the grazing angle of
+   * the surface shot, and the plants look like they are lying on the soil.
+   */
+  setGrow(t: number, baseY = -0.02) {
     const pa = this.geo.getAttribute('position') as THREE.BufferAttribute;
     const ca = this.geo.getAttribute('color') as THREE.BufferAttribute;
     const p = pa.array as Float32Array;
     const c = ca.array as Float32Array;
     let v = 0;
-    const y0 = -0.02;
+    const y0 = baseY;
     for (let s = 0; s < HOLES.length; s++) {
       const h = HOLES[s];
       const delay = s * 0.07;
@@ -316,7 +325,7 @@ export class Sprouts {
         const y = y0 + (topY - y0) * tt;
         // a shoot leans a touch as it lengthens, and narrows to a point
         const lean = Math.sin(tt * 1.9) * 0.020 * g * (s % 2 ? 1 : -1);
-        const w = 0.017 * (1 - Math.pow(tt, 1.6)) * g;
+        const w = 0.0145 * (1 - Math.pow(tt, 1.55)) * g;
         const x = h.x + lean;
         const z = h.z + 0.022;
         p[v] = x - w; p[v + 1] = y; p[v + 2] = z;

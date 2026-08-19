@@ -62,27 +62,34 @@ void main() {
     float z1 = z0 + 2.0 * uCutHalf.y * uCutAmount;
     if (abs(w.x - uCutCenter.x) < uCutHalf.x && w.y > z0 && w.y < z1) discard;
   }
+  // Three scales of noise, from one tiling texture. They do double duty: they
+  // break up the bare earth AND organise the flower carpet, which keeps this
+  // shader - the one that covers the whole screen - down to five fetches.
+  float n1 = texture2D(uDetail, w * 1.25).r;
+  float n2 = texture2D(uDetail, w * 0.155).g;
+  float n3 = texture2D(uDetail, w * 0.042).b;
+
   vec3 soil = texture2D(uSoil, w * 0.11).rgb * uSoilTint;
-  soil *= 0.82 + 0.36 * texture2D(uSoil, w * 0.017).r;
-  // a second, much finer sample keeps the earth crisp when a face is 30 cm away
-  soil *= 0.70 + 0.62 * texture2D(uSoil, w * 1.45).g;
+  soil *= (0.72 + 0.58 * n1) * (0.88 + 0.26 * n3);
 
   // damp earth: darker, slightly richer, with a soft edge
   float wet = uWetAmount * (1.0 - smoothstep(uWetRadius * 0.55, uWetRadius, distance(w, uWetCenter)));
   soil = mix(soil, soil * vec3(0.52, 0.45, 0.40), wet);
 
   vec3 band = texture2D(uCarpet, w / uCarpetSize + 0.5).rgb;
-  // Three scales of noise turn a flat colour block into something that reads as
-  // thousands of individual plants: leaves between the flowers, clumps, patches.
-  float n1 = texture2D(uDetail, w * 1.25).r;
-  float n2 = texture2D(uDetail, w * 0.155).g;
-  float n3 = texture2D(uDetail, w * 0.042).b;
   vec3 leafy = mix(uGreenDark, uGreen, n1 * 0.55 + n3 * 0.45);
-  float density = clamp(0.10 + 1.15 * n2 + 0.55 * n1 + 0.30 * n3, 0.0, 1.0);
+  float density = clamp(-0.34 + 0.98 * n2 + 0.44 * n1 + 0.26 * n3, 0.0, 1.0);
   // further away the individual plants merge into solid colour, which is
   // exactly what a real tulip field does
   density = mix(density, min(1.0, density * 0.42 + 0.46), smoothstep(7.0, 55.0, vDist));
   vec3 carpet = mix(leafy, band * (0.86 + 0.30 * n1), density);
+  /*
+   * The far half of the wind. Near and middle-distance plants sway as geometry,
+   * but at the horizon individual stems are sub-pixel; what you actually see
+   * there is a slow shimmer running across the colour. This is that.
+   */
+  float gust = sin(dot(w, uWindDir) * 0.055 - uTime * uWindSpeed * 0.85 + n3 * 3.0);
+  carpet *= 1.0 + gust * 0.085 * smoothstep(14.0, 70.0, vDist) * (uWindAmp * 22.0);
 
   float lead = uWaveRadius - envWaveDist(w);
   float b = smoothstep(0.0, 4.5, lead);

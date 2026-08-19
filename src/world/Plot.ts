@@ -29,6 +29,7 @@ export class Plot {
   private occ!: THREE.BufferAttribute;
   private dirty = true;
   private bulbTex: THREE.Texture;
+  private bulbMat!: THREE.MeshPhongMaterial;
   private basketTex: THREE.Texture;
   private woodTex: THREE.Texture;
   private ringMat: THREE.MeshBasicMaterial;
@@ -50,9 +51,11 @@ export class Plot {
     this.group.add(this.frame);
 
     const bulbGeo = buildBulbGeometry();
-    const bulbMat = new THREE.MeshPhongMaterial({
+    this.bulbMat = new THREE.MeshPhongMaterial({
       map: this.bulbTex, shininess: 12, specular: 0x4a3620, color: 0xffffff,
+      emissive: new THREE.Color(0x000000),
     });
+    const bulbMat = this.bulbMat;
     for (let i = 0; i < HOLES.length; i++) {
       const m = new THREE.Mesh(bulbGeo, bulbMat);
       m.name = `bulb${i}`;
@@ -173,10 +176,17 @@ export class Plot {
     return y;
   }
 
+  /** A faint warm glow when the water finally reaches the bulbs. */
+  setBulbGlow(v: number) {
+    this.bulbMat.emissive.setRGB(v * 0.20, v * 0.14, v * 0.04);
+  }
+
   setRingGlow(i: number, v: number) {
-    (this.rings[i].material as THREE.MeshBasicMaterial).opacity = v * 0.70;
+    const r = this.rings[i];
+    (r.material as THREE.MeshBasicMaterial).opacity = v * 0.70;
+    r.visible = v > 0.01;   // only ever one is lit, so skip the other three
     const s = 0.92 + 0.16 * v;
-    this.rings[i].scale.set(s, 1, s);
+    r.scale.set(s, 1, s);
   }
 
   dispose() {

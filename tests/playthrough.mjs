@@ -8,7 +8,7 @@ import fs from 'node:fs';
 
 const OUT = 'shots';
 const name = process.argv[2] || 'iphone-portrait';
-const dev = { ...DEVICES[name], dpr: Math.min(DEVICES[name].dpr, 2) };
+const dev = { ...DEVICES[name], dpr: Math.max(1, Math.min(DEVICES[name].dpr, Math.round(1400 / Math.max(DEVICES[name].width, DEVICES[name].height)))) };
 const b = await launch();
 const { page, ctx, errors } = await openPage(b, dev);
 const log = [];

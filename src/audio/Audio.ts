@@ -9,7 +9,8 @@
 type Maybe<T> = T | null;
 
 export class Audio {
-  private ctx: Maybe<AudioContext> = null;
+  /** exposed so the automated playtest can confirm the graph exists */
+  ctx: Maybe<AudioContext> = null;
   private master: Maybe<GainNode> = null;
   private wet: Maybe<GainNode> = null;
   private waterGain: Maybe<GainNode> = null;

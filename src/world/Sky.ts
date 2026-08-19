@@ -42,7 +42,7 @@ void main() {
 export class Sky {
   readonly group = new THREE.Group();
   private mat: THREE.ShaderMaterial;
-  private clouds: THREE.Group;
+  private clouds: THREE.Mesh;
   private cloudTex: THREE.Texture;
   private hills: THREE.Mesh;
   private hillMat: THREE.MeshBasicMaterial;
@@ -73,22 +73,9 @@ export class Sky {
     this.group.add(this.hills);
 
     // ---- clouds -----------------------------------------------------------
+    // All of them in one instanced draw, billboarded in the vertex shader.
     this.cloudTex = cloudTexture(256);
-    this.clouds = new THREE.Group();
-    const rng = makeRng(808);
-    const cmat = new THREE.MeshBasicMaterial({
-      map: this.cloudTex, transparent: true, depthWrite: false, opacity: 0.9, fog: false,
-      color: 0xffffff,
-    });
-    for (let i = 0; i < 11; i++) {
-      const s = 90 + rng() * 150;
-      const q = new THREE.Mesh(new THREE.PlaneGeometry(s, s * 0.5), cmat);
-      const a = rng() * Math.PI * 2;
-      const r = 260 + rng() * 260;
-      q.position.set(Math.cos(a) * r, 70 + rng() * 120, Math.sin(a) * r);
-      q.userData.spin = 0.004 + rng() * 0.008;
-      this.clouds.add(q);
-    }
+    this.clouds = buildClouds(this.cloudTex, 11);
     this.group.add(this.clouds);
     this.group.name = 'sky';
   }
@@ -101,17 +88,15 @@ export class Sky {
 
   update(dt: number, camera: THREE.Camera) {
     this.group.position.set(camera.position.x, 0, camera.position.z);
-    for (const c of this.clouds.children) {
-      const m = c as THREE.Mesh;
-      m.lookAt(camera.position.x, m.position.y, camera.position.z);
-      m.position.x += (m.userData.spin as number) * dt * 12;
-      if (m.position.x > 560) m.position.x = -560;
-    }
+    const mat = this.clouds.material as THREE.ShaderMaterial;
+    mat.uniforms.uDrift.value += dt * 0.9;
   }
 
   dispose() {
     this.mat.dispose();
     this.cloudTex.dispose();
+    this.clouds.geometry.dispose();
+    (this.clouds.material as THREE.Material).dispose();
     this.hills.geometry.dispose();
     this.hillMat.dispose();
   }
@@ -139,4 +124,63 @@ function buildHillRing(radius = 470, segs = 160) {
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
+}
+
+
+/** Cloud quads that turn to face the camera without any per-frame CPU work. */
+function buildClouds(map: THREE.Texture, count: number) {
+  const rng = makeRng(808);
+  const base = new THREE.PlaneGeometry(1, 1);
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = base.index;
+  geo.setAttribute('position', base.getAttribute('position'));
+  geo.setAttribute('uv', base.getAttribute('uv'));
+  const iPos = new Float32Array(count * 3);
+  const iSize = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) {
+    const s = 90 + rng() * 150;
+    const a = rng() * Math.PI * 2;
+    const r = 300 + rng() * 240;
+    iPos[i * 3] = Math.cos(a) * r;
+    iPos[i * 3 + 1] = 80 + rng() * 130;
+    iPos[i * 3 + 2] = Math.sin(a) * r;
+    iSize[i * 2] = s;
+    iSize[i * 2 + 1] = s * 0.5;
+  }
+  geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(iPos, 3));
+  geo.setAttribute('iSize', new THREE.InstancedBufferAttribute(iSize, 2));
+  geo.instanceCount = count;
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 900);
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uMap: { value: map }, uDrift: { value: 0 } },
+    vertexShader: /* glsl */`
+      attribute vec3 iPos;
+      attribute vec2 iSize;
+      uniform float uDrift;
+      varying vec2 vUv;
+      void main() {
+        vec3 right = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]) + vec3(0.0001, 0.0, 0.0));
+        vec3 p = iPos;
+        p.x = mod(p.x + uDrift + 640.0, 1280.0) - 640.0;
+        vec3 wp = p + right * (position.x * iSize.x) + vec3(0.0, 1.0, 0.0) * (position.y * iSize.y);
+        vUv = uv;
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(wp, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uMap;
+      varying vec2 vUv;
+      void main() {
+        vec4 t = texture2D(uMap, vUv);
+        if (t.a < 0.01) discard;
+        gl_FragColor = vec4(1.0, 1.0, 1.0, t.a * 0.92);
+        #include <colorspace_fragment>
+      }`,
+    transparent: true,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -8;
+  return mesh;
 }

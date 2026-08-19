@@ -22,15 +22,15 @@ export interface QualitySettings {
 
 const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
   low: {
-    dprCap: 1.5, nearFlowers: 46, midFlowers: 1400, farFlowers: 4200,
+    dprCap: 1.5, nearFlowers: 46, midFlowers: 1300, farFlowers: 4200,
     bandRings: 4, soilParticles: 26, petalConfetti: 0, textureSize: 256,
   },
   mid: {
-    dprCap: 2.0, nearFlowers: 84, midFlowers: 3000, farFlowers: 9000,
+    dprCap: 2.0, nearFlowers: 84, midFlowers: 2800, farFlowers: 9000,
     bandRings: 5, soilParticles: 40, petalConfetti: 24, textureSize: 512,
   },
   high: {
-    dprCap: 2.0, nearFlowers: 130, midFlowers: 5200, farFlowers: 15000,
+    dprCap: 2.0, nearFlowers: 130, midFlowers: 4200, farFlowers: 12000,
     bandRings: 6, soilParticles: 54, petalConfetti: 36, textureSize: 512,
   },
 };
