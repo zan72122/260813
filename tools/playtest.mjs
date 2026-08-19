@@ -10,6 +10,7 @@ const DEVICES = {
   phone: { width: 393, height: 852, dpr: 3 },
   phoneLand: { width: 852, height: 393, dpr: 3 },
   pad: { width: 1024, height: 768, dpr: 2 },
+  padPortrait: { width: 768, height: 1024, dpr: 2 },
 }
 
 export async function launch(deviceName = 'phone', query = '') {

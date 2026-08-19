@@ -35,7 +35,7 @@ const ghostFrag = `
     vec3 v = normalize(vView);
     float fres = pow(1.0 - abs(dot(n, v)), 2.1);
     float pulse = 0.62 + 0.38 * sin(uTime * 2.2 - vFill * 3.0);
-    float a = (0.055 + fres * 0.5) * pulse * (1.0 - vFill) * uAlpha;
+    float a = (0.05 + fres * 0.42) * pulse * (1.0 - vFill) * uAlpha;
     vec3 col = mix(uColor, vec3(1.0, 0.99, 0.94), fres * 0.55);
     gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
   }`
@@ -74,7 +74,7 @@ export class PathGuide {
     this.mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       fog: false,
       uniforms: {
         uTime: this.uTime,

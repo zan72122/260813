@@ -428,7 +428,8 @@ export class SandSystem {
 
   /** Rainbow sand picks its hue from where it is placed. */
   static rainbowAt(x: number, y: number): THREE.Color {
-    return _c.setHSL(((x * 0.09 + y * 0.13) % 1 + 1) % 1, 0.72, 0.76).clone()
+    const h = (((x * 0.09 + y * 0.13) % 1) + 1) % 1
+    return _c.setHSL(h, 0.78, 0.66, THREE.SRGBColorSpace).clone()
   }
 }
 

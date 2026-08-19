@@ -338,7 +338,7 @@ export class Environment {
     this.uCaustic.value = b
   }
 
-  update(t: number, dt: number, motion: number) {
+  update(t: number, motion: number) {
     this.uTime.value = t
     for (let i = 0; i < this.weeds.length; i++) {
       this.weeds[i].rotation.z = Math.sin(t * 0.6 + i * 1.9) * 0.09 * motion
@@ -349,7 +349,6 @@ export class Environment {
       const mat = s.material as THREE.MeshBasicMaterial
       mat.opacity = 0.035 + 0.03 * (0.5 + 0.5 * Math.sin(t * 0.4 + i * 1.7))
     }
-    void dt
   }
 
   /** Keeps the light shafts roughly facing the camera without a full billboard. */

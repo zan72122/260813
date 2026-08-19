@@ -54,7 +54,6 @@ export const GATE = {
   },
 }
 
-const _tmp = new THREE.Vector3()
 const _arc = new THREE.Vector3()
 
 function softClampX(p: THREE.Vector3, limit: number, k = 0.5) {
@@ -94,7 +93,6 @@ function nearestOnArch(p: THREE.Vector3, out: THREE.Vector3) {
       out.copy(q)
     }
   }
-  void _tmp
 }
 
 export interface StageDef {

@@ -188,7 +188,7 @@ export class Emitter {
       if (
         this.sand.strokeOf(ni) !== this.strokeId &&
         gap > want * 1.02 &&
-        gap < (_blob.r + r) * 2.1
+        gap < (_blob.r + r) * 1.8
       ) {
         bridge = ni
       }

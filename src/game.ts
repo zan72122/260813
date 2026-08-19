@@ -57,6 +57,7 @@ export class Game {
   private stage: StageId = 'title'
   private guide: PathGuide | null = null
   private oldGuides: PathGuide[] = []
+  private decorHint: PathGuide | null = null
   private stageTime = 0
   private stageDone = false
   private diveT = 0
@@ -88,6 +89,7 @@ export class Game {
   private dir: THREE.DirectionalLight
   private fog: THREE.FogExp2
   private gateGlow: THREE.Mesh | null = null
+  private treasure: THREE.Group | null = null
   private gateLight: THREE.PointLight
   private paused = false
   private uiBlocked = false
@@ -192,6 +194,7 @@ export class Game {
     this.hud.onNext = () => this.advance()
     this.hud.onPickColor = (i) => {
       this.tool = 'sand'
+      this.nozzle.setMode('sand')
       this.emitter.setColor(i)
       this.nozzle.setColor(SAND_COLORS[i].hex)
       this.hud.setToolSelection('sand', i)
@@ -199,6 +202,7 @@ export class Game {
     }
     this.hud.onPickTool = (t) => {
       this.tool = t
+      this.nozzle.setMode(t)
       this.hud.setToolSelection(t, this.emitter.colorIdx)
       audio.suck()
     }
@@ -280,9 +284,15 @@ export class Game {
       this.oldGuides.push(this.guide)
       this.guide = null
     }
+    if (this.decorHint) {
+      this.decorHint.beginFade()
+      this.oldGuides.push(this.decorHint)
+      this.decorHint = null
+    }
     if (id !== 'finale') {
       this.rig.setShowcase(false)
       this.disposeGateGlow()
+      this.disposeTreasure()
     }
 
     const def = STAGES[id]
@@ -301,7 +311,8 @@ export class Game {
 
     // tools available per stage
     if (id === 'decor') {
-      this.unlocked = [0, 1, 2, 3, 4]
+      // a few big floating pots, not a menu
+      this.unlocked = [0, 1, 2, 4]
       this.hud.setPots(this.unlocked, false)
       this.hud.showUndo(true)
       this.hud.removeClearButton()
@@ -340,6 +351,7 @@ export class Game {
       this.beginFinale()
     }
     if (id === 'decor') {
+      this.makeDecorHint()
       this.hud.toast('かざろう！')
       for (let i = 0; i < this.school.fish.length; i++) {
         if (i % 2 === 0) this.school.fish[i].wander()
@@ -365,7 +377,7 @@ export class Game {
 
   /** Waiting spot: beside the next checkpoint, never on top of it. */
   private parkTarget(out: THREE.Vector3) {
-    const g = this.guide
+    const g = this.guide ?? this.decorHint
     const c = g?.nextCell()
     if (!c || !g) {
       out.set(LAYOUT.towerX + 1.0, LAYOUT.towerTop * 0.55, 0.9)
@@ -383,6 +395,27 @@ export class Game {
     } else {
       out.set(c.p.x, c.p.y + 0.6, 0.75)
     }
+  }
+
+  /**
+   * Decorating is free, but a four-year-old still likes being shown one
+   * good place to start — two soft markers float over the towers they built.
+   */
+  private makeDecorHint() {
+    const runs: THREE.Vector3[][] = []
+    for (const sx of [-1, 1]) {
+      const x = sx * LAYOUT.towerX
+      const top = this.sand.supportY(x, 0, 0.45, WORLD.seabedY)
+      if (top <= WORLD.seabedY + 0.3) continue
+      runs.push([
+        new THREE.Vector3(x, top + 0.26, 0),
+        new THREE.Vector3(x, top + 0.72, 0),
+      ])
+    }
+    if (!runs.length) return
+    const g = new PathGuide(runs, 0.3, 0xffc7e0)
+    this.decorHint = g
+    this.scene.add(g.group)
   }
 
   private startIntro() {
@@ -430,6 +463,7 @@ export class Game {
     this.school.setAllFar()
     this.tool = 'sand'
     this.emitter.setColor(0)
+    this.nozzle.setMode('sand')
     this.nozzle.setColor(SAND_COLORS[0].hex)
     this.disposeGateGlow()
     this.setStage('foundation', 1.2)
@@ -514,7 +548,6 @@ export class Game {
       if (rng.next() < 0.22) audio.bubble(0, 0.6)
     }
     if (first) this.bubbles.burst(x, y + r * 0.6, z, 5, 0.7, 0.2)
-    void r
   }
 
   /** Two separate pieces of the castle just became one. */
@@ -550,6 +583,48 @@ export class Game {
     this.gateGlow = glow
     this.gateLight.position.set(0, GATE.centerY, 0.5)
     this.school.setAllFar()
+    this.spawnTreasure()
+  }
+
+  /** A small handful of shells and pearls as a finishing gift. */
+  private spawnTreasure() {
+    this.disposeTreasure()
+    const g = new THREE.Group()
+    this.sand.bounds(_box)
+    const x0 = _box.isEmpty() ? -2 : _box.min.x
+    const x1 = _box.isEmpty() ? 2 : _box.max.x
+    const shellGeo = new THREE.SphereGeometry(0.17, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55)
+    const pearlGeo = new THREE.SphereGeometry(0.13, 12, 9)
+    const shellMat = new THREE.MeshPhongMaterial({ color: 0xffe4ef, shininess: 90, specular: 0xffffff })
+    const pearlMat = new THREE.MeshPhongMaterial({ color: 0xf2f6ff, shininess: 120, specular: 0xffffff })
+    for (let i = 0; i < 6; i++) {
+      const pearl = i % 2 === 1
+      const m = new THREE.Mesh(pearl ? pearlGeo : shellGeo, pearl ? pearlMat : shellMat)
+      const t = (i + 0.5) / 6
+      m.position.set(
+        THREE.MathUtils.lerp(x0 - 0.5, x1 + 0.5, t) + rng.range(-0.2, 0.2),
+        WORLD.seabedY + 0.04,
+        rng.range(0.9, 1.7)
+      )
+      m.rotation.set(rng.range(-0.3, 0.3), rng.range(0, 6.28), rng.range(-0.3, 0.3))
+      m.scale.setScalar(0.001)
+      m.userData.delay = 5.0 + i * 0.32
+      m.userData.size = rng.range(0.8, 1.35)
+      g.add(m)
+    }
+    this.scene.add(g)
+    this.treasure = g
+  }
+
+  private disposeTreasure() {
+    if (!this.treasure) return
+    this.scene.remove(this.treasure)
+    this.treasure.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (m.geometry) m.geometry.dispose()
+      if (m.material) (m.material as THREE.Material).dispose()
+    })
+    this.treasure = null
   }
 
   private disposeGateGlow() {
@@ -572,6 +647,17 @@ export class Game {
       this.gateGlow.scale.setScalar(1 + 0.012 * Math.sin(t * 1.7))
     }
     this.gateLight.intensity = Math.min(2.2, this.gateLight.intensity + dt * 1.1)
+
+    if (this.treasure) {
+      for (const o of this.treasure.children) {
+        const d = (o.userData.delay as number) ?? 0
+        const size = (o.userData.size as number) ?? 1
+        if (t < d) continue
+        const k = THREE.MathUtils.clamp((t - d) / 0.45, 0, 1)
+        const pop = 1 + 0.3 * Math.sin(k * Math.PI)
+        o.scale.setScalar(Math.max(0.001, k * size * pop))
+      }
+    }
 
     const hero = this.school.fish[0]
     const gy = GATE.centerY
@@ -621,8 +707,8 @@ export class Game {
       this.hud.hideHand()
       return
     }
-    const g = this.guide
-    if (!g || this.stageDone) {
+    const g = this.guide ?? this.decorHint
+    if (!g || (this.guide && this.stageDone)) {
       this.hud.hideHand()
       return
     }
@@ -661,7 +747,7 @@ export class Game {
     this.hud.showHand(x, y, ax, ay)
   }
 
-  private updateStageProgress(dt: number) {
+  private updateStageProgress() {
     const def = STAGES[this.stage]
     const g = this.guide
     if (!g) {
@@ -697,7 +783,6 @@ export class Game {
         if (next && this.stage === def.id) this.setStage(next)
       }, 900)
     }
-    void dt
   }
 
   private updateDive(dt: number) {
@@ -717,7 +802,7 @@ export class Game {
     if (this.diveT > 2.5) this.setStage('foundation', 1.5)
   }
 
-  private updateVacuum(dt: number) {
+  private updateVacuum() {
     if (!this.pressing || this.tool !== 'vacuum') return
     if (this.time - this.lastVac < 0.05) return
     this.lastVac = this.time
@@ -732,7 +817,6 @@ export class Game {
       audio.suck()
       this.bubbles.spawn(this.tipSmooth.x, this.tipSmooth.y, this.tipSmooth.z, 0.7, 0.2)
     }
-    void dt
   }
 
   private updateAdaptiveDpr(ms: number) {
@@ -787,13 +871,13 @@ export class Game {
           this.hud.toast(this.stage === 'free' ? 'すなが いっぱい！すいとってね' : 'すなが いっぱい！')
         }
       }
-      this.updateVacuum(dt)
+      this.updateVacuum()
     } else if (this.stage !== 'title' && this.stage !== 'surface' && this.stage !== 'dive') {
       this.nozzle.group.visible = false
     }
     this.nozzle.update(dt, this.pressing, settings.motion)
 
-    this.updateStageProgress(dt)
+    this.updateStageProgress()
     this.updateHint()
 
     // ambient bubbles
@@ -818,9 +902,16 @@ export class Game {
     this.sand.update(this.time)
     this.bubbles.update(dt, this.time, settings.motion)
     this.school.update(dt, this.time, settings.motion)
-    this.env.update(this.time, dt, settings.motion)
+    this.env.update(this.time, settings.motion)
     this.env.faceCamera(this.rig.camera)
     if (this.guide) this.guide.update(dt, this.time)
+    if (this.decorHint) {
+      this.decorHint.update(dt, this.time)
+      if (this.decorHint.check((x, y, z, r) => this.sand.hasNeighbor(x, y, z, r)) > 0) {
+        audio.blob(1.3)
+      }
+      if (this.decorHint.progress >= 1) this.decorHint.beginFade()
+    }
     for (let i = this.oldGuides.length - 1; i >= 0; i--) {
       const g = this.oldGuides[i]
       g.update(dt, this.time)
@@ -929,11 +1020,10 @@ export class Game {
   }
 
   /** Test hook: draw a stroke in normalised screen coords. */
-  simulateStroke(pts: { nx: number; ny: number }[], holdMs = 0) {
+  simulateStroke(pts: { nx: number; ny: number }[]) {
     if (!pts.length) return
     this.pointerDown(pts[0].nx, pts[0].ny)
     for (let i = 1; i < pts.length; i++) this.pointerMove(pts[i].nx, pts[i].ny)
-    void holdMs
   }
   simulateRelease() {
     this.pointerUp()

@@ -14,6 +14,8 @@ export class Nozzle {
   private ringMat: THREE.MeshBasicMaterial
   private squeeze = 0
   private bob = 0
+  private vacuum = false
+  private lastColor = '#ffc86a'
 
   constructor() {
     this.bagMat = new THREE.MeshPhongMaterial({
@@ -74,7 +76,22 @@ export class Nozzle {
   }
 
   setColor(hex: string) {
-    this.bagMat.color.set(hex)
+    if (!this.vacuum) this.bagMat.color.set(hex)
+    this.lastColor = hex
+  }
+
+  /** Swaps the look between "squeeze out sand" and "suck sand back in". */
+  setMode(mode: 'sand' | 'vacuum') {
+    this.vacuum = mode === 'vacuum'
+    if (this.vacuum) {
+      this.bagMat.color.set(0xbcdae8)
+      this.bagMat.opacity = 0.7
+      this.ringMat.color.set(0x9fe6ff)
+    } else {
+      this.bagMat.color.set(this.lastColor)
+      this.bagMat.opacity = 0.97
+      this.ringMat.color.set(0xfff3c4)
+    }
   }
 
   update(dt: number, pressing: boolean, motion: number) {
@@ -88,7 +105,10 @@ export class Nozzle {
     this.group.position.y += wobble * 0.0
     this.bag.rotation.z = wobble * 2
     this.ringMat.opacity = 0.35 + s * 0.5 + Math.sin(this.bob * 1.7) * 0.08
-    this.ring.scale.setScalar(1 + s * 0.25)
+    // sucking rings pull inward, squeezing rings push out
+    this.ring.scale.setScalar(
+      this.vacuum ? 1.35 - 0.5 * (this.bob * 0.35 % 1) : 1 + s * 0.25
+    )
   }
 
   dispose() {
