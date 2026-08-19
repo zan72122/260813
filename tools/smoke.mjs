@@ -1,0 +1,33 @@
+import { launch, newPage, shot, swipe, tap, state } from './shot.mjs'
+
+const b = await launch()
+const page = await newPage(b, 'iphone-p')
+await shot(page, '01-title')
+console.log('title', await state(page))
+await tap(page, 195, 600)
+await page.waitForTimeout(1200)
+console.log('after tap', await state(page))
+await shot(page, '02-intro')
+await tap(page, 195, 400)
+await page.waitForTimeout(1800)
+console.log('after intro tap', await state(page))
+await shot(page, '03-split')
+for (let i = 0; i < 4; i++) await swipe(page, [195, 250], [195, 700], 18, 8)
+await page.waitForTimeout(300)
+console.log('after cuts', await state(page))
+await shot(page, '04-notched')
+await page.waitForTimeout(1500)
+console.log('now', await state(page))
+await shot(page, '05-fluff-start')
+for (let i = 0; i < 8; i++) {
+  await swipe(page, [60, 600], [330, 600], 14, 6)
+  await swipe(page, [330, 600], [60, 600], 14, 6)
+  const s = await state(page)
+  if (i % 2 === 0) console.log('fluff', i, s.progress, s.open)
+  if (s.open >= 20) break
+}
+await page.waitForTimeout(900)
+console.log('after fluff', await state(page))
+await shot(page, '06-fanned')
+console.log('ERRORS', page.errors)
+await b.close()
