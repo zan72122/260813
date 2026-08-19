@@ -123,47 +123,41 @@ body {
 
 #menu .cards {
   display: flex;
-  gap: 3vmin;
+  gap: 2.4vmin;
   align-items: stretch;
   justify-content: center;
-  flex-wrap: nowrap;
   width: 100%;
+  max-width: 900px;
 }
 
 .card {
   pointer-events: auto;
   border: none;
   background: #fffaf0;
-  border-radius: 6vmin;
-  padding: 1.6vmin 1.6vmin 1vmin;
   box-shadow: 0 6px 18px rgba(96, 62, 20, 0.32);
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.6vmin;
   cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease;
   flex: 1 1 0;
-  max-width: 34vmin;
   min-width: 0;
 }
 .card:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
   box-shadow: 0 3px 8px rgba(96, 62, 20, 0.3);
 }
 .card svg {
-  width: 100%;
-  height: auto;
   display: block;
-  border-radius: 4vmin;
+  border-radius: 3vmin;
+  background: #f3e3c2;
 }
 .card .lbl {
-  font-size: clamp(11px, 2.6vmin, 20px);
   font-weight: 800;
   color: #6b4a1e;
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+
 /* The suggested card glows rather than moves: a target that shifts under a
    small finger is harder to hit, and a steady one is just as easy to spot. */
 .card.primary {
@@ -183,24 +177,62 @@ body {
   }
 }
 
-.crown {
-  width: min(56vmin, 70%);
-  max-height: 16vh;
-  margin-bottom: 1vmin;
-}
-
-/* landscape: shorter cards */
-@media (orientation: landscape) {
+/* Portrait: three full-width strips, so every target is finger-sized. */
+@media (orientation: portrait) {
   #menu .cards {
-    gap: 2.4vmin;
+    flex-direction: column;
+    gap: 2.2vh;
+    max-width: 560px;
   }
   .card {
-    max-width: 30vw;
-    border-radius: 3.4vmin;
+    flex-direction: row;
+    gap: 3.5vw;
+    border-radius: 5vw;
+    padding: 2.2vw 4vw 2.2vw 2.2vw;
+    min-height: 15vh;
   }
+  .card svg {
+    width: 42%;
+    height: auto;
+    flex: 0 0 auto;
+  }
+  .card .lbl {
+    font-size: clamp(18px, 6vw, 34px);
+  }
+}
+
+/* Landscape: three cards side by side with the picture above the word. */
+@media (orientation: landscape) {
+  #menu .cards {
+    flex-direction: row;
+    gap: 2.2vw;
+    max-width: 92vw;
+  }
+  .card {
+    flex-direction: column;
+    gap: 1vh;
+    border-radius: 2.6vh;
+    padding: 1.6vh 1.6vh 1.2vh;
+    max-width: 30vw;
+  }
+  .card svg {
+    width: 100%;
+    height: auto;
+  }
+  .card .lbl {
+    font-size: clamp(14px, 3.4vh, 26px);
+  }
+}
+
+.crown {
+  width: min(56vmin, 66%);
+  max-height: 15vh;
+  margin-bottom: 1vmin;
+}
+@media (orientation: landscape) {
   .crown {
-    max-height: 13vh;
-    width: min(40vmin, 46%);
+    max-height: 11vh;
+    width: min(40vmin, 42%);
   }
 }
 

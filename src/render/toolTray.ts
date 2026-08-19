@@ -132,10 +132,6 @@ export class ToolTray {
     return best
   }
 
-  /** True when the pixel is inside the tray's band (so the sand ignores it). */
-  isOverTray(px: number, py: number): boolean {
-    return this.hitTest(px, py) !== null
-  }
 
   press(id: ToolId): void {
     for (const s of this.slots) if (s.id === id) s.press = 1
@@ -198,9 +194,6 @@ export class ToolTray {
     }
   }
 
-  get size(): { w: number; h: number } {
-    return { w: this.w, h: this.h }
-  }
 
   dispose(): void {
     this.discGeo.dispose()

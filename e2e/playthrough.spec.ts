@@ -125,3 +125,43 @@ test('full loop: dig, pour, flow, fill, reveal, replay', async ({ page }) => {
 
   expect(errors, errors.join('\n')).toEqual([])
 })
+
+test('the same loop works in landscape', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await boot(page, 844, 390)
+  expect((await st(page)).orientation).toBe('landscape')
+
+  for (let pass = 0; pass < 3; pass++) {
+    await dragWorld(page, [
+      [-4.6, 0],
+      [-2.2, 0.1],
+      [0.4, 0.05],
+      [2.0, 0],
+    ])
+  }
+  expect((await st(page)).totalDug).toBeGreaterThan(0.5)
+
+  await pickTool(page, 'pour')
+  const src = await px(page, -5.2, 0)
+  for (let round = 0; round < 4; round++) {
+    await page.mouse.move(src.x, src.y)
+    await page.mouse.down()
+    for (let i = 0; i < 18; i++) {
+      await page.mouse.move(src.x + (i % 3), src.y)
+      await page.waitForTimeout(150)
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(2000)
+    if ((await st(page)).moatFill > 0.4) break
+  }
+  const s = await st(page)
+  console.log('landscape', JSON.stringify(s))
+  await page.screenshot({ path: 'shots/play-landscape.png' })
+  expect(s.moatFill).toBeGreaterThan(0.15)
+  expect(errors, errors.join('\n')).toEqual([])
+})

@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Vector3 } from 'three'
 import { CASTLE_X, CASTLE_Z, SAND_X, SAND_Z, SOURCE_X, SOURCE_Z } from '../core/config'
-import { clamp, damp, lerp } from '../core/util'
+import { clamp, damp } from '../core/util'
 
 export type Orientation = 'portrait' | 'landscape'
 
@@ -40,7 +40,6 @@ export class CameraRig {
   private reserve: Reserve = { top: 0, right: 0, bottom: 0, left: 0 }
   private readonly probe = new PerspectiveCamera(42, 1, 0.6, 90)
   private readonly scratch = new Vector3()
-  debugBoxes: unknown = null
 
   constructor() {
     this.camera = new PerspectiveCamera(42, 1, 0.6, 90)
@@ -165,7 +164,6 @@ export class CameraRig {
     offY = clampOffset(offY, yLo - boxAll.y0, yHi - boxAll.y1)
     this.ndcOffX = offX
     this.ndcOffY = offY
-    this.debugBoxes = { boxAll, boxSand, xLo, xHi, yLo, yHi, wantY: (yLo + yHi) / 2 - (boxSand.y0 + boxSand.y1) / 2 }
   }
 
   /**
@@ -251,11 +249,5 @@ export class CameraRig {
     this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert()
   }
 
-  get distance(): number {
-    return this.baseDistance * this.zoom
-  }
 
-  blendFocus(ax: number, az: number, bx: number, bz: number, t: number, zoom: number): void {
-    this.focus(lerp(ax, bx, t), lerp(az, bz, t), zoom)
-  }
 }

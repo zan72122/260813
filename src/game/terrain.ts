@@ -38,17 +38,6 @@ export function rectValid(r: Rect): boolean {
   return r.i1 >= r.i0 && r.j1 >= r.j0
 }
 
-export function unionRect(a: Rect, b: Rect): Rect {
-  if (!rectValid(a)) return { ...b }
-  if (!rectValid(b)) return { ...a }
-  return {
-    i0: Math.min(a.i0, b.i0),
-    j0: Math.min(a.j0, b.j0),
-    i1: Math.max(a.i1, b.i1),
-    j1: Math.max(a.j1, b.j1),
-  }
-}
-
 /** Height of the moat's flat floor. */
 const MOAT_FLOOR = 0.36
 
