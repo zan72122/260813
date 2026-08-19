@@ -90,7 +90,7 @@ export class Particles {
       const l = 0.34 + Math.random() * 0.24
       p.life[k] = l
       p.maxLife[k] = l
-      p.size[k] = 2.6 + Math.random() * 3.0
+      p.size[k] = 3.6 + Math.random() * 4.2
       const tint = 0.86 + Math.random() * 0.14
       p.color[k * 3] = 0.95 * tint
       p.color[k * 3 + 1] = 0.85 * tint
@@ -114,7 +114,7 @@ export class Particles {
       const l = 0.3 + Math.random() * 0.25
       p.life[k] = l
       p.maxLife[k] = l
-      p.size[k] = 3.0 + Math.random() * 3.4
+      p.size[k] = 4.0 + Math.random() * 4.4
       p.color[k * 3] = 0.72
       p.color[k * 3 + 1] = 0.92
       p.color[k * 3 + 2] = 1.0

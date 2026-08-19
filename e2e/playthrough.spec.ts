@@ -9,6 +9,7 @@ type State = {
   frontX: number
   menuVisible: boolean
   selectedTool: string
+  orientation: 'portrait' | 'landscape'
 }
 
 const st = (page: Page) => page.evaluate(() => (window as any).__sand.state() as State)

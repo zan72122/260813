@@ -227,7 +227,12 @@ export class Terrain {
           const t = 1 - Math.min(1, Math.abs(d - mid) / halfW)
           const dip = smoothstep(0, 1, t)
           h[k] = Math.min(h[k], MOAT_FLOOR + (1 - dip) * 0.62)
-          if (t > 0.25) this.moatMask[k] = 1
+          if (t > 0.25) {
+            this.moatMask[k] = 1
+            // A stone moat is always a little damp, which reads as "water
+            // belongs here" before any has arrived.
+            this.wetness[k] = Math.max(this.wetness[k], 0.3 * dip)
+          }
         }
 
         // Outer bank keeps the moat holding water, with a notch on the
@@ -236,7 +241,7 @@ export class Terrain {
         const gate = smoothstep(0.46, 0.12, Math.abs(ang - Math.PI))
         if (d > MOAT_OUTER - 0.05 && d < MOAT_OUTER + 0.6) {
           const bank = Math.sin(((d - (MOAT_OUTER - 0.05)) / 0.65) * Math.PI)
-          h[k] += bank * 0.26 * (1 - gate)
+          h[k] += bank * 0.32 * (1 - gate)
         }
         if (gate > 0.05 && d > MOAT_INNER && d < MOAT_OUTER + 0.9) {
           // A short entry channel that visibly runs downhill into the moat:
@@ -358,17 +363,23 @@ export class Terrain {
           moved += h[k] - target
           h[k] = target
           this.compaction[k] = Math.min(1, this.compaction[k] + 0.1)
+          // Sand a few centimetres down is damp. Uncovering it is what makes
+          // a fresh groove read darker than the dry surface around it.
+          const below = this.baseHeight[k] - target
+          if (below > 0) {
+            this.wetness[k] = Math.max(this.wetness[k], Math.min(0.8, below * 7))
+          }
         } else {
           // Spoil heap either side of the groove.
           const t = smoothstep(outer, r, d) * smoothstep(r * 0.98, r * 1.15, d)
-          h[k] += strength * t * 0.42
+          h[k] += strength * t * 0.85
         }
         growRect(this.dirty, i, j)
       }
     }
 
     // Smooth the groove so a wobbly child finger still yields a clean channel.
-    this.smoothRegion(i0, j0, i1, j1, 0.62, x0, z0, x1, z1, outer)
+    this.smoothRegion(i0, j0, i1, j1, 0.6, x0, z0, x1, z1, outer)
     return { moved, x: x1, z: z1, height: this.heightAt(x1, z1) }
   }
 
@@ -391,6 +402,9 @@ export class Terrain {
         h[k] += add
         moved += add
         this.compaction[k] = Math.max(0.15, this.compaction[k] - 0.15)
+        // Freshly heaped sand comes off the dry surface, so a new bank looks
+        // pale even when it is built right beside running water.
+        this.wetness[k] = Math.max(0, this.wetness[k] - add * 3)
         growRect(this.dirty, i, j)
       }
     }
@@ -399,8 +413,10 @@ export class Terrain {
   }
 
   /**
-   * Blur a rectangle, weighted toward the stroke centreline so the groove
-   * becomes smooth without smearing the whole neighbourhood flat.
+   * Smooth *along* the stroke rather than in all directions. A child's finger
+   * moves in jerks, which would otherwise leave the channel scalloped into a
+   * chain of little pools; blurring lengthwise irons those out while leaving
+   * the groove's cross-section — and therefore its depth — intact.
    */
   private smoothRegion(
     i0: number,
@@ -415,16 +431,36 @@ export class Terrain {
     reach: number,
   ): void {
     const h = this.height
+    let dx = x1 - x0
+    let dz = z1 - z0
+    const len = Math.hypot(dx, dz)
+    if (len < 1e-5) {
+      dx = 1
+      dz = 0
+    } else {
+      dx /= len
+      dz /= len
+    }
+    const step = CELL * 1.35
+    const ax = dx * step
+    const az = dz * step
+
     const tmp: number[] = []
     for (let j = j0; j <= j1; j++) {
+      const z = this.wz(j)
       for (let i = i0; i <= i1; i++) {
+        const x = this.wx(i)
         const k = j * WX + i
-        const avg =
-          (h[k - 1] + h[k + 1] + h[k - WX] + h[k + WX]) * 0.175 +
-          (h[k - WX - 1] + h[k - WX + 1] + h[k + WX - 1] + h[k + WX + 1]) * 0.075
-        const d = distToSegment(this.wx(i), this.wz(j), x0, z0, x1, z1)
+        const d = distToSegment(x, z, x0, z0, x1, z1)
         const w = amount * smoothstep(reach, 0, d)
-        tmp.push(h[k] * (1 - w) + avg * w)
+        if (w < 0.002) {
+          tmp.push(h[k])
+          continue
+        }
+        const along = (this.heightAt(x + ax, z + az) + this.heightAt(x - ax, z - az)) * 0.5
+        const across = (h[k - 1] + h[k + 1] + h[k - WX] + h[k + WX]) * 0.25
+        const target = along * 0.82 + across * 0.18
+        tmp.push(h[k] * (1 - w) + target * w)
       }
     }
     let p = 0

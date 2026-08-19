@@ -60,8 +60,13 @@ export class Castle {
   constructor() {
     this.group.position.set(CASTLE_X, 0, CASTLE_Z)
 
-    const mat = (c: string, rough = 0.86) => {
-      const m = new MeshStandardMaterial({ color: new Color(c), roughness: rough, metalness: 0 })
+    const mat = (c: string, rough = 0.86, flat = false) => {
+      const m = new MeshStandardMaterial({
+        color: new Color(c),
+        roughness: rough,
+        metalness: 0,
+        flatShading: flat,
+      })
       this.disposables.push(m)
       return m
     }
@@ -112,11 +117,11 @@ export class Castle {
     keep.position.y = ISLAND_Y + 0.82
     const keepBand = add(new BoxGeometry(0.98, 0.11, 0.98), stoneDark)
     keepBand.position.y = ISLAND_Y + 1.29
-    const keepRoof = add(new ConeGeometry(0.74, 1.05, 4), mat(ROOF_PINK, 0.72))
-    keepRoof.position.y = ISLAND_Y + 1.82
+    const keepRoof = add(new ConeGeometry(0.72, 1.12, 4), mat(ROOF_PINK, 0.7, true))
+    keepRoof.position.y = ISLAND_Y + 1.86
     keepRoof.rotation.y = Math.PI / 4
     const finial = add(new SphereGeometry(0.075, 10, 8), mat(ROOF_GOLD, 0.5))
-    finial.position.y = ISLAND_Y + 2.4
+    finial.position.y = ISLAND_Y + 2.46
 
     // windows so the keep does not read as a plain box
     const winGeo = new BoxGeometry(0.13, 0.24, 0.04)
@@ -134,19 +139,27 @@ export class Castle {
     }
 
     // --- corner towers ---------------------------------------------------
+    // Four towers placed off both sight lines: the game is only ever viewed
+    // from -X (portrait) or +Z (landscape), and in each case the keep stays
+    // framed between two towers instead of hidden behind one.
     const towerR = 1.02
-    const towerSpots: Array<[number, number, string, string]> = [
-      [Math.cos(-1.9) * towerR, Math.sin(-1.9) * towerR, ROOF_BLUE, ROOF_PINK],
-      [Math.cos(1.9) * towerR, Math.sin(1.9) * towerR, ROOF_GOLD, ROOF_BLUE],
-      [towerR, 0, ROOF_BLUE, ROOF_GOLD],
+    const towerAngles: Array<[number, string, string]> = [
+      [0.96, ROOF_BLUE, ROOF_PINK],
+      [2.18, ROOF_GOLD, ROOF_BLUE],
+      [4.1, ROOF_BLUE, ROOF_GOLD],
+      [5.32, ROOF_GOLD, ROOF_PINK],
     ]
+    const towerSpots = towerAngles.map(
+      ([a, r, f]) =>
+        [Math.cos(a) * towerR, Math.sin(a) * towerR, r, f] as [number, number, string, string],
+    )
     for (const [tx, tz, roofColor, flagColor] of towerSpots) {
       const t = add(new CylinderGeometry(0.23, 0.27, 1.06, 16), stone)
       t.position.set(tx, ISLAND_Y + 0.6, tz)
       const band = add(new CylinderGeometry(0.29, 0.29, 0.09, 16), stoneDark)
       band.position.set(tx, ISLAND_Y + 1.15, tz)
       // Tall, narrow spire: the shape has to survive being 40 px tall.
-      const cap = add(new ConeGeometry(0.3, 0.76, 16), mat(roofColor, 0.72))
+      const cap = add(new ConeGeometry(0.3, 0.8, 9), mat(roofColor, 0.72, true))
       cap.position.set(tx, ISLAND_Y + 1.56, tz)
 
       const flag = new Group()
@@ -238,7 +251,7 @@ export class Castle {
     this.disposables.push(fm)
     this.fountain = new Points(fg, fm)
     this.fountain.frustumCulled = false
-    this.fountain.position.set(0, ISLAND_Y + 2.46, 0)
+    this.fountain.position.set(0, ISLAND_Y + 2.52, 0)
     this.fountain.visible = false
     this.group.add(this.fountain)
     for (let i = 0; i < n; i++) this.fountainPos[i * 3 + 1] = -999
@@ -261,7 +274,7 @@ export class Castle {
     this.disposables.push(poleGeo)
     const pennantGeo = new ConeGeometry(0.07, 0.2, 3)
     this.disposables.push(pennantGeo)
-    const pennantMats = [mat(ROOF_PINK, 0.6), mat(ROOF_BLUE, 0.6), mat(ROOF_GOLD, 0.6)]
+    const pennantMats = [mat(ROOF_PINK, 0.6, true), mat(ROOF_BLUE, 0.6, true), mat(ROOF_GOLD, 0.6, true)]
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + 0.5
       if (Math.abs(((a + Math.PI) % (Math.PI * 2)) - Math.PI) < 0.5) continue

@@ -7,6 +7,7 @@ import {
   RingGeometry,
   Scene,
   SphereGeometry,
+  Vector3,
 } from 'three'
 import { ToolId, ToolModel, createTool } from './toolModels'
 import { CASTLE_X, CASTLE_Z, MOAT_OUTER, SOURCE_X, SOURCE_Z } from '../core/config'
@@ -35,7 +36,7 @@ export class WorldTool {
     for (const id of ['dig', 'mound', 'pour'] as ToolId[]) {
       const m = createTool(id)
       m.group.visible = false
-      m.group.scale.setScalar(0.95)
+      m.group.scale.setScalar(1.25)
       this.holder.add(m.group)
       this.models.set(id, m)
     }
@@ -75,7 +76,7 @@ export class WorldTool {
     this.show = 0
   }
 
-  update(dt: number, terrain: Terrain, calmMotion: boolean): void {
+  update(dt: number, terrain: Terrain, calmMotion: boolean, camera: Vector3): void {
     this.t += dt
     for (const [id, m] of this.models) {
       const active = id === this.current
@@ -88,15 +89,18 @@ export class WorldTool {
     const ground = terrain.heightAt(this.x, this.z)
     const model = this.models.get(this.current)
     if (model) {
-      // Sit the tool so its tip touches the sand, tilted along the drag.
+      // Sit the tool so its tip touches the sand and its handle leans back
+      // toward whichever side the camera is on, so it reads as a held tool in
+      // portrait and in landscape alike.
       const g = model.group
-      const lift = this.current === 'pour' ? 0.55 : 0.16
+      const lift = this.current === 'pour' ? 0.62 : 0.2
       g.position.set(this.x, Math.max(ground, this.y) + lift, this.z)
       const bob = calmMotion ? 0 : Math.sin(this.t * 14) * 0.012 * this.show
       g.position.y += bob
-      g.rotation.set(0, this.wobble, 0)
-      g.rotateX(this.current === 'pour' ? -0.5 - this.tilt * 0.4 : -0.55 - this.tilt)
-      g.rotateZ(this.current === 'pour' ? 0.75 : 0.12)
+      const camYaw = Math.atan2(camera.x - this.x, camera.z - this.z)
+      g.rotation.set(0, camYaw, 0)
+      g.rotateX(this.current === 'pour' ? -0.34 : -0.52 - this.tilt * 0.5)
+      g.rotateZ((this.current === 'pour' ? 0.72 : 0.16) + Math.sin(this.wobble - camYaw) * 0.24)
     }
 
     const rm = this.ring.material as MeshBasicMaterial
@@ -104,7 +108,7 @@ export class WorldTool {
     this.ring.visible = rm.opacity > 0.01
     this.ring.position.set(this.x, ground + 0.02, this.z)
     const pulse = 1 + (calmMotion ? 0 : Math.sin(this.t * 9) * 0.08)
-    this.ring.scale.setScalar(pulse)
+    this.ring.scale.setScalar(pulse * 1.25)
   }
 
   dispose(): void {

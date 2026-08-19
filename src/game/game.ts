@@ -348,7 +348,7 @@ export class Game {
     const dirZ = this.hasLast ? z - this.lastZ : 0
 
     if (tool === 'dig') {
-      const radius = 0.44
+      const radius = 0.5
       const push = clamp(0.34 + segLen / (radius * 1.6), 0.34, 1.5)
       const fb = this.terrain.dig(
         first ? x : this.lastX,
@@ -356,13 +356,13 @@ export class Game {
         x,
         z,
         radius,
-        0.022 * push,
+        0.085 * push,
       )
       this.totalDug += fb.moved
       this.sandMesh.update()
       this.worldTool.place(x, fb.height, z, dirX, dirZ)
       if (!this.settings.calmMotion || Math.random() < 0.4) {
-        this.particles.spawnSand(x, fb.height, z, segLen > 0.05 ? 3 : 1, dirX * 6, dirZ * 6)
+        this.particles.spawnSand(x, fb.height, z, segLen > 0.05 ? 5 : 2, dirX * 6, dirZ * 6)
       }
       this.audio.dig(clamp(segLen * 6, 0.15, 1))
       if (this.phase === 'intro') {
@@ -474,7 +474,7 @@ export class Game {
     this.castle.update(dt, this.settings.calmMotion)
     this.env.update(dt, this.settings.calmMotion)
     this.particles.update(dt)
-    this.worldTool.update(dt, this.terrain, this.settings.calmMotion)
+    this.worldTool.update(dt, this.terrain, this.settings.calmMotion, this.rig.camera.position)
     this.hintPath.update(dt, this.settings.calmMotion)
     this.tray.update(dt, this.settings.calmMotion)
 
@@ -568,7 +568,7 @@ export class Game {
     if (
       !this.hasPoured &&
       this.phase === 'dig' &&
-      (this.totalDug > 3 || this.idleTime > 3.2)
+      (this.totalDug > 6 || this.idleTime > 3.2)
     ) {
       this.phase = 'invitePour'
     }

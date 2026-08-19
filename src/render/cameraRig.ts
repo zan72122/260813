@@ -78,7 +78,7 @@ export class CameraRig {
   /** Everything that must stay on screen, including the castle's spire. */
   private allPoints(): Vector3[] {
     const pts = this.sandPoints()
-    pts.push(new Vector3(CASTLE_X, 3.05, CASTLE_Z))
+    pts.push(new Vector3(CASTLE_X, 3.12, CASTLE_Z))
     pts.push(new Vector3(SOURCE_X, 1.25, SOURCE_Z))
     return pts
   }

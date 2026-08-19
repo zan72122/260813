@@ -144,12 +144,14 @@ export class SandMesh {
         const wetv = clamp(t.wetness[k], 0, 1)
         this.wet[k] = wetv
 
-        // Cheap curvature shading. Concave sand (a groove) darkens, convex
-        // sand (a bank) catches light — so a dug channel is legible even
-        // before a single drop of water arrives.
+        // Two shading terms make the child's own digging legible before a
+        // drop of water arrives: local curvature for fine relief, and how far
+        // the ground has moved from where it started for the broad read.
+        // A groove sits in shadow; a heaped bank catches the light.
         const curv = (hl + hr + hu + hd) * 0.25 - hk
-        const ao = clamp(curv * 5.0, -0.5, 0.85)
-        const relief = ao > 0 ? 1 - ao * 0.42 : 1 - ao * 0.14
+        const dug = clamp((t.baseHeight[k] - hk) * 5, -1, 1)
+        const ao = clamp(curv * 5.0 + dug, -1, 1.2)
+        const relief = ao > 0 ? 1 - ao * 0.42 : 1 - ao * 0.22
 
         const speck = 0.9 + t.grainTint[k] * 0.18
         const packed = 0.95 + t.compaction[k] * 0.07
