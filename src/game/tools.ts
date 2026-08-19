@@ -46,25 +46,26 @@ function roundRect(ctx: C, x: number, y: number, w: number, h: number, r: number
 
 /** splitting tool: a small blade in a wooden grip */
 export function drawSplitter(ctx: C, x: number, y: number, s: number, a = 0.62) {
+  // the body trails upward so the blunt nose leads the cut downward, and the
+  // grip never covers the bamboo below it
   begin(ctx, x, y, a, s)
   shadow(ctx)
-  // blade
-  const bg = ctx.createLinearGradient(-8, 0, 8, 0)
-  bg.addColorStop(0, '#e8eef2'); bg.addColorStop(0.5, '#fbfdff'); bg.addColorStop(1, '#aab8c2')
+  const bg = ctx.createLinearGradient(-9, 0, 9, 0)
+  bg.addColorStop(0, '#d9d2c2'); bg.addColorStop(0.45, '#f2eee2'); bg.addColorStop(1, '#b8b0a0')
   ctx.fillStyle = bg
   ctx.beginPath()
-  ctx.moveTo(0, 0)
-  ctx.lineTo(-6, 14)
-  ctx.lineTo(-6, 40)
-  ctx.lineTo(6, 40)
-  ctx.lineTo(6, 14)
+  // rounded nose: a bamboo splitting wedge, not a knife point
+  ctx.moveTo(-5, 4)
+  ctx.quadraticCurveTo(0, -5, 5, 4)
+  ctx.lineTo(7, 26)
+  ctx.lineTo(-7, 26)
   ctx.closePath()
   ctx.fill()
   ctx.shadowColor = 'transparent'
-  ctx.strokeStyle = 'rgba(90,110,124,0.7)'; ctx.lineWidth = 1.2; ctx.stroke()
-  wood(ctx, -11, 38, 22, 52, 9)
+  ctx.strokeStyle = 'rgba(120,112,96,0.6)'; ctx.lineWidth = 1.2; ctx.stroke()
+  wood(ctx, -12, 24, 24, 56, 10)
   ctx.fillStyle = 'rgba(255,236,190,0.25)'
-  roundRect(ctx, -7, 44, 5, 40, 3); ctx.fill()
+  roundRect(ctx, -8, 30, 5, 42, 3); ctx.fill()
   ctx.restore()
 }
 
@@ -121,10 +122,14 @@ export function drawRoller(ctx: C, x: number, y: number, s: number, a = 0) {
   roundRect(ctx, -38, -2, 76, 24, 12); ctx.stroke()
   ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 3
   ctx.beginPath(); ctx.moveTo(-30, 4); ctx.lineTo(30, 4); ctx.stroke()
-  // yoke
+  // the grip runs off to the side, so it never lies along the strip of paper
+  // the roller is about to travel over
   ctx.strokeStyle = '#7b818a'; ctx.lineWidth = 6
-  ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(0, 32); ctx.stroke()
-  wood(ctx, -8, 30, 16, 62, 8)
+  ctx.beginPath(); ctx.moveTo(0, 12); ctx.lineTo(24, 34); ctx.stroke()
+  ctx.save()
+  ctx.translate(24, 34); ctx.rotate(-0.72)
+  wood(ctx, -8, 0, 16, 62, 8)
+  ctx.restore()
   ctx.restore()
 }
 

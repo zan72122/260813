@@ -145,33 +145,43 @@ function shadeOf(n: Vec3) {
   return clamp01(0.42 + 0.58 * (d * 0.5 + 0.5))
 }
 
-export function drawHandle(s: Scene, u: Uchiwa, alpha = 1) {
+/** the un-split part of the pole: one solid piece of bamboo */
+export function drawPole(s: Scene, u: Uchiwa, y0: number, y1: number, alpha = 1, r0 = 1.06, r1 = 1.0) {
   const { ctx, cam } = s
-  const seg = 9
-  const y0 = -u.handleLen
-  const pts: { l: { x: number; y: number }; r: { x: number; y: number }; sh: number }[] = []
+  const seg = 10
+  // the silhouette is built perpendicular to the handle's own projected axis,
+  // so it stays correct when the finished uchiwa is waved around
+  const axis: { x: number; y: number; rad: number }[] = []
   for (let i = 0; i <= seg; i++) {
     const t = i / seg
-    const y = lerp(y0, 0.02, t)
-    const rad = u.R * lerp(1.06, 1.0, t)
-    // left / right silhouette in camera space
-    const right = cam.rightVec()
-    const c: Vec3 = { x: 0, y, z: 0 }
-    u.toWorld(c, tmpA)
-    const l = cam.project({ x: tmpA.x - right.x * rad, y: tmpA.y - right.y * rad, z: tmpA.z - right.z * rad })
-    const r = cam.project({ x: tmpA.x + right.x * rad, y: tmpA.y + right.y * rad, z: tmpA.z + right.z * rad })
-    if (!l.ok || !r.ok) return
-    pts.push({ l, r, sh: 1 })
+    const y = lerp(y0, y1, t)
+    u.toWorld({ x: 0, y, z: 0 }, tmpA)
+    const p = cam.project(tmpA)
+    if (!p.ok) return
+    axis.push({ x: p.x, y: p.y, rad: u.R * lerp(r0, r1, t) * p.s })
+  }
+  const L: { x: number; y: number }[] = []
+  const R: { x: number; y: number }[] = []
+  for (let i = 0; i <= seg; i++) {
+    const a = axis[Math.max(0, i - 1)]
+    const b = axis[Math.min(seg, i + 1)]
+    let dx = b.x - a.x, dy = b.y - a.y
+    const len = Math.hypot(dx, dy) || 1
+    dx /= len; dy /= len
+    const nx = -dy, ny = dx
+    const r = axis[i].rad
+    L.push({ x: axis[i].x - nx * r, y: axis[i].y - ny * r })
+    R.push({ x: axis[i].x + nx * r, y: axis[i].y + ny * r })
   }
   ctx.save()
   ctx.globalAlpha = alpha
   ctx.beginPath()
-  ctx.moveTo(pts[0].l.x, pts[0].l.y)
-  for (const p of pts) ctx.lineTo(p.l.x, p.l.y)
-  for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].r.x, pts[i].r.y)
+  ctx.moveTo(L[0].x, L[0].y)
+  for (const p of L) ctx.lineTo(p.x, p.y)
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(R[i].x, R[i].y)
   ctx.closePath()
-  const mid = pts[Math.floor(pts.length / 2)]
-  const g = ctx.createLinearGradient(mid.l.x, mid.l.y, mid.r.x, mid.r.y)
+  const m = Math.floor(seg / 2)
+  const g = ctx.createLinearGradient(L[m].x, L[m].y, R[m].x, R[m].y)
   const skin = bambooSkin(u.bambooHue)
   g.addColorStop(0, shade(skin, 0.52))
   g.addColorStop(0.34, shade(skin, 1.12))
@@ -179,21 +189,23 @@ export function drawHandle(s: Scene, u: Uchiwa, alpha = 1) {
   g.addColorStop(1, shade(skin, 0.48))
   ctx.fillStyle = g
   ctx.fill()
-  // node rings
   ctx.clip()
-  for (const ny of [-0.42, -0.95]) {
-    const t = (ny - y0) / (0.02 - y0)
+  for (const ny of [-0.42, -0.95, 0.52, 1.15]) {
+    const t = (ny - y0) / (y1 - y0)
     if (t < 0 || t > 1) continue
     const idx = clamp(Math.round(t * seg), 0, seg)
-    const a = pts[idx]
     ctx.strokeStyle = 'rgba(96,74,34,0.5)'
     ctx.lineWidth = Math.max(1.5, s.h * 0.004)
-    ctx.beginPath(); ctx.moveTo(a.l.x, a.l.y); ctx.lineTo(a.r.x, a.r.y); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(L[idx].x, L[idx].y); ctx.lineTo(R[idx].x, R[idx].y); ctx.stroke()
     ctx.strokeStyle = 'rgba(255,244,208,0.45)'
     ctx.lineWidth = Math.max(1, s.h * 0.002)
-    ctx.beginPath(); ctx.moveTo(a.l.x, a.l.y - 2); ctx.lineTo(a.r.x, a.r.y - 2); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(L[idx].x, L[idx].y - 2); ctx.lineTo(R[idx].x, R[idx].y - 2); ctx.stroke()
   }
   ctx.restore()
+}
+
+export function drawHandle(s: Scene, u: Uchiwa, alpha = 1) {
+  drawPole(s, u, -u.handleLen, 0.02, alpha, 1.06, 1.0)
 }
 
 function bambooSkin(hue: number) {
@@ -370,19 +382,21 @@ export function drawNotches(s: Scene, u: Uchiwa, ribs: RibDraw[]) {
   const px = Math.max(1.2, s.h * 0.0022)
   ctx.save()
   for (const rd of ribs) {
-    if (rd.t > 0.5) continue
+    if (rd.t > 0.02) continue
     const from = 1 - u.notch
-    ctx.lineWidth = px
-    ctx.strokeStyle = `rgba(64,44,18,${0.55 * (1 - rd.t)})`
-    ctx.beginPath()
-    let started = false
+    const pts: { x: number; y: number }[] = []
     for (let k = 0; k < rd.L.length; k++) {
-      const uu = k / (rd.L.length - 1)
-      if (uu < from) continue
-      if (!started) { ctx.moveTo(rd.L[k].x, rd.L[k].y); started = true }
-      else ctx.lineTo(rd.L[k].x, rd.L[k].y)
+      if (k / (rd.L.length - 1) < from) continue
+      pts.push(rd.L[k])
     }
-    if (started) ctx.stroke()
+    if (pts.length < 2) continue
+    // a fine dark score with a lit lip beside it: a cut, not a burn
+    ctx.lineWidth = px * 0.9
+    ctx.strokeStyle = 'rgba(72,52,22,0.3)'
+    strokePoly(ctx, pts, 0)
+    ctx.lineWidth = px * 0.7
+    ctx.strokeStyle = 'rgba(255,250,222,0.34)'
+    strokePoly(ctx, pts, -px * 0.9)
   }
   ctx.restore()
 }
@@ -414,17 +428,24 @@ export function drawBow(s: Scene, u: Uchiwa, insertion: number, ghost = false) {
   const shown = ghost ? steps : Math.max(1, Math.floor(steps * clamp01(insertion)))
   ctx.save()
   if (ghost) {
-    ctx.globalAlpha = 0.32
-    ctx.setLineDash([s.h * 0.014, s.h * 0.012])
+    ctx.globalAlpha = 0.5 + 0.18 * Math.sin(s.time * 3.4)
+    ctx.setLineDash([s.h * 0.02, s.h * 0.016])
   }
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   const w = Math.max(3, s.h * 0.011)
-  ctx.strokeStyle = ghost ? 'rgba(255,255,255,0.9)' : 'rgba(120,92,44,0.55)'
-  ctx.lineWidth = w * 1.25
+  ctx.strokeStyle = ghost ? 'rgba(86,54,22,0.75)' : 'rgba(120,92,44,0.55)'
+  ctx.lineWidth = w * (ghost ? 1.7 : 1.25)
   ctx.beginPath()
   for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
   ctx.stroke()
+  if (ghost) {
+    ctx.strokeStyle = 'rgba(255,252,228,0.95)'
+    ctx.lineWidth = w * 0.9
+    ctx.beginPath()
+    for (let k = 0; k <= shown; k++) { if (k === 0) ctx.moveTo(pts[k].x, pts[k].y); else ctx.lineTo(pts[k].x, pts[k].y) }
+    ctx.stroke()
+  }
   if (!ghost) {
     ctx.strokeStyle = '#c9a15c'
     ctx.lineWidth = w
@@ -550,7 +571,7 @@ function paperOutline(u: Uchiwa, cam: Camera, lift: number, scaleK = 1) {
   // what makes the silhouette read as an uchiwa rather than a folding fan
   const a = local[local.length - 1]
   const b = local[0]
-  const dip = -0.04 * u.L * scaleK
+  const dip = -0.15 * u.L * scaleK
   const M = 14
   for (let k = 1; k < M; k++) {
     const t = k / M
@@ -748,6 +769,35 @@ function drawWrinkles(s: Scene, u: Uchiwa, lift: number) {
   ctx.restore()
 }
 
+/** the loose bow bamboo, lying beside the fan before it is pushed through */
+export function drawLooseBow(s: Scene, x: number, y: number, len: number, tilt: number) {
+  const { ctx } = s
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(tilt)
+  ctx.lineCap = 'round'
+  const w = Math.max(4, s.h * 0.014)
+  ctx.strokeStyle = 'rgba(60,38,14,0.25)'
+  ctx.lineWidth = w * 1.3
+  ctx.beginPath()
+  ctx.moveTo(-len * 0.5, w * 0.7)
+  ctx.quadraticCurveTo(0, -len * 0.1 + w * 0.7, len * 0.5, w * 0.7)
+  ctx.stroke()
+  ctx.strokeStyle = '#c9a15c'
+  ctx.lineWidth = w
+  ctx.beginPath()
+  ctx.moveTo(-len * 0.5, 0)
+  ctx.quadraticCurveTo(0, -len * 0.1, len * 0.5, 0)
+  ctx.stroke()
+  ctx.strokeStyle = 'rgba(255,246,214,0.8)'
+  ctx.lineWidth = w * 0.28
+  ctx.beginPath()
+  ctx.moveTo(-len * 0.44, -w * 0.28)
+  ctx.quadraticCurveTo(0, -len * 0.1 - w * 0.28, len * 0.44, -w * 0.28)
+  ctx.stroke()
+  ctx.restore()
+}
+
 /** the template outline the mallet is shaping the paper toward */
 export function drawTrimGuide(s: Scene, u: Uchiwa, alpha: number) {
   const keep = u.trim
@@ -769,20 +819,11 @@ export function drawTrimGuide(s: Scene, u: Uchiwa, alpha: number) {
 /** decorative edge strip glued around the rim (module 10) */
 export function drawEdgeStrip(s: Scene, u: Uchiwa) {
   if (u.edge <= 0.001) return
-  const { ctx, cam } = s
-  const half = u.halfSpread
-  const N = 56
-  const pts: { x: number; y: number }[] = []
-  for (let k = 0; k <= N; k++) {
-    const f = k / N
-    const ang = lerp(-half, half, f) * 1.05
-    const rr = u.paperRadius(f) * u.L
-    const z = u.dome * Math.sin(0.8 * Math.PI * 0.86) * Math.cos(ang * 1.05) + 0.065
-    const p = cam.project(u.toWorld({ x: Math.sin(ang) * rr, y: Math.cos(ang) * rr, z }, tmpA))
-    if (!p.ok) return
-    pts.push(p)
-  }
-  const shown = Math.max(1, Math.floor(N * clamp01(u.edge)))
+  const o = paperOutline(u, s.cam, 0)
+  if (!o) return
+  const { ctx } = s
+  const pts = o.outer
+  const shown = Math.max(1, Math.floor((pts.length - 1) * clamp01(u.edge)))
   ctx.save()
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'

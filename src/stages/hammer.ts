@@ -67,10 +67,13 @@ export const hammerStage: Stage = {
     const unit = Math.min(L.w, L.h)
     const p = g.input.p
     if (doneT < 0) {
-      const x = p.down ? p.x : L.w * (L.portrait ? 0.72 : 0.68)
-      const y = p.down ? p.y : L.h * 0.66
+      // the mallet hovers over the edge it is about to knock into shape
+      const rest = fanScreen(g, taps % 2 ? 0.74 : 0.26, 1.0)
+      const off = g.tipOffset() * (0.7 + swing * 0.5)
+      const x = p.down ? p.x : rest.x
+      const y = (p.down ? p.y : rest.y + off) - off
       const a = 0.5 - swing * 0.55 + (p.down ? 0 : Math.sin(g.time * 1.8) * 0.05)
-      drawMallet(g.ctx, x, y - g.tipOffset() * (0.7 + swing * 0.5), unit * 0.0032, a)
+      drawMallet(g.ctx, x, y, unit * 0.0032, a)
     }
   }
 }

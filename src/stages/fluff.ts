@@ -33,7 +33,7 @@ function cam(g: Game) {
   const b = st.bloomT >= 0 ? smooth(clamp01(st.bloomT / 0.75)) : 0
   // continuous dolly: tight on the splitting fibre, then pull back for the reveal
   const k = Math.max(q, b)
-  const halfW = lerp(0.48, 1.72, smooth(k))
+  const halfW = lerp(0.48, 1.86, smooth(k))
   // in landscape the fan gets the whole width: the handle may leave the frame
   const halfH = lerp(1.22, L.portrait ? 1.54 : 1.02, smooth(k))
   const yaw = lerp(0.40, 0.13, smooth(k))

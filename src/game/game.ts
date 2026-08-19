@@ -156,9 +156,11 @@ export class Game {
   private muteBtn(): Btn {
     const L = this.layout
     const r = Math.max(16, Math.min(L.w, L.h) * 0.042)
+    // landscape puts the choosers down the right edge, so the system buttons
+    // move to the opposite corner rather than fighting them
     return {
       id: '__mute',
-      x: L.w - r * 1.5 - L.safeRight,
+      x: L.portrait ? L.w - r * 1.5 - L.safeRight : r * 1.5 + L.safeLeft,
       y: r * 1.5 + L.safeTop,
       r,
       icon: this.muted() ? 'soundoff' : 'sound',
@@ -178,6 +180,12 @@ export class Game {
     this.timeScaleT = seconds
   }
 
+  /** always-available way back to the title, for a child who wants to stop */
+  private homeBtn(): Btn {
+    const m = this.muteBtn()
+    return { ...m, id: '__home', y: m.y + m.r * 2.4, icon: 'home', tint: '#eee6d6' }
+  }
+
   frameStep(realDt: number) {
     if (this.timeScaleT > 0) {
       this.timeScaleT -= realDt
@@ -194,6 +202,13 @@ export class Game {
       this.unlock()
       this.toggleMute()
       this.input.p.tapped = false
+    } else if (this.curId !== 'title') {
+      const hb = this.homeBtn()
+      if (this.input.p.tapped && hitBtn(hb, this.input.p.x, this.input.p.y, 1.2)) {
+        this.input.p.tapped = false
+        sfx.tap()
+        this.goto('title')
+      }
     }
     if (this.camTarget) this.cam.approachSpec(this.camTarget, this.camRate, dt)
     this.cur?.update(this, dt)
@@ -233,6 +248,7 @@ export class Game {
     ctx.save()
     ctx.globalAlpha = 0.72
     drawButton(ctx, this.muteBtn(), this.time)
+    if (this.curId !== 'title') drawButton(ctx, this.homeBtn(), this.time)
     ctx.restore()
     this.particles.draw(ctx)
     this.words.draw(ctx, Math.min(this.layout.w, this.layout.h) * 0.085)

@@ -134,7 +134,8 @@ export class Input {
       this.pendingUp = false
       if (p.down) {
         p.justUp = true
-        p.tapped = p.downTime < 0.45 && p.travel < 22 * 1
+        // a four-year-old presses, holds, and smears; all of that is a tap
+        p.tapped = p.downTime < 1.6 && p.travel < 46
       }
       p.down = false
       p.id = -1

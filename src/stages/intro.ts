@@ -12,7 +12,7 @@ function cam(g: Game) {
   const L = g.layout
   return frame({
     center: { x: 0, y: -0.1, z: 0 },
-    halfW: 0.62, halfH: 1.56,
+    halfW: 0.95, halfH: 1.66,
     dist: 6.2, yaw: 0.46, pitch: 0.17,
     screenY: L.portrait ? 0.46 : 0.5,
     screenX: L.portrait ? 0.5 : 0.46
@@ -38,7 +38,7 @@ export const introStage: Stage = {
     const s = g.scene
     const p = s.cam.project({ x: 0, y: 0.35, z: 0 })
     g.hint = { kind: 'tap', x: p.x, y: p.y, r: Math.min(g.layout.w, g.layout.h) * 0.13 }
-    if (!taken && g.input.p.tapped && t > 0.9) {
+    if (!taken && g.input.p.justDown && t > 0.9) {
       taken = true
       sfx.ok(0)
       g.particles.burstSpark(g.input.p.x, g.input.p.y, 12, 1)

@@ -72,9 +72,11 @@ export const glueStage: Stage = {
     const off = g.tipOffset()
     const unit = Math.min(L.w, L.h)
     if (doneT < 0) {
-      const x = p.down ? p.x : L.w * 0.5
-      const y = p.down ? p.y : L.h * 0.62
-      drawBrush(g.ctx, x, y - off, unit * 0.0032, p.down ? 0.35 : 0.35 + Math.sin(g.time * 2) * 0.08)
+      // at rest the brush waits on the driest part of the fan, not on the floor
+      const rest = fanScreen(g, 0.5, 0.72)
+      const x = p.down ? p.x : rest.x
+      const y = (p.down ? p.y : rest.y + off) - off
+      drawBrush(g.ctx, x, y, unit * 0.0032, p.down ? 0.35 : 0.35 + Math.sin(g.time * 2) * 0.08)
     }
   }
 }

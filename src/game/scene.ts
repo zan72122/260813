@@ -1,11 +1,11 @@
 import { Game } from './game'
 import {
-  drawWorkshop, drawBench, drawHandle, buildRibs, drawRibs, drawNotches,
+  drawWorkshop, drawBench, drawHandle, drawPole, buildRibs, drawRibs, drawNotches,
   drawBow, drawThread, drawPaper, drawEdgeStrip, drawContactShadow
 } from './render'
 import { drawUchiwaGlyph } from './ui'
 import { drawPulse, drawChevrons, drawHandHint } from './tools'
-import { clamp01 } from '../core/math'
+import { clamp01, lerp } from '../core/math'
 
 export type WorldOpts = {
   bowGhost?: boolean
@@ -31,6 +31,12 @@ export function drawWorld(g: Game, o: WorldOpts = {}) {
   if (!o.hideRibs) {
     const ribs = buildRibs(s, g.u)
     drawRibs(s, g.u, ribs)
+    // the pole is still one solid piece everywhere the tool has not reached,
+    // so the seams appear only where the cut has actually travelled
+    const uncut = clamp01(1 - g.u.notch) * clamp01(1 - g.u.progress * 0.5)
+    if (uncut > 0.02) {
+      drawPole(s, g.u, -0.02, g.u.L * uncut, 1, 1.0, lerp(1.0, 0.93, uncut))
+    }
     drawNotches(s, g.u, ribs)
   }
   // once the washi is down the bow is physically hidden underneath it
@@ -53,7 +59,8 @@ function drawProps(g: Game) {
   spots.forEach((p, i) => {
     const q = s.cam.project({ x: p[0], y: p[1], z: p[2] })
     if (!q.ok) return
-    const r = q.s * 0.5
+    // background props must never grow to compete with the workpiece
+    const r = Math.min(q.s * 0.42, Math.min(g.layout.w, g.layout.h) * 0.085)
     if (r < 4) return
     s.ctx.save()
     s.ctx.globalAlpha = 0.55
@@ -81,10 +88,8 @@ export function drawHint(g: Game, force = false) {
     const dy = h.dy ?? (h.kind === 'swipeV' ? 1 : 0)
     const size = unit * 0.09
     drawChevrons(ctx, h.x, h.y, dx, dy, size, g.time, a)
-    if (h.kind !== 'trace') {
-      const wob = Math.sin(g.time * 3.2) * unit * 0.035
-      drawHandHint(ctx, h.x + dx * wob, h.y + dy * wob + unit * 0.035, unit * 0.0022, a * 0.85)
-    }
+    const wob = Math.sin(g.time * 3.2) * unit * 0.035
+    drawHandHint(ctx, h.x + dx * wob, h.y + dy * wob + unit * 0.035, unit * 0.0022, a * 0.85)
   }
   ctx.restore()
 }

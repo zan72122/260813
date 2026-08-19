@@ -102,10 +102,10 @@ export type Word = { text: string; x: number; y: number; life: number; max: numb
 
 export class Words {
   list: Word[] = []
-  say(text: string, x: number, y: number, scale = 1, hue = '#ffffff') {
-    // never stack two copies of the same shout on top of each other
-    for (const w of this.list) if (w.text === text && w.life < 0.4) return
-    if (this.list.length > 4) this.list.shift()
+  say(text: string, x: number, y: number, scale = 1, hue = '#fff6de') {
+    // one shout at a time: two words at the same spot are an unreadable blob
+    for (const w of this.list) if (w.life < 0.55) return
+    if (this.list.length > 3) this.list.shift()
     this.list.push({ text, x, y, life: 0, max: 1.25, scale, hue })
   }
   update(dt: number) {
@@ -128,8 +128,8 @@ export class Words {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.lineJoin = 'round'
-      ctx.lineWidth = base * 0.28
-      ctx.strokeStyle = 'rgba(94,58,24,0.9)'
+      ctx.lineWidth = base * 0.34
+      ctx.strokeStyle = 'rgba(88,50,18,0.96)'
       ctx.strokeText(w.text, 0, 0)
       ctx.fillStyle = w.hue
       ctx.fillText(w.text, 0, 0)

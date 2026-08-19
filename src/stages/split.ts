@@ -74,12 +74,12 @@ export const splitStage: Stage = {
     const unit = Math.min(g.layout.w, g.layout.h)
     if (p.down && doneT < 0) {
       const t = tipPoint(g)
-      drawSplitter(g.ctx, t.x, t.y, unit * 0.0034, 0.5)
+      drawSplitter(g.ctx, t.x, t.y, unit * 0.0034, Math.PI + 0.42)
     } else if (doneT < 0) {
       // tool waits at the top of the pole
       const s = g.scene
       const top = s.cam.project(g.u.toWorld({ x: 0.10, y: g.u.L * (0.99 - g.u.notch * 0.95), z: 0.10 }))
-      drawSplitter(g.ctx, top.x, top.y, unit * 0.0034, 0.5 + Math.sin(g.time * 2) * 0.06)
+      drawSplitter(g.ctx, top.x, top.y, unit * 0.0034, Math.PI + 0.42 + Math.sin(g.time * 2) * 0.06)
     }
   }
 }

@@ -94,7 +94,7 @@ export const paperStage: Stage = {
     } else if (phase === 'smooth') {
       const radius = unit * 0.15
       if (p.down) {
-        map.within(p.x, p.y - g.tipOffset() * 0.35, radius, (c, d) => {
+        map.within(p.x, p.y - g.tipOffset() * 0.75, radius, (c, d) => {
           const k = 1 - d / radius
           const b = binIndex(c.f)
           // the wrinkle is pushed out as far as the finger has reached

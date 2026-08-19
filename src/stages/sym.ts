@@ -7,7 +7,7 @@ import { fanCam } from './bow'
 
 let doneT = -1
 let acc = 0
-const TARGET_SPREAD = 2.55
+const TARGET_SPREAD = 2.42
 
 /** MODULE 6 — pull the outer edges and the fan settles into a clean symmetry */
 export const symStage: Stage = {
@@ -17,7 +17,7 @@ export const symStage: Stage = {
     acc = 0
     g.stageIndex = 5
     g.hintDelay = 2.4
-    g.u.spread = Math.min(g.u.spread, 2.3)
+    g.u.spread = Math.min(g.u.spread, 2.2)
     g.setCam(fanCam(g, 0.1), 2.6)
   },
   update(g, dt) {
@@ -30,12 +30,12 @@ export const symStage: Stage = {
     if (p.down && doneT < 0 && p.moveDist > 0.3) {
       // outward drag on either side widens the fan — direction is inferred,
       // so touching the "wrong" side still works
-      const side = p.x < mid.x ? -1 : 1
+      const side = p.x < mid.x ? -1 : 1   // side inferred, so either edge works
       const outward = p.dx * side
       const gain = Math.max(0, outward) + Math.abs(p.dx) * 0.3
       acc = clamp01(acc + gain / (L.w * 0.55))
       u.sym = Math.max(u.sym, acc)
-      u.spread = lerp(2.3, TARGET_SPREAD, clamp01(acc))
+      u.spread = lerp(2.2, TARGET_SPREAD, clamp01(acc))
       if (Math.random() < dt * 9 * clamp01(gain / 4)) sfx.chi(Math.floor(acc * 9))
     }
 

@@ -14,7 +14,12 @@ export type RibState = {
   jitter: number     // per-rib grain irregularity
 }
 
-export type Xf = { x: number; y: number; z: number; rotZ: number; rotY: number; rotX: number }
+export type Xf = {
+  x: number; y: number; z: number
+  rotZ: number; rotY: number; rotX: number
+  /** local Y the rotation happens around — the hand, not the pivot */
+  pivotY: number
+}
 
 export class Uchiwa {
   readonly N = RIB_COUNT
@@ -23,7 +28,7 @@ export class Uchiwa {
   L = 1.72          // rib length
   R = 0.088         // radius of the un-split pole
   handleLen = 1.28
-  spread = 2.50     // total fan angle (rad) when fully opened & symmetrised
+  spread = 2.38     // total fan angle (rad) when fully opened & symmetrised
   bloom = 0         // extra spread from the final "fasa" burst
   bloomV = 0
   dome = 0.15       // forward curvature of the fan
@@ -35,7 +40,7 @@ export class Uchiwa {
   bow = 0
   thread = 0
   threadHit: boolean[] = []
-  threadColor = 0
+  threadColor = 1   // pink: white thread is invisible against pale bamboo
   sym = 0
   glue: number[] = []
   paperOn = 0
@@ -44,7 +49,7 @@ export class Uchiwa {
   trim = 0
   edge = 0
   roller = 0
-  xf: Xf = { x: 0, y: 0, z: 0, rotZ: 0, rotY: 0, rotX: 0 }
+  xf: Xf = { x: 0, y: 0, z: 0, rotZ: 0, rotY: 0, rotX: 0, pivotY: 0 }
 
   rng: Rng
   bambooHue = 0
@@ -85,6 +90,7 @@ export class Uchiwa {
     this.bloomV = 0
     this.bow = 0
     this.thread = 0
+    this.threadColor = 1
     this.threadHit = new Array(this.N).fill(false)
     this.sym = 0
     this.glue = new Array(BINS).fill(0)
@@ -93,8 +99,8 @@ export class Uchiwa {
     this.trim = 0
     this.edge = 0
     this.roller = 0
-    this.xf = { x: 0, y: 0, z: 0, rotZ: 0, rotY: 0, rotX: 0 }
-    this.spread = 2.50
+    this.xf = { x: 0, y: 0, z: 0, rotZ: 0, rotY: 0, rotX: 0, pivotY: 0 }
+    this.spread = 2.38
     this.bambooHue = 0
   }
 
@@ -130,7 +136,7 @@ export class Uchiwa {
     const ox = Math.sin(ang) * u * L
     const oy = Math.cos(ang) * u * L
     const oz = this.dome * Math.sin(u * Math.PI * 0.86) * Math.cos(ang * 1.05)
-    const tear = (1 - b) * b * 4 * (1 - t) * 0.11 * rib.jitter
+    const tear = (1 - b) * b * 4 * (1 - t) * 0.07 * rib.jitter
     out.x = lerp(cx, ox, b) + tear
     out.y = lerp(u * L, oy, b)
     out.z = lerp(cz, oz, b)
@@ -147,8 +153,8 @@ export class Uchiwa {
   }
 
   toWorld(p: Vec3, out: Vec3 = { x: 0, y: 0, z: 0 }): Vec3 {
-    const { rotZ, rotY, rotX } = this.xf
-    let x = p.x, y = p.y, z = p.z
+    const { rotZ, rotY, rotX, pivotY } = this.xf
+    let x = p.x, y = p.y - pivotY, z = p.z
     if (rotZ) {
       const c = Math.cos(rotZ), s = Math.sin(rotZ)
       const nx = x * c - y * s, ny = x * s + y * c
@@ -165,7 +171,7 @@ export class Uchiwa {
       x = nx; z = nz
     }
     out.x = x + this.pivot.x + this.xf.x
-    out.y = y + this.pivot.y + this.xf.y
+    out.y = y + pivotY + this.pivot.y + this.xf.y
     out.z = z + this.pivot.z + this.xf.z
     return out
   }
@@ -183,7 +189,7 @@ export class Uchiwa {
     // the oversized blank, then the trimmed uchiwa head: the side ribs really
     // do get shorter when the shape is hammered out
     const raw = ell(1.02, 1.16) * (1 + 0.05 * Math.pow(Math.abs(sa), 4))
-    const trimmed = ell(0.76, 1.02)
+    const trimmed = ell(0.80, 1.05)
     return lerp(raw, trimmed, smooth(this.trim))
   }
 
@@ -210,11 +216,13 @@ export class Uchiwa {
         onPop?.(i)
       }
       if (rib.popped && rib.t < 0.02) rib.popped = false
-      const edgeBias = 0.4 + 0.6 * Math.abs(this.ribFrac(i) - 0.5) * 2
-      const drive = this.twist * 0.16 * (0.25 + rib.t) * edgeBias
+      const edgeBias = 0.45 + 0.35 * Math.abs(this.ribFrac(i) - 0.5) * 2
+      // once the washi is on, the ribs are one rigid piece with it
+      const free = 1 - clamp01(this.paperOn * 1.6)
+      const drive = this.twist * 0.15 * (0.25 + rib.t) * edgeBias * free
       rib.swayV += (drive - rib.sway) * 42 * dt - rib.swayV * 8.5 * dt
       rib.sway += rib.swayV * dt
-      rib.sway = clamp(rib.sway, -0.42, 0.42)
+      rib.sway = clamp(rib.sway, -0.26, 0.26)
     }
     // the fan overshoots and rocks back — that little wobble is most of the
     // "fasa" feeling

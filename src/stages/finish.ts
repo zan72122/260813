@@ -26,12 +26,12 @@ function cam(g: Game) {
   return L.portrait
     ? frame({
         center: { x: 0, y: 0.42, z: 0 },
-        halfW: 1.78, halfH: 2.25, dist: 6.6, yaw: 0.06, pitch: 0.05,
+        halfW: 1.92, halfH: 2.3, dist: 6.6, yaw: 0.06, pitch: 0.05,
         screenY: 0.46
       }, L)
     : frame({
         center: { x: 0, y: 0.12, z: 0 },
-        halfW: 2.7, halfH: 1.82, dist: 6.6, yaw: 0.06, pitch: 0.05,
+        halfW: 2.8, halfH: 1.84, dist: 6.6, yaw: 0.06, pitch: 0.05,
         screenY: 0.48, screenX: 0.5
       }, L)
 }
@@ -64,6 +64,8 @@ export const finishStage: Stage = {
     g.stageIndex = 10
     g.hintDelay = 2.0
     g.u.xf.y = 0.18
+    // waved from the hand at the bottom of the handle, not from the head
+    g.u.xf.pivotY = -g.u.handleLen * 0.86
     if (g.made.length === 0 || g.made[g.made.length - 1] !== g.u.paperPattern) g.made.push(g.u.paperPattern)
     g.setCam(cam(g), 2.2)
     if (from !== 'finish') { sfx.done() }
@@ -79,19 +81,21 @@ export const finishStage: Stage = {
     // ---- waving the uchiwa ----
     let target = 0
     if (p.down) {
-      target = clamp((p.x - L.w * 0.5) / (L.w * 0.42), -1, 1) * 0.62
+      target = clamp((p.x - L.w * 0.5) / (L.w * 0.42), -1, 1) * 0.55
     }
     const prevV = rotV
     rotV += (target - rot) * 46 * dt - rotV * 7.5 * dt
     rot += rotV * dt
-    rot = clamp(rot, -0.85, 0.85)
-    u.xf.rotZ = rot
-    u.xf.rotY = rot * 0.5
-    u.xf.x = -rot * 0.42
+    rot = clamp(rot, -0.72, 0.72)
+    // the head follows the finger: swipe right, the uchiwa swings right
+    u.xf.rotZ = -rot
+    u.xf.rotY = -rot * 0.34
+    // slide back toward the middle so a big swing never leaves the frame
+    u.xf.x = -Math.sin(rot) * 0.75
 
     const speed = Math.abs(rotV)
     wind = Math.max(wind * Math.exp(-2.1 * dt), clamp01(speed * 0.42))
-    if (Math.abs(rotV) > 0.15) windDir = rotV > 0 ? 1 : -1
+    if (Math.abs(rotV) > 0.15) windDir = rotV > 0 ? 1 : -1   // air is pushed the way the head travels
     fanned += clamp01(speed * 0.5) * dt
 
     // pata sound at each direction change of a real swing
@@ -125,11 +129,11 @@ export const finishStage: Stage = {
     // ---- replay choices ----
     if (fanned > 1.1 || arrivedT > 9) menuT += dt
     if (menuT > 0) {
-      const r = Math.min(L.w, L.h) * (L.portrait ? 0.108 : 0.1)
+      const r = Math.min(L.w, L.h) * (L.portrait ? 0.1 : 0.094)
       const y = L.portrait
         ? L.h - Math.max(r * 1.85, L.safeBottom + r * 1.7)
         : L.h - Math.max(r * 1.8, L.safeBottom + r * 1.6)
-      const gap = r * 2.7
+      const gap = Math.min(L.w * 0.31, r * 3.3)
       g.addButton({ id: 'again', x: L.w * 0.5 - gap, y, r, icon: 'again', label: 'もういっかい', tint: '#ffe8bd' })
       g.addButton({ id: 'para', x: L.w * 0.5, y, r, icon: 'para', label: 'パラパラだけ', tint: '#dff0c8' })
       g.addButton({ id: 'wind', x: L.w * 0.5 + gap, y, r, icon: 'wind', label: 'あおぐ', tint: '#cfe8f4', selected: true })

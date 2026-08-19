@@ -3,7 +3,7 @@ import { PATTERNS, motifTile } from '../core/textures'
 
 type C = CanvasRenderingContext2D
 
-export type IconId = 'again' | 'para' | 'wind' | 'sound' | 'soundoff' | 'next' | 'home' | 'check'
+export type IconId = 'again' | 'para' | 'wind' | 'sound' | 'soundoff' | 'next' | 'home' | 'check' | 'start'
 
 export type Btn = {
   id: string
@@ -53,7 +53,7 @@ export function drawButton(ctx: C, b: Btn, t: number) {
 
   if (b.label) {
     ctx.save()
-    ctx.font = `700 ${Math.max(11, r * 0.42)}px "Hiragino Maru Gothic ProN", system-ui, sans-serif`
+    ctx.font = `700 ${Math.max(11, r * 0.36)}px "Hiragino Maru Gothic ProN", system-ui, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.lineJoin = 'round'
@@ -88,6 +88,15 @@ export function drawPatternSwatch(ctx: C, x: number, y: number, r: number, idx: 
     ctx.fillStyle = pat
     ctx.fillRect(0, 0, 400, 400)
     ctx.restore()
+  } else {
+    // a blank swatch would make the choice meaningless
+    ctx.fillStyle = def.accent
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU
+      ctx.beginPath()
+      ctx.arc(x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5, r * 0.16, 0, TAU)
+      ctx.fill()
+    }
   }
   ctx.restore()
   ctx.strokeStyle = 'rgba(140,100,54,0.5)'
@@ -172,7 +181,24 @@ export function drawIcon(ctx: C, id: IconId, x: number, y: number, r: number, t:
   ctx.strokeStyle = '#7a5230'
   ctx.fillStyle = '#7a5230'
   ctx.lineWidth = Math.max(2.4, r * 0.16)
-  if (id === 'again') {
+  if (id === 'start') {
+    // one pole of bamboo turning into a fan: exactly what the game is
+    ctx.strokeStyle = '#7ba14e'
+    ctx.lineWidth = Math.max(3.4, r * 0.26)
+    ctx.beginPath(); ctx.moveTo(-r * 0.45, r * 0.9); ctx.lineTo(-r * 0.45, -r * 0.75); ctx.stroke()
+    ctx.strokeStyle = 'rgba(120,150,80,0.7)'
+    ctx.lineWidth = Math.max(1.4, r * 0.07)
+    ctx.beginPath(); ctx.moveTo(-r * 0.62, r * 0.15); ctx.lineTo(-r * 0.28, r * 0.15); ctx.stroke()
+    for (let i = 0; i < 5; i++) {
+      const a = 0.28 + (i / 4) * 1.1
+      ctx.strokeStyle = i % 2 ? '#c9a15c' : '#d9b877'
+      ctx.lineWidth = Math.max(2.4, r * 0.15)
+      ctx.beginPath()
+      ctx.moveTo(r * 0.05, r * 0.85)
+      ctx.lineTo(r * 0.05 + Math.sin(a) * r * 1.15, r * 0.85 - Math.cos(a) * r * 1.15)
+      ctx.stroke()
+    }
+  } else if (id === 'again') {
     drawUchiwaGlyph(ctx, 0, -r * 0.08, r * 0.72, 0, -0.25)
     ctx.strokeStyle = '#e08a3c'
     ctx.lineWidth = Math.max(2.6, r * 0.17)
@@ -296,8 +322,8 @@ export function bigText(ctx: C, text: string, x: number, y: number, size: number
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
-  ctx.lineWidth = size * 0.26
-  ctx.strokeStyle = 'rgba(94,58,24,0.85)'
+  ctx.lineWidth = size * 0.32
+  ctx.strokeStyle = 'rgba(88,50,18,0.92)'
   ctx.strokeText(text, x, y)
   ctx.fillStyle = '#fffaf0'
   ctx.fillText(text, x, y)

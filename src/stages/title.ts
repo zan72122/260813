@@ -19,7 +19,7 @@ export const titleStage: Stage = {
     const r = Math.min(L.w, L.h) * 0.13
     const cy = L.portrait ? L.h * 0.70 : L.h * 0.72
     const gap = r * 2.5
-    g.addButton({ id: 'start', x: L.w * 0.5 - gap * 0.5, y: cy, r, icon: 'again', label: 'つくる', tint: '#ffe8bd' })
+    g.addButton({ id: 'start', x: L.w * 0.5 - gap * 0.5, y: cy, r, icon: 'start', label: 'つくる', tint: '#ffe8bd' })
     g.addButton({ id: 'para', x: L.w * 0.5 + gap * 0.5, y: cy, r, icon: 'para', label: 'パラパラ', tint: '#dff0c8' })
     const b = g.pickButton()
     if (b) {
@@ -27,7 +27,7 @@ export const titleStage: Stage = {
       sfx.tap()
       if (b.id === 'start') g.goto('intro')
       else g.goto('fluff-free')
-    } else if (g.input.p.tapped) {
+    } else if (g.input.p.justDown) {
       g.unlock()
       sfx.tap()
       g.goto('intro')

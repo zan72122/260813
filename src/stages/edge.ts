@@ -35,7 +35,7 @@ export const edgeStage: Stage = {
 
     if (phase === 'edge') {
       // trace anywhere near the rim; the strip snaps to the outline itself
-      const head = fanScreen(g, clamp01(u.edge), 1.0)
+      const head = fanScreen(g, clamp01(u.edge * 1.28), 1.0)
       if (p.down) {
         const d = Math.hypot(p.x - head.x, p.y - head.y)
         const slack = unit * 0.34
@@ -50,7 +50,7 @@ export const edgeStage: Stage = {
         sfx.ok(1)
         g.say('へり ついた！', L.w * 0.5, L.h * 0.18, 0.9)
       }
-      const nxt = fanScreen(g, clamp01(u.edge + 0.08), 1.0)
+      const nxt = fanScreen(g, clamp01(u.edge * 1.28 + 0.1), 1.0)
       g.hint = { kind: 'trace', x: head.x, y: head.y, dx: nxt.x - head.x, dy: nxt.y - head.y }
     } else if (phase === 'roll') {
       const top = fanScreen(g, 0.5, 0.95)

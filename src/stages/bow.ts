@@ -4,6 +4,7 @@ import { frame, WORLD } from '../game/framing'
 import { sfx } from '../core/audio'
 import { clamp01, lerp } from '../core/math'
 import { fanScreen } from '../game/fanmap'
+import { drawLooseBow } from '../game/render'
 
 let doneT = -1
 let slideAcc = 0
@@ -15,10 +16,16 @@ export function fanCam(g: Game, tight = 0) {
   // landscape crops the lower handle so the head can use the full width
   const baseH = L.portrait ? WORLD.halfH : 1.26
   const baseY = L.portrait ? 0.02 : 0.16
+  const cy = lerp(baseY, baseY + 0.16, tight)
+  // the untrimmed washi blank reaches higher than the ribs do; never clip it
+  const paperTop = g.u.paperOn > 0.01
+    ? g.u.pivot.y + g.u.paperRadius(0.5) * g.u.L + 0.08
+    : -Infinity
+  const tall = Math.max(lerp(baseH, baseH * 0.88, tight), paperTop - cy)
   return frame({
-    center: { x: 0, y: lerp(baseY, baseY + 0.16, tight), z: 0 },
+    center: { x: 0, y: cy, z: 0 },
     halfW: lerp(wide, wide * 0.9, tight),
-    halfH: lerp(baseH, baseH * 0.88, tight),
+    halfH: tall,
     dist: 6.4, yaw: 0.12, pitch: 0.11,
     screenY: L.portrait ? 0.40 : 0.47,
     screenX: L.portrait ? 0.5 : 0.44
@@ -79,6 +86,14 @@ export const bowStage: Stage = {
   },
   draw(g) {
     drawWorld(g, { bowGhost: g.u.bow < 0.99 })
+    // a real stick sitting on the bench, waiting to be pushed through
+    if (g.u.bow < 0.02 && doneT < 0) {
+      const a = fanScreen(g, 0, 0.30)
+      const L = g.layout
+      const wob = Math.sin(g.time * 2.4) * L.w * 0.012
+      drawLooseBow(g.scene, a.x - L.w * 0.1 + wob, a.y + L.h * 0.055,
+        Math.min(L.w, L.h) * 0.3, -0.12)
+    }
     drawHint(g)
     // the leading tip of the bow, so the child can see what is moving
     if (g.u.bow > 0.001 && g.u.bow < 0.999) {

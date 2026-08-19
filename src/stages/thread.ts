@@ -67,7 +67,9 @@ export const threadStage: Stage = {
     }
 
     if (p.down && doneT < 0 && p.moveDist > 0.5) {
-      const near = ribAtScreen(g, p.x, p.y)
+      // work above the fingertip so the thread is never under the finger
+      const ty = p.y - g.tipOffset() * 0.6
+      const near = ribAtScreen(g, p.x, ty)
       const slack = Math.min(L.w, L.h) * 0.31
       if (near.i >= 0 && near.d < slack) {
         const from = lastRib < 0 ? near.i : lastRib
