@@ -166,7 +166,7 @@ export class Water {
     let moatVol = 0
     const wetn = terrain.wetness
     const absorbRate = 0.05 * dt
-    const seep = 0.0008 * dt
+    const seep = 0.0026 * dt
 
     for (let j = r.j0; j <= r.j1; j++) {
       for (let i = r.i0; i <= r.i1; i++) {
@@ -191,7 +191,11 @@ export class Water {
           // stops pouring and the sandbox can never become a permanent lake.
           // The moat is the exception: it is stone-lined and holds what it
           // is given, which is the whole point of filling it.
-          if (!terrain.moatMask[k]) nd = Math.max(0, nd - seep)
+          if (!terrain.moatMask[k]) {
+            // Deep standing water drains faster than a thin film, so a flooded
+            // sandbox recovers while a running stream still reads as a stream.
+            nd = Math.max(0, nd - seep * (0.28 + Math.min(1.1, nd * 9)))
+          }
         }
 
         d[k] = nd

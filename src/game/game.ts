@@ -442,7 +442,12 @@ export class Game {
     this.idleTime += dt
     if (this.moundTimer > 0) this.moundTimer = Math.max(0, this.moundTimer - dt)
 
-    if (this.pointerDown && this.tray.selected === 'pour' && this.phase !== 'menu') {
+    const canPour =
+      this.pointerDown &&
+      this.tray.selected === 'pour' &&
+      this.phase !== 'menu' &&
+      this.phase !== 'reveal'
+    if (canPour) {
       this.pourTime += dt
       const rate = 0.1
       const ramp = smoothstep(0, 0.18, this.pourTime)

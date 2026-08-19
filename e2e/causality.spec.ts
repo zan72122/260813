@@ -138,3 +138,36 @@ test('water pools in a hole and stops at a bank', async ({ page }) => {
   expect(r.pit).toBeGreaterThan(0.2)
   expect(r.past).toBeLessThan(r.pit * 0.3)
 })
+
+test('every terrain pattern can be solved by digging one channel', async ({ page }) => {
+  await boot(page)
+  for (const pattern of ['gentle', 'sidepath', 'ridge', 'sandbox']) {
+    const r = await page.evaluate((p) => {
+      const g: any = (window as any).__sand.game
+      const cfg = (window as any).__sandCfg
+      ;(window as any).__sand.setPattern(p)
+      const t = g.terrain
+      const w = g.water
+      w.reset()
+
+      // A plausible child's channel: three passes straight down the middle.
+      for (let pass = 0; pass < 3; pass++) {
+        for (let x = -4.7; x < cfg.CASTLE_X - 1.9; x += 0.25) {
+          t.dig(x, 0, x + 0.25, 0, 0.5, 0.085 * 0.85)
+        }
+      }
+      let ridgeCrest = -Infinity
+      for (let x = -5; x < 3; x += 0.1) ridgeCrest = Math.max(ridgeCrest, t.heightAt(x, 0))
+
+      for (let s = 0; s < 120 * 70; s++) {
+        const time = s / 120
+        const pouring = time < 8 || (time > 12 && time < 20) || (time > 26 && time < 34)
+        if (pouring) w.add(t, -5.2, 0, 0.34, 0.46 / 120)
+        w.step(t, 1 / 120)
+      }
+      return { pattern: p, moat: +w.moatFill.toFixed(3), crest: +ridgeCrest.toFixed(3) }
+    }, pattern)
+    console.log('solve', JSON.stringify(r))
+    expect(r.moat, `${pattern} should fill the moat`).toBeGreaterThan(0.9)
+  }
+})
