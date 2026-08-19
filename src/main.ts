@@ -9,13 +9,33 @@ const uiRoot = document.getElementById('ui') as HTMLElement
 
 const fast = isFastE2E()
 
-const renderer = new WebGLRenderer({
-  canvas,
-  antialias: !fast,
-  alpha: false,
-  powerPreference: 'high-performance',
-  stencil: false,
-})
+function createRenderer(): WebGLRenderer | null {
+  try {
+    return new WebGLRenderer({
+      canvas,
+      antialias: !fast,
+      alpha: false,
+      powerPreference: 'high-performance',
+      stencil: false,
+    })
+  } catch {
+    return null
+  }
+}
+
+const maybeRenderer = createRenderer()
+if (!maybeRenderer) {
+  // Nothing here needs words a child has to read, but a grown-up looking at a
+  // blank screen deserves to know why.
+  uiRoot.innerHTML =
+    '<div style="position:absolute;inset:0;display:grid;place-items:center;' +
+    'padding:24px;text-align:center;color:#6b4a1e;font-weight:700;' +
+    'background:#e6c48e;pointer-events:auto">' +
+    'このブラウザでは WebGL がつかえないみたいです。<br>Safari の設定を確認してください。' +
+    '</div>'
+  throw new Error('WebGL is unavailable')
+}
+const renderer: WebGLRenderer = maybeRenderer
 renderer.outputColorSpace = SRGBColorSpace
 renderer.toneMapping = NoToneMapping
 renderer.shadowMap.enabled = !fast
@@ -28,7 +48,9 @@ const game = new Game(renderer, uiRoot)
 // ---------------------------------------------------------------- viewport
 
 let dpr = 1
-let targetDpr = 1
+// Start close to the device's real resolution and back off only if frames
+// come in slow; ramping up from 1 would leave the first seconds looking soft.
+let targetDpr = fast ? 1 : Math.min(window.devicePixelRatio || 1, 2)
 
 function readSafeArea() {
   const cs = getComputedStyle(document.documentElement)
@@ -105,7 +127,6 @@ const endPointer = (e: PointerEvent) => {
 }
 canvas.addEventListener('pointerup', endPointer, { passive: false })
 canvas.addEventListener('pointercancel', endPointer, { passive: false })
-canvas.addEventListener('pointerleave', endPointer, { passive: false })
 window.addEventListener('blur', () => game.cancelPointer())
 
 // Safari still fires these for pinch/double-tap zoom; the game never needs them.
@@ -146,12 +167,12 @@ function frame(): void {
   const ms = dt * 1000
   if (ms > 22) slowFrames++
   else if (ms < 13) fastFrames++
-  if (frames >= 45) {
+  if (frames >= 30) {
     const maxDpr = fast ? 1 : Math.min(window.devicePixelRatio || 1, 2)
-    if (slowFrames > 18 && targetDpr > 0.72) {
+    if (slowFrames > 12 && targetDpr > 0.72) {
       targetDpr = Math.max(0.7, targetDpr - 0.2)
       resize()
-    } else if (fastFrames > 38 && targetDpr < maxDpr) {
+    } else if (fastFrames > 26 && targetDpr < maxDpr) {
       targetDpr = Math.min(maxDpr, targetDpr + 0.15)
       resize()
     }

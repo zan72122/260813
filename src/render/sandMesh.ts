@@ -12,6 +12,8 @@ import { clamp } from '../core/util'
 const WX = GRID_NX + 1
 const WZ = GRID_NZ + 1
 
+const W_STEP = 5
+
 const DRY = [0.94, 0.79, 0.5]
 const WET = [0.44, 0.31, 0.185]
 
@@ -134,6 +136,15 @@ export class SandMesh {
         const hr = i < WX - 1 ? h[k + 1] : hk
         const hu = j > 0 ? h[k - WX] : hk
         const hd = j < WZ - 1 ? h[k + WX] : hk
+
+        // A second, wider stencil. The narrow one only sees sharp detail;
+        // this one catches the metre-scale shapes — ridges, hollows, the
+        // side channel — that the child actually has to read.
+        const wi0 = i > W_STEP ? k - W_STEP : k
+        const wi1 = i < WX - 1 - W_STEP ? k + W_STEP : k
+        const wj0 = j > W_STEP ? k - W_STEP * WX : k
+        const wj1 = j < WZ - 1 - W_STEP ? k + W_STEP * WX : k
+        const curvWide = (h[wi0] + h[wi1] + h[wj0] + h[wj1]) * 0.25 - hk
         let nx = (hl - hr) * inv
         let nz = (hu - hd) * inv
         const len = Math.hypot(nx, 1, nz) || 1
@@ -149,8 +160,8 @@ export class SandMesh {
         // the ground has moved from where it started for the broad read.
         // A groove sits in shadow; a heaped bank catches the light.
         const curv = (hl + hr + hu + hd) * 0.25 - hk
-        const dug = clamp((t.baseHeight[k] - hk) * 5, -1, 1)
-        const ao = clamp(curv * 5.0 + dug, -1, 1.2)
+        const dug = clamp((t.baseHeight[k] - hk) * 3.6, -1, 1)
+        const ao = clamp(curv * 4.0 + curvWide * 2.6 + dug, -1, 1.2)
         const relief = ao > 0 ? 1 - ao * 0.42 : 1 - ao * 0.22
 
         const speck = 0.9 + t.grainTint[k] * 0.18

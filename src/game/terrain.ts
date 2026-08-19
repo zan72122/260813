@@ -143,7 +143,7 @@ export class Terrain {
         let y = 1.1 - ((x + SAND_X / 2) / SAND_X) * 0.75
 
         // Gentle natural undulation — never enough to trap water on its own.
-        y += (noise.fbm(x * 0.38 + 3.1, z * 0.38 - 2.4) - 0.5) * 0.045
+        y += (noise.fbm(x * 0.36 + 3.1, z * 0.36 - 2.4) - 0.5) * 0.06
 
         // Raised lip along the sandbox border so water does not just run off.
         const edge = Math.max(
@@ -284,14 +284,14 @@ export class Terrain {
 
     if (p === 'gentle') {
       // A single clean run. The first river should succeed easily.
-      trough(-3.6, 0, 2.2, 0, 0.6, 0.05)
-      bump(-0.6, 2.2, 1.5, 0.07)
-      bump(0.8, -2.3, 1.6, 0.06)
+      trough(-3.6, 0, 2.2, 0, 0.7, 0.075)
+      bump(-0.7, 2.0, 1.5, 0.13)
+      bump(1.0, -2.1, 1.6, 0.12)
     } else if (p === 'sidepath') {
       // A tempting low side route that steals the water away from the castle.
-      trough(-3.0, 0.2, 0.2, 2.6, 0.66, 0.115)
-      bump(1.4, 0.1, 1.3, 0.08)
-      bump(-1.6, -2.0, 1.7, 0.06)
+      trough(-3.0, 0.2, 0.6, 2.4, 0.7, 0.19)
+      bump(1.5, 0.0, 1.35, 0.16)
+      bump(-1.6, -1.9, 1.7, 0.12)
     } else if (p === 'ridge') {
       // A sand ridge across the middle: dig through it, or go around.
       for (let j = 0; j < WZ; j++) {
@@ -300,19 +300,19 @@ export class Terrain {
           const x = this.wx(i)
           const k = j * WX + i
           if (this.castleMask[k] || this.moatMask[k]) continue
-          const band = Math.exp(-((x - 0.2) * (x - 0.2)) / 0.55)
+          const band = Math.exp(-((x - 0.2) * (x - 0.2)) / 0.42)
           const wobble = Math.sin(z * 0.9) * 0.16
-          h[k] += band * (0.15 + wobble * 0.2)
+          h[k] += band * (0.27 + wobble * 0.3)
         }
       }
-      trough(-4.0, -0.4, -1.6, -0.2, 0.55, 0.05)
+      trough(-4.2, -0.4, -1.9, -0.2, 0.6, 0.07)
     } else {
       // Free sandbox: quiet, almost flat, nothing in the way.
       for (let j = 0; j < WZ; j++) {
         for (let i = 0; i < WX; i++) {
           const k = j * WX + i
           if (this.castleMask[k] || this.moatMask[k]) continue
-          h[k] += (noise.fbm(this.wx(i) * 0.7, this.wz(j) * 0.7) - 0.5) * 0.03
+          h[k] += (noise.fbm(this.wx(i) * 0.7, this.wz(j) * 0.7) - 0.5) * 0.05
         }
       }
     }
