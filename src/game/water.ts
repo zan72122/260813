@@ -1,8 +1,10 @@
-import { CELL, GRID_N, MOAT_TARGET_DEPTH, WATER_EPS } from '../core/config'
+import { CELL, GRID_NX, GRID_NZ, MOAT_TARGET_DEPTH, WATER_EPS } from '../core/config'
 import { clamp } from '../core/util'
 import { Rect, Terrain, emptyRect, growRect, rectValid } from './terrain'
 
-const W = GRID_N + 1
+const WX = GRID_NX + 1
+const WZ = GRID_NZ + 1
+const COUNT = WX * WZ
 
 /**
  * A "virtual pipe" shallow-water model (Mei-style): each cell exchanges volume
@@ -14,14 +16,14 @@ const W = GRID_N + 1
  *   - it pools in holes and overflows when the hole is full
  */
 export class Water {
-  readonly depth = new Float32Array(W * W)
-  private readonly fL = new Float32Array(W * W)
-  private readonly fR = new Float32Array(W * W)
-  private readonly fU = new Float32Array(W * W)
-  private readonly fD = new Float32Array(W * W)
+  readonly depth = new Float32Array(COUNT)
+  private readonly fL = new Float32Array(COUNT)
+  private readonly fR = new Float32Array(COUNT)
+  private readonly fU = new Float32Array(COUNT)
+  private readonly fD = new Float32Array(COUNT)
   /** Horizontal velocity, used for foam, flow direction and particles. */
-  readonly velX = new Float32Array(W * W)
-  readonly velZ = new Float32Array(W * W)
+  readonly velX = new Float32Array(COUNT)
+  readonly velZ = new Float32Array(COUNT)
 
   /** Bounding box of cells that currently hold water (plus a margin). */
   activeRect: Rect = emptyRect()
@@ -58,10 +60,10 @@ export class Water {
 
   /** Pour water into a disc. Returns the volume actually added. */
   add(terrain: Terrain, x: number, z: number, radius: number, volume: number): number {
-    const i0 = clamp(Math.floor(terrain.gi(x - radius)), 1, W - 2)
-    const i1 = clamp(Math.ceil(terrain.gi(x + radius)), 1, W - 2)
-    const j0 = clamp(Math.floor(terrain.gj(z - radius)), 1, W - 2)
-    const j1 = clamp(Math.ceil(terrain.gj(z + radius)), 1, W - 2)
+    const i0 = clamp(Math.floor(terrain.gi(x - radius)), 1, WX - 2)
+    const i1 = clamp(Math.ceil(terrain.gi(x + radius)), 1, WX - 2)
+    const j0 = clamp(Math.floor(terrain.gj(z - radius)), 1, WZ - 2)
+    const j1 = clamp(Math.ceil(terrain.gj(z + radius)), 1, WZ - 2)
     let weightSum = 0
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
@@ -75,7 +77,7 @@ export class Water {
       for (let i = i0; i <= i1; i++) {
         const d = Math.hypot(terrain.wx(i) - x, terrain.wz(j) - z)
         if (d > radius) continue
-        const k = j * W + i
+        const k = j * WX + i
         this.depth[k] += per * (1 - d / radius)
         growRect(this.activeRect, i, j)
       }
@@ -99,8 +101,8 @@ export class Water {
     r = {
       i0: Math.max(1, r.i0 - 2),
       j0: Math.max(1, r.j0 - 2),
-      i1: Math.min(W - 2, r.i1 + 2),
-      j1: Math.min(W - 2, r.j1 + 2),
+      i1: Math.min(WX - 2, r.i1 + 2),
+      j1: Math.min(WZ - 2, r.j1 + 2),
     }
 
     const A = CELL * CELL * 0.42 // effective pipe cross-section
@@ -112,15 +114,15 @@ export class Water {
     // --- 1. flux update -------------------------------------------------
     for (let j = r.j0; j <= r.j1; j++) {
       for (let i = r.i0; i <= r.i1; i++) {
-        const k = j * W + i
+        const k = j * WX + i
         const dk = d[k]
         if (dk <= 0 && fL[k] === 0 && fR[k] === 0 && fU[k] === 0 && fD[k] === 0) continue
         const sk = h[k] + dk
 
         const nl = k - 1
         const nr = k + 1
-        const nu = k - W
-        const nd = k + W
+        const nu = k - WX
+        const nd = k + WX
 
         fL[k] = Math.max(0, fL[k] * damping + kFlux * (sk - (h[nl] + d[nl])))
         fR[k] = Math.max(0, fR[k] * damping + kFlux * (sk - (h[nr] + d[nr])))
@@ -154,8 +156,8 @@ export class Water {
 
     for (let j = r.j0; j <= r.j1; j++) {
       for (let i = r.i0; i <= r.i1; i++) {
-        const k = j * W + i
-        const inflow = fR[k - 1] + fL[k + 1] + fD[k - W] + fU[k + W]
+        const k = j * WX + i
+        const inflow = fR[k - 1] + fL[k + 1] + fD[k - WX] + fU[k + WX]
         const outflow = fL[k] + fR[k] + fU[k] + fD[k]
         let nd = d[k] + ((inflow - outflow) * dt) / cellArea
         if (nd < 0) nd = 0
@@ -176,7 +178,7 @@ export class Water {
         d[k] = nd
 
         const vx = (fR[k - 1] - fL[k] + fR[k] - fL[k + 1]) * 0.5
-        const vz = (fD[k - W] - fU[k] + fD[k] - fU[k + W]) * 0.5
+        const vz = (fD[k - WX] - fU[k] + fD[k] - fU[k + WX]) * 0.5
         this.velX[k] = vx
         this.velZ[k] = vz
 
@@ -225,8 +227,8 @@ export class Water {
     return {
       i0: Math.max(0, r.i0 - 2),
       j0: Math.max(0, r.j0 - 2),
-      i1: Math.min(W - 1, r.i1 + 2),
-      j1: Math.min(W - 1, r.j1 + 2),
+      i1: Math.min(WX - 1, r.i1 + 2),
+      j1: Math.min(WZ - 1, r.j1 + 2),
     }
   }
 }

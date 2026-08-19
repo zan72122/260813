@@ -5,14 +5,15 @@ import {
   MeshStandardMaterial,
   type WebGLProgramParametersWithUniforms,
 } from 'three'
-import { CELL, GRID_N } from '../core/config'
+import { CELL, GRID_NX, GRID_NZ } from '../core/config'
 import { Rect, Terrain, rectValid } from '../game/terrain'
 import { clamp } from '../core/util'
 
-const W = GRID_N + 1
+const WX = GRID_NX + 1
+const WZ = GRID_NZ + 1
 
-const DRY = [0.945, 0.845, 0.632]
-const WET = [0.475, 0.362, 0.236]
+const DRY = [0.94, 0.79, 0.5]
+const WET = [0.44, 0.31, 0.185]
 
 /**
  * The sand surface. Positions/normals/colours are refreshed only inside the
@@ -27,28 +28,28 @@ export class SandMesh {
   private readonly wet: Float32Array
 
   constructor(private readonly terrain: Terrain) {
-    const count = W * W
+    const count = WX * WZ
     this.pos = new Float32Array(count * 3)
     this.nrm = new Float32Array(count * 3)
     this.col = new Float32Array(count * 3)
     this.wet = new Float32Array(count)
 
-    for (let j = 0; j < W; j++) {
-      for (let i = 0; i < W; i++) {
-        const k = j * W + i
+    for (let j = 0; j < WZ; j++) {
+      for (let i = 0; i < WX; i++) {
+        const k = j * WX + i
         this.pos[k * 3] = terrain.wx(i)
         this.pos[k * 3 + 2] = terrain.wz(j)
         this.nrm[k * 3 + 1] = 1
       }
     }
 
-    const idx = new Uint32Array(GRID_N * GRID_N * 6)
+    const idx = new Uint32Array(GRID_NX * GRID_NZ * 6)
     let p = 0
-    for (let j = 0; j < GRID_N; j++) {
-      for (let i = 0; i < GRID_N; i++) {
-        const a = j * W + i
+    for (let j = 0; j < GRID_NZ; j++) {
+      for (let i = 0; i < GRID_NX; i++) {
+        const a = j * WX + i
         const b = a + 1
-        const c = a + W
+        const c = a + WX
         const d = c + 1
         idx[p++] = a
         idx[p++] = c
@@ -116,23 +117,23 @@ export class SandMesh {
 
     const i0 = Math.max(0, r.i0 - 1)
     const j0 = Math.max(0, r.j0 - 1)
-    const i1 = Math.min(W - 1, r.i1 + 1)
-    const j1 = Math.min(W - 1, r.j1 + 1)
+    const i1 = Math.min(WX - 1, r.i1 + 1)
+    const j1 = Math.min(WZ - 1, r.j1 + 1)
 
     const h = t.height
     const inv = 1 / (2 * CELL)
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
-        const k = j * W + i
+        const k = j * WX + i
         const hk = h[k]
         this.pos[k * 3 + 1] = hk
 
         // Analytic normal from neighbouring heights — far cheaper than
         // recomputing face normals every frame.
         const hl = i > 0 ? h[k - 1] : hk
-        const hr = i < W - 1 ? h[k + 1] : hk
-        const hu = j > 0 ? h[k - W] : hk
-        const hd = j < W - 1 ? h[k + W] : hk
+        const hr = i < WX - 1 ? h[k + 1] : hk
+        const hu = j > 0 ? h[k - WX] : hk
+        const hd = j < WZ - 1 ? h[k + WX] : hk
         let nx = (hl - hr) * inv
         let nz = (hu - hd) * inv
         const len = Math.hypot(nx, 1, nz) || 1
@@ -142,9 +143,17 @@ export class SandMesh {
 
         const wetv = clamp(t.wetness[k], 0, 1)
         this.wet[k] = wetv
-        const speck = 0.93 + t.grainTint[k] * 0.13
-        const packed = 0.96 + t.compaction[k] * 0.05
-        const shade = speck * packed
+
+        // Cheap curvature shading. Concave sand (a groove) darkens, convex
+        // sand (a bank) catches light — so a dug channel is legible even
+        // before a single drop of water arrives.
+        const curv = (hl + hr + hu + hd) * 0.25 - hk
+        const ao = clamp(curv * 4.2, -0.5, 0.85)
+        const relief = ao > 0 ? 1 - ao * 0.42 : 1 - ao * 0.14
+
+        const speck = 0.9 + t.grainTint[k] * 0.18
+        const packed = 0.95 + t.compaction[k] * 0.07
+        const shade = speck * packed * relief
         for (let c = 0; c < 3; c++) {
           this.col[k * 3 + c] = (DRY[c] * (1 - wetv) + WET[c] * wetv) * shade
         }
@@ -152,14 +161,14 @@ export class SandMesh {
     }
 
     const rows = j1 - j0 + 1
-    const offset = j0 * W
-    const cnt = rows * W
+    const offset = j0 * WX
+    const cnt = rows * WX
     updateRange(this.geo.getAttribute('position') as BufferAttribute, offset * 3, cnt * 3)
     updateRange(this.geo.getAttribute('normal') as BufferAttribute, offset * 3, cnt * 3)
     updateRange(this.geo.getAttribute('color') as BufferAttribute, offset * 3, cnt * 3)
     updateRange(this.geo.getAttribute('aWet') as BufferAttribute, offset, cnt)
 
-    t.dirty = { i0: W, j0: W, i1: -1, j1: -1 }
+    t.dirty = { i0: 1e9, j0: 1e9, i1: -1, j1: -1 }
   }
 
   dispose(): void {

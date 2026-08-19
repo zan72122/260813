@@ -7,12 +7,13 @@ import {
   ShaderMaterial,
   Vector3,
 } from 'three'
-import { CELL, GRID_N, WATER_EPS } from '../core/config'
+import { CELL, GRID_NX, GRID_NZ, WATER_EPS } from '../core/config'
 import { Rect, Terrain, rectValid } from '../game/terrain'
 import { Water } from '../game/water'
 import { clamp } from '../core/util'
 
-const W = GRID_N + 1
+const WX = GRID_NX + 1
+const WZ = GRID_NZ + 1
 
 const VERT = /* glsl */ `
 attribute float aDepth;
@@ -84,15 +85,15 @@ export class WaterMesh {
   private lastRect: Rect | null = null
 
   constructor(private readonly terrain: Terrain) {
-    const count = W * W
+    const count = WX * WZ
     this.pos = new Float32Array(count * 3)
     this.nrm = new Float32Array(count * 3)
     this.dep = new Float32Array(count)
     this.foam = new Float32Array(count)
 
-    for (let j = 0; j < W; j++) {
-      for (let i = 0; i < W; i++) {
-        const k = j * W + i
+    for (let j = 0; j < WZ; j++) {
+      for (let i = 0; i < WX; i++) {
+        const k = j * WX + i
         this.pos[k * 3] = terrain.wx(i)
         this.pos[k * 3 + 1] = -1
         this.pos[k * 3 + 2] = terrain.wz(j)
@@ -100,17 +101,17 @@ export class WaterMesh {
       }
     }
 
-    const idx = new Uint32Array(GRID_N * GRID_N * 6)
+    const idx = new Uint32Array(GRID_NX * GRID_NZ * 6)
     let p = 0
-    for (let j = 0; j < GRID_N; j++) {
-      for (let i = 0; i < GRID_N; i++) {
-        const a = j * W + i
+    for (let j = 0; j < GRID_NZ; j++) {
+      for (let i = 0; i < GRID_NX; i++) {
+        const a = j * WX + i
         idx[p++] = a
-        idx[p++] = a + W
+        idx[p++] = a + WX
         idx[p++] = a + 1
         idx[p++] = a + 1
-        idx[p++] = a + W
-        idx[p++] = a + W + 1
+        idx[p++] = a + WX
+        idx[p++] = a + WX + 1
       }
     }
 
@@ -159,8 +160,8 @@ export class WaterMesh {
     }
     const i0 = Math.max(0, target.i0 - 1)
     const j0 = Math.max(0, target.j0 - 1)
-    const i1 = Math.min(W - 1, target.i1 + 1)
-    const j1 = Math.min(W - 1, target.j1 + 1)
+    const i1 = Math.min(WX - 1, target.i1 + 1)
+    const j1 = Math.min(WZ - 1, target.j1 + 1)
 
     const h = this.terrain.height
     const d = water.depth
@@ -168,7 +169,7 @@ export class WaterMesh {
 
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
-        const k = j * W + i
+        const k = j * WX + i
         const dk = d[k]
         const surf = h[k] + Math.max(dk, 0)
         // Lift a hair above the sand so the two surfaces never z-fight.
@@ -177,9 +178,9 @@ export class WaterMesh {
 
         if (dk > WATER_EPS) {
           const sl = h[k - 1] + (i > 0 ? d[k - 1] : 0)
-          const sr = h[k + 1] + (i < W - 1 ? d[k + 1] : 0)
-          const su = h[k - W] + (j > 0 ? d[k - W] : 0)
-          const sd = h[k + W] + (j < W - 1 ? d[k + W] : 0)
+          const sr = h[k + 1] + (i < WX - 1 ? d[k + 1] : 0)
+          const su = h[k - WX] + (j > 0 ? d[k - WX] : 0)
+          const sd = h[k + WX] + (j < WZ - 1 ? d[k + WX] : 0)
           let nx = (sl - sr) * inv
           let nz = (su - sd) * inv
           const len = Math.hypot(nx, 1, nz) || 1
@@ -199,8 +200,8 @@ export class WaterMesh {
       }
     }
 
-    const offset = j0 * W
-    const cnt = (j1 - j0 + 1) * W
+    const offset = j0 * WX
+    const cnt = (j1 - j0 + 1) * WX
     setRange(this.geo.getAttribute('position') as BufferAttribute, offset * 3, cnt * 3)
     setRange(this.geo.getAttribute('normal') as BufferAttribute, offset * 3, cnt * 3)
     setRange(this.geo.getAttribute('aDepth') as BufferAttribute, offset, cnt)
@@ -212,7 +213,7 @@ export class WaterMesh {
   reset(): void {
     this.dep.fill(0)
     this.foam.fill(0)
-    for (let k = 0; k < W * W; k++) this.pos[k * 3 + 1] = -1
+    for (let k = 0; k < WX * WZ; k++) this.pos[k * 3 + 1] = -1
     ;(this.geo.getAttribute('position') as BufferAttribute).needsUpdate = true
     ;(this.geo.getAttribute('aDepth') as BufferAttribute).needsUpdate = true
     ;(this.geo.getAttribute('aFoam') as BufferAttribute).needsUpdate = true

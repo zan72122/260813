@@ -3,7 +3,8 @@ import {
   CASTLE_X,
   CASTLE_Z,
   MOAT_OUTER,
-  SAND_SIZE,
+  SAND_X,
+  SAND_Z,
   SOURCE_X,
   SOURCE_Z,
   isFastE2E,
@@ -202,8 +203,8 @@ export class Game {
     const changed = o !== this.orientation
     this.orientation = o
     this.rig.setOrientation(o, changed && this.time < 0.5)
-    this.rig.resize(w, h)
     this.tray.layout(w, h, safe)
+    this.rig.resize(w, h, this.tray.reserve(safe))
     this.particles.setPixelScale(h)
   }
 
@@ -261,9 +262,10 @@ export class Game {
       if (t <= 0) return null
       hitT = t
     }
-    const lim = SAND_SIZE / 2 - 0.12
-    const x = clamp(ro.x + rd.x * hitT, -lim, lim)
-    const z = clamp(ro.z + rd.z * hitT, -lim, lim)
+    const limX = SAND_X / 2 - 0.1
+    const limZ = SAND_Z / 2 - 0.1
+    const x = clamp(ro.x + rd.x * hitT, -limX, limX)
+    const z = clamp(ro.z + rd.z * hitT, -limZ, limZ)
     return { x, z }
   }
 
@@ -403,7 +405,7 @@ export class Game {
     const i0 = Math.max(1, Math.floor(t.gi(x - R)))
     const i1 = Math.min(t.w - 2, Math.ceil(t.gi(x + R)))
     const j0 = Math.max(1, Math.floor(t.gj(z - R)))
-    const j1 = Math.min(t.w - 2, Math.ceil(t.gj(z + R)))
+    const j1 = Math.min(t.h - 2, Math.ceil(t.gj(z + R)))
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const k = j * t.w + i

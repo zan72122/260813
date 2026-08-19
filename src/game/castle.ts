@@ -13,17 +13,22 @@ import {
   PointsMaterial,
   Points,
   SphereGeometry,
+
 } from 'three'
-import { CASTLE_X, CASTLE_Z } from '../core/config'
+import { CASTLE_X, CASTLE_Z, MOAT_INNER, MOAT_OUTER } from '../core/config'
 import { clamp, damp, smoothstep } from '../core/util'
 
-const STONE = new Color('#cfc3ad')
-const STONE_DARK = new Color('#a99b83')
-const WOOD = new Color('#a9754a')
-const WOOD_DARK = new Color('#8a5c37')
-const ROOF_A = new Color('#f48fb1')
-const ROOF_B = new Color('#7fc8e8')
-const ROOF_C = new Color('#ffd166')
+const STONE = '#e0d6c2'
+const STONE_MID = '#c6b99f'
+const STONE_DARK = '#a3947a'
+const WOOD = '#b4794c'
+const WOOD_DARK = '#8a5c37'
+const ROOF_PINK = '#f2799f'
+const ROOF_BLUE = '#5fbde2'
+const ROOF_GOLD = '#ffc84d'
+
+/** Height of the castle island's flat top, matching Terrain.carveMoat. */
+const ISLAND_Y = 0.6
 
 /**
  * The reward object. Everything on it is driven by one number — how full the
@@ -33,7 +38,7 @@ export class Castle {
   readonly group = new Group()
   private readonly wheel = new Group()
   private readonly bridge = new Group()
-  private readonly flags: Object3D[] = []
+  private readonly flags: Group[] = []
   private readonly flagCloth: Mesh[] = []
   private readonly fountain: Points
   private readonly fountainPos: Float32Array
@@ -42,7 +47,7 @@ export class Castle {
   private readonly disposables: Array<{ dispose: () => void }> = []
 
   private wheelSpeed = 0
-  private bridgeAngle = 0
+  private bridgeAngle = -Math.PI / 2
   private flagRaise = 0
   private fountainPower = 0
   private t = 0
@@ -55,15 +60,16 @@ export class Castle {
   constructor() {
     this.group.position.set(CASTLE_X, 0, CASTLE_Z)
 
-    const mat = (c: Color, rough = 0.85) => {
-      const m = new MeshStandardMaterial({ color: c, roughness: rough, metalness: 0 })
+    const mat = (c: string, rough = 0.86) => {
+      const m = new MeshStandardMaterial({ color: new Color(c), roughness: rough, metalness: 0 })
       this.disposables.push(m)
       return m
     }
     const stone = mat(STONE)
+    const stoneMid = mat(STONE_MID)
     const stoneDark = mat(STONE_DARK)
-    const wood = mat(WOOD, 0.9)
-    const woodDark = mat(WOOD_DARK, 0.9)
+    const wood = mat(WOOD, 0.92)
+    const woodDark = mat(WOOD_DARK, 0.92)
 
     const add = (geo: BufferGeometry, m: MeshStandardMaterial, parent: Object3D = this.group) => {
       this.disposables.push(geo)
@@ -74,54 +80,83 @@ export class Castle {
       return mesh
     }
 
-    // --- keep -----------------------------------------------------------
-    const baseY = 0.62
-    const plinth = add(new CylinderGeometry(1.06, 1.16, 0.16, 24), stoneDark)
-    plinth.position.y = baseY + 0.04
+    // --- island courtyard ------------------------------------------------
+    const yard = add(new CircleGeometry(MOAT_INNER + 0.1, 32), mat('#d9c7a1', 0.99))
+    yard.rotation.x = -Math.PI / 2
+    yard.position.y = ISLAND_Y + 0.012
+    yard.castShadow = false
 
-    const keep = add(new BoxGeometry(0.92, 0.72, 0.92), stone)
-    keep.position.y = baseY + 0.48
+    const plinth = add(new CylinderGeometry(1.12, 1.24, 0.2, 28), stoneMid)
+    plinth.position.y = ISLAND_Y + 0.1
 
-    const keepTop = add(new BoxGeometry(1.04, 0.12, 1.04), stoneDark)
-    keepTop.position.y = baseY + 0.9
-
-    // crenellations
-    for (let i = 0; i < 4; i++) {
-      for (let s = -1; s <= 1; s += 2) {
-        const c = add(new BoxGeometry(0.16, 0.14, 0.16), stone)
-        const off = -0.39 + i * 0.26
-        if (i % 2 === 0) c.position.set(off, baseY + 1.02, s * 0.44)
-        else c.position.set(s * 0.44, baseY + 1.02, off)
-      }
+    // --- curtain wall with crenellations ---------------------------------
+    const wall = add(new CylinderGeometry(1.04, 1.09, 0.52, 28, 1, true), stoneMid)
+    wall.position.y = ISLAND_Y + 0.44
+    const wallTop = add(new CylinderGeometry(1.12, 1.12, 0.08, 28), stoneDark)
+    wallTop.position.y = ISLAND_Y + 0.72
+    const merlonGeo = new BoxGeometry(0.16, 0.17, 0.14)
+    this.disposables.push(merlonGeo)
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2
+      // leave the gate side open
+      if (Math.abs(((a + Math.PI) % (Math.PI * 2)) - Math.PI) < 0.45) continue
+      const m = new Mesh(merlonGeo, stone)
+      m.position.set(Math.cos(a) * 1.08, ISLAND_Y + 0.84, Math.sin(a) * 1.08)
+      m.rotation.y = -a
+      m.castShadow = true
+      this.group.add(m)
     }
 
-    const roof = add(new ConeGeometry(0.78, 0.62, 4), mat(ROOF_A, 0.7))
-    roof.position.y = baseY + 1.27
-    roof.rotation.y = Math.PI / 4
+    // --- central keep ----------------------------------------------------
+    const keep = add(new BoxGeometry(0.86, 0.9, 0.86), stone)
+    keep.position.y = ISLAND_Y + 0.82
+    const keepBand = add(new BoxGeometry(0.98, 0.11, 0.98), stoneDark)
+    keepBand.position.y = ISLAND_Y + 1.29
+    const keepRoof = add(new ConeGeometry(0.74, 1.05, 4), mat(ROOF_PINK, 0.72))
+    keepRoof.position.y = ISLAND_Y + 1.82
+    keepRoof.rotation.y = Math.PI / 4
+    const finial = add(new SphereGeometry(0.075, 10, 8), mat(ROOF_GOLD, 0.5))
+    finial.position.y = ISLAND_Y + 2.4
 
-    // --- corner towers --------------------------------------------------
-    const towerSpots: Array<[number, number, Color]> = [
-      [-0.62, -0.62, ROOF_B],
-      [-0.62, 0.62, ROOF_C],
-      [0.66, 0.0, ROOF_B],
+    // windows so the keep does not read as a plain box
+    const winGeo = new BoxGeometry(0.13, 0.24, 0.04)
+    this.disposables.push(winGeo)
+    const winMat = mat('#5b4a34', 0.9)
+    for (const [wx, wz, ry] of [
+      [-0.44, 0.2, -Math.PI / 2],
+      [-0.44, -0.2, -Math.PI / 2],
+      [0.2, 0.44, 0],
+    ] as Array<[number, number, number]>) {
+      const wmesh = new Mesh(winGeo, winMat)
+      wmesh.position.set(wx, ISLAND_Y + 0.92, wz)
+      wmesh.rotation.y = ry
+      this.group.add(wmesh)
+    }
+
+    // --- corner towers ---------------------------------------------------
+    const towerR = 1.02
+    const towerSpots: Array<[number, number, string, string]> = [
+      [Math.cos(-1.9) * towerR, Math.sin(-1.9) * towerR, ROOF_BLUE, ROOF_PINK],
+      [Math.cos(1.9) * towerR, Math.sin(1.9) * towerR, ROOF_GOLD, ROOF_BLUE],
+      [towerR, 0, ROOF_BLUE, ROOF_GOLD],
     ]
-    for (const [tx, tz, roofColor] of towerSpots) {
-      const t = add(new CylinderGeometry(0.21, 0.24, 0.78, 14), stone)
-      t.position.set(tx, baseY + 0.44, tz)
-      const band = add(new CylinderGeometry(0.25, 0.25, 0.08, 14), stoneDark)
-      band.position.set(tx, baseY + 0.8, tz)
-      const cap = add(new ConeGeometry(0.29, 0.4, 14), mat(roofColor, 0.7))
-      cap.position.set(tx, baseY + 1.02, tz)
+    for (const [tx, tz, roofColor, flagColor] of towerSpots) {
+      const t = add(new CylinderGeometry(0.23, 0.27, 1.06, 16), stone)
+      t.position.set(tx, ISLAND_Y + 0.6, tz)
+      const band = add(new CylinderGeometry(0.29, 0.29, 0.09, 16), stoneDark)
+      band.position.set(tx, ISLAND_Y + 1.15, tz)
+      // Tall, narrow spire: the shape has to survive being 40 px tall.
+      const cap = add(new ConeGeometry(0.3, 0.76, 16), mat(roofColor, 0.72))
+      cap.position.set(tx, ISLAND_Y + 1.56, tz)
 
-      // Flag on a mast — rises when the moat is full.
       const flag = new Group()
-      flag.position.set(tx, baseY + 1.2, tz)
-      const mast = add(new CylinderGeometry(0.017, 0.017, 0.5, 6), woodDark, flag)
+      flag.position.set(tx, ISLAND_Y + 1.92, tz)
+      const mast = add(new CylinderGeometry(0.02, 0.02, 0.5, 6), woodDark, flag)
       mast.position.y = 0.25
-      const clothGeo = new BoxGeometry(0.24, 0.14, 0.012)
+      const clothGeo = new BoxGeometry(0.3, 0.17, 0.014)
       this.disposables.push(clothGeo)
-      const cloth = new Mesh(clothGeo, mat(roofColor === ROOF_B ? ROOF_A : ROOF_B, 0.6))
-      cloth.position.set(0.13, 0.4, 0)
+      const cloth = new Mesh(clothGeo, mat(flagColor, 0.6))
+      cloth.position.set(0.16, 0.4, 0)
       cloth.castShadow = true
       flag.add(cloth)
       this.flagCloth.push(cloth)
@@ -130,62 +165,61 @@ export class Castle {
       this.flags.push(flag)
     }
 
-    // --- gatehouse, facing the incoming river (-X) ----------------------
-    const gate = add(new BoxGeometry(0.34, 0.66, 0.72), stone)
-    gate.position.set(-0.86, baseY + 0.36, 0)
-    const arch = add(new CylinderGeometry(0.2, 0.2, 0.36, 14, 1, false, 0, Math.PI), stoneDark)
-    arch.rotation.z = Math.PI / 2
-    arch.rotation.y = Math.PI / 2
-    arch.position.set(-0.86, baseY + 0.36, 0)
+    // --- gatehouse + drawbridge, facing the incoming river (-X) ----------
+    const gate = add(new BoxGeometry(0.4, 0.98, 0.86), stone)
+    gate.position.set(-1.0, ISLAND_Y + 0.5, 0)
+    const gateRoof = add(new BoxGeometry(0.5, 0.12, 0.96), stoneDark)
+    gateRoof.position.set(-1.0, ISLAND_Y + 1.05, 0)
+    const doorway = add(new BoxGeometry(0.16, 0.5, 0.42), mat('#4d3b26', 0.95))
+    doorway.position.set(-1.14, ISLAND_Y + 0.3, 0)
 
-    // --- drawbridge -----------------------------------------------------
-    this.bridge.position.set(-1.04, baseY + 0.06, 0)
+    const bridgeSpan = MOAT_OUTER - MOAT_INNER + 0.5
+    this.bridge.position.set(-1.2, ISLAND_Y + 0.08, 0)
     this.group.add(this.bridge)
-    const plank = add(new BoxGeometry(1.16, 0.05, 0.6), wood, this.bridge)
-    plank.position.set(-0.58, 0, 0)
-    for (let i = 0; i < 4; i++) {
-      const slat = add(new BoxGeometry(0.05, 0.07, 0.62), woodDark, this.bridge)
-      slat.position.set(-0.16 - i * 0.3, 0.01, 0)
+    const plank = add(new BoxGeometry(bridgeSpan, 0.07, 0.62), wood, this.bridge)
+    plank.position.set(-bridgeSpan / 2, 0, 0)
+    for (let i = 0; i < 5; i++) {
+      const slat = add(new BoxGeometry(0.055, 0.09, 0.66), woodDark, this.bridge)
+      slat.position.set(-0.18 - i * (bridgeSpan / 5.4), 0.01, 0)
     }
-    // start upright (closed)
     this.bridge.rotation.z = -Math.PI / 2
 
-    // --- water wheel ----------------------------------------------------
-    this.wheel.position.set(0.35, baseY + 0.12, -1.35)
+    // --- water wheel, standing in the moat --------------------------------
+    const wheelZ = -(MOAT_INNER + MOAT_OUTER) / 2
+    this.wheel.position.set(0.1, ISLAND_Y - 0.02, wheelZ)
     this.wheel.rotation.y = Math.PI / 2
     this.group.add(this.wheel)
-    const hub = add(new CylinderGeometry(0.07, 0.07, 0.3, 10), woodDark, this.wheel)
+    const hub = add(new CylinderGeometry(0.09, 0.09, 0.36, 10), woodDark, this.wheel)
     hub.rotation.z = Math.PI / 2
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2
-      const paddle = add(new BoxGeometry(0.045, 0.2, 0.26), i % 2 === 0 ? wood : mat(ROOF_C, 0.8), this.wheel)
-      paddle.position.set(Math.cos(a) * 0.34, Math.sin(a) * 0.34, 0)
+      const paddle = add(
+        new BoxGeometry(0.06, 0.26, 0.34),
+        i % 2 === 0 ? wood : mat(ROOF_GOLD, 0.8),
+        this.wheel,
+      )
+      paddle.position.set(Math.cos(a) * 0.42, Math.sin(a) * 0.42, 0)
       paddle.rotation.z = a
-      const spoke = add(new BoxGeometry(0.03, 0.62, 0.03), woodDark, this.wheel)
+      const spoke = add(new BoxGeometry(0.035, 0.8, 0.035), woodDark, this.wheel)
       spoke.rotation.z = a
     }
-    const rimGeoA = new CylinderGeometry(0.38, 0.38, 0.02, 20, 1, true)
-    this.disposables.push(rimGeoA)
-    for (const zz of [-0.13, 0.13]) {
-      const rim = new Mesh(rimGeoA, wood)
+    const rimGeo = new CylinderGeometry(0.47, 0.47, 0.025, 22, 1, true)
+    this.disposables.push(rimGeo)
+    for (const zz of [-0.17, 0.17]) {
+      const rim = new Mesh(rimGeo, wood)
       rim.rotation.x = Math.PI / 2
       rim.position.z = zz
       rim.castShadow = true
       this.wheel.add(rim)
     }
-    // wheel housing
-    const post = add(new BoxGeometry(0.07, 0.6, 0.07), woodDark)
-    post.position.set(0.35, baseY - 0.14, -1.05)
-    const post2 = add(new BoxGeometry(0.07, 0.6, 0.07), woodDark)
-    post2.position.set(0.35, baseY - 0.14, -1.62)
+    for (const s of [-1, 1]) {
+      const post = add(new BoxGeometry(0.09, 0.9, 0.09), woodDark)
+      post.position.set(0.1 + s * 0.3, ISLAND_Y - 0.42, wheelZ)
+    }
+    const beam = add(new BoxGeometry(0.7, 0.09, 0.09), woodDark)
+    beam.position.set(0.1, ISLAND_Y - 0.02, wheelZ)
 
-    // --- courtyard ring -------------------------------------------------
-    const yard = add(new CircleGeometry(1.05, 28), mat(new Color('#d8c9a6'), 0.98))
-    yard.rotation.x = -Math.PI / 2
-    yard.position.y = baseY + 0.125
-    yard.castShadow = false
-
-    // --- fountain particles --------------------------------------------
+    // --- fountain particles ----------------------------------------------
     const n = Castle.FOUNTAIN_MAX
     this.fountainPos = new Float32Array(n * 3)
     this.fountainVel = new Float32Array(n * 3)
@@ -194,32 +228,53 @@ export class Castle {
     fg.setAttribute('position', new BufferAttribute(this.fountainPos, 3))
     this.disposables.push(fg)
     const fm = new PointsMaterial({
-      color: new Color('#bfe9ff'),
-      size: 0.055,
+      color: new Color('#cdeeff'),
+      size: 0.07,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.92,
       depthWrite: false,
       sizeAttenuation: true,
     })
     this.disposables.push(fm)
     this.fountain = new Points(fg, fm)
     this.fountain.frustumCulled = false
-    this.fountain.position.set(0, baseY + 1.6, 0)
+    this.fountain.position.set(0, ISLAND_Y + 2.46, 0)
     this.fountain.visible = false
     this.group.add(this.fountain)
     for (let i = 0; i < n; i++) this.fountainPos[i * 3 + 1] = -999
 
-    // small decorative stones round the island edge
-    const pebbleGeo = new SphereGeometry(0.07, 6, 5)
+    // --- pebble ring so the island edge has texture ------------------------
+    const pebbleGeo = new SphereGeometry(0.09, 7, 5)
     this.disposables.push(pebbleGeo)
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.2
-      const p = new Mesh(pebbleGeo, i % 3 === 0 ? stoneDark : stone)
-      p.position.set(Math.cos(a) * 1.03, baseY + 0.1, Math.sin(a) * 1.03)
-      p.scale.set(1, 0.65, 1)
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + 0.2
+      const p = new Mesh(pebbleGeo, i % 3 === 0 ? stoneDark : stoneMid)
+      p.position.set(Math.cos(a) * (MOAT_INNER + 0.02), ISLAND_Y + 0.02, Math.sin(a) * (MOAT_INNER + 0.02))
+      p.scale.set(1, 0.6, 1)
       p.castShadow = true
       p.receiveShadow = true
       this.group.add(p)
+    }
+
+    // --- a ring of little banner poles round the moat's outer bank --------
+    const poleGeo = new CylinderGeometry(0.022, 0.022, 0.44, 6)
+    this.disposables.push(poleGeo)
+    const pennantGeo = new ConeGeometry(0.07, 0.2, 3)
+    this.disposables.push(pennantGeo)
+    const pennantMats = [mat(ROOF_PINK, 0.6), mat(ROOF_BLUE, 0.6), mat(ROOF_GOLD, 0.6)]
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.5
+      if (Math.abs(((a + Math.PI) % (Math.PI * 2)) - Math.PI) < 0.5) continue
+      const r = MOAT_OUTER + 0.28
+      const pole = new Mesh(poleGeo, woodDark)
+      pole.position.set(Math.cos(a) * r, 0.5, Math.sin(a) * r)
+      pole.castShadow = true
+      this.group.add(pole)
+      const pen = new Mesh(pennantGeo, pennantMats[i % 3])
+      pen.position.set(Math.cos(a) * r, 0.76, Math.sin(a) * r)
+      pen.rotation.z = Math.PI / 2
+      pen.castShadow = true
+      this.group.add(pen)
     }
   }
 
@@ -228,17 +283,17 @@ export class Castle {
     const a = clamp(this.activation, 0, 1)
 
     // The wheel starts turning as soon as the moat has any real water in it.
-    const targetSpeed = smoothstep(0.12, 0.7, a) * (calmMotion ? 1.1 : 2.4)
+    const targetSpeed = smoothstep(0.1, 0.6, a) * (calmMotion ? 1.1 : 2.4)
     this.wheelSpeed = damp(this.wheelSpeed, targetSpeed, 2.2, dt)
     this.wheel.rotation.z -= this.wheelSpeed * dt
 
     // Bridge drops once the moat is nearly full.
-    const targetAngle = -Math.PI / 2 * (1 - smoothstep(0.55, 0.98, a))
+    const targetAngle = (-Math.PI / 2) * (1 - smoothstep(0.5, 0.95, a))
     this.bridgeAngle = damp(this.bridgeAngle, targetAngle, 3.4, dt)
     this.bridge.rotation.z = this.bridgeAngle
 
     // Flags run up their masts at the very end.
-    this.flagRaise = damp(this.flagRaise, smoothstep(0.7, 1, a), 2.6, dt)
+    this.flagRaise = damp(this.flagRaise, smoothstep(0.68, 1, a), 2.6, dt)
     for (let i = 0; i < this.flags.length; i++) {
       this.flags[i].scale.y = Math.max(0.02, this.flagRaise)
       const cloth = this.flagCloth[i]
@@ -247,8 +302,7 @@ export class Castle {
       cloth.scale.x = 1 + Math.sin(this.t * 4.2 + i * 1.7) * (calmMotion ? 0.03 : 0.1)
     }
 
-    // Fountain last.
-    this.fountainPower = damp(this.fountainPower, smoothstep(0.8, 1, a), 2.2, dt)
+    this.fountainPower = damp(this.fountainPower, smoothstep(0.82, 1, a), 2.2, dt)
     this.updateFountain(dt, calmMotion)
   }
 
@@ -279,9 +333,9 @@ export class Castle {
         pos[i * 3 + 1] = 0
         pos[i * 3 + 2] = 0
         vel[i * 3] = Math.cos(ang) * spread
-        vel[i * 3 + 1] = 1.15 + Math.random() * 0.4
+        vel[i * 3 + 1] = 1.25 + Math.random() * 0.45
         vel[i * 3 + 2] = Math.sin(ang) * spread
-        life[i] = 0.9 + Math.random() * 0.4
+        life[i] = 0.95 + Math.random() * 0.4
       }
     }
     ;(this.fountain.geometry.getAttribute('position') as BufferAttribute).needsUpdate = true
@@ -304,3 +358,4 @@ export class Castle {
     for (const d of this.disposables) d.dispose()
   }
 }
+

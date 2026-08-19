@@ -1,6 +1,7 @@
 import {
   AmbientLight,
   BoxGeometry,
+  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -17,7 +18,8 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three'
-import { SAND_SIZE, SOURCE_X, SOURCE_Z } from '../core/config'
+import { SAND_X, SAND_Z, SOURCE_X, SOURCE_Z } from '../core/config'
+import { makeRng } from '../core/rng'
 import { damp } from '../core/util'
 
 /**
@@ -49,21 +51,21 @@ export class Environment {
     scene.background = new Color('#bfe4f2')
 
     // ---- lights --------------------------------------------------------
-    const hemi = new HemisphereLight(0xdff2ff, 0xc9a875, 0.72)
+    const hemi = new HemisphereLight(0xdaf0ff, 0xc9a875, 0.5)
     scene.add(hemi)
-    const amb = new AmbientLight(0xffffff, 0.24)
+    const amb = new AmbientLight(0xffffff, 0.13)
     scene.add(amb)
 
-    const sun = new DirectionalLight(0xfff2d8, 1.65)
-    sun.position.set(-5.5, 9.5, 4.2)
+    const sun = new DirectionalLight(0xfff4dc, 1.55)
+    sun.position.set(-6.5, 9.0, 5.5)
     sun.castShadow = true
     sun.shadow.mapSize.set(1024, 1024)
     sun.shadow.camera.near = 1
     sun.shadow.camera.far = 26
-    sun.shadow.camera.left = -8
-    sun.shadow.camera.right = 8
-    sun.shadow.camera.top = 8
-    sun.shadow.camera.bottom = -8
+    sun.shadow.camera.left = -9.5
+    sun.shadow.camera.right = 9.5
+    sun.shadow.camera.top = 7
+    sun.shadow.camera.bottom = -7
     sun.shadow.bias = -0.0016
     sun.shadow.normalBias = 0.022
     scene.add(sun)
@@ -80,23 +82,24 @@ export class Environment {
 
     // ---- wooden sandbox frame -----------------------------------------
     const frame = new Group()
-    const half = SAND_SIZE / 2
-    const railW = 0.62
+    const halfX = SAND_X / 2
+    const halfZ = SAND_Z / 2
+    const railW = 0.56
     const railH = 0.5
     const woodA = mat('#c98d55', 0.92)
     const woodB = mat('#b3773f', 0.92)
-    const railGeo = geo(new BoxGeometry(SAND_SIZE + railW * 2, railH, railW))
+    const railGeo = geo(new BoxGeometry(SAND_X + railW * 2, railH, railW))
     for (const s of [-1, 1]) {
       const r = new Mesh(railGeo, s < 0 ? woodA : woodB)
-      r.position.set(0, 0.12, s * (half + railW / 2))
+      r.position.set(0, 0.12, s * (halfZ + railW / 2))
       r.castShadow = true
       r.receiveShadow = true
       frame.add(r)
     }
-    const railGeo2 = geo(new BoxGeometry(railW, railH, SAND_SIZE))
+    const railGeo2 = geo(new BoxGeometry(railW, railH, SAND_Z))
     for (const s of [-1, 1]) {
       const r = new Mesh(railGeo2, s < 0 ? woodB : woodA)
-      r.position.set(s * (half + railW / 2), 0.12, 0)
+      r.position.set(s * (halfX + railW / 2), 0.12, 0)
       r.castShadow = true
       r.receiveShadow = true
       frame.add(r)
@@ -107,27 +110,27 @@ export class Environment {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const c = new Mesh(capGeo, capMat)
-        c.position.set(sx * (half + railW / 2), 0.16, sz * (half + railW / 2))
+        c.position.set(sx * (halfX + railW / 2), 0.16, sz * (halfZ + railW / 2))
         c.castShadow = true
         c.receiveShadow = true
         frame.add(c)
       }
     }
     // inner walls so you never see through the sand at the edges
-    const wallGeo = geo(new BoxGeometry(SAND_SIZE, 1.4, 0.08))
+    const wallGeo = geo(new BoxGeometry(SAND_X, 1.4, 0.08))
     const wallMat = mat('#8d5f33', 1)
     for (const s of [-1, 1]) {
       const w = new Mesh(wallGeo, wallMat)
-      w.position.set(0, -0.42, s * half)
+      w.position.set(0, -0.42, s * halfZ)
       frame.add(w)
     }
-    const wallGeo2 = geo(new BoxGeometry(0.08, 1.4, SAND_SIZE))
+    const wallGeo2 = geo(new BoxGeometry(0.08, 1.4, SAND_Z))
     for (const s of [-1, 1]) {
       const w = new Mesh(wallGeo2, wallMat)
-      w.position.set(s * half, -0.42, 0)
+      w.position.set(s * halfX, -0.42, 0)
       frame.add(w)
     }
-    const floor = new Mesh(geo(new PlaneGeometry(SAND_SIZE, SAND_SIZE)), wallMat)
+    const floor = new Mesh(geo(new PlaneGeometry(SAND_X, SAND_Z)), wallMat)
     floor.rotation.x = -Math.PI / 2
     floor.position.y = -0.34
     frame.add(floor)
@@ -161,9 +164,14 @@ export class Environment {
     this.spoutRing = ring
     scene.add(spout)
 
+    // ---- garden dressing -------------------------------------------------
+    // Wide screens leave grass above and below the sandbox; these props make
+    // that space read as a garden rather than as empty margin.
+    this.buildGarden(scene, mat, geo)
+
     // ---- wooden duck who looks where you should look -------------------
     const duck = new Group()
-    duck.position.set(-half - 0.62, 0.42, half - 1.5)
+    duck.position.set(-halfX + 1.1, 0.42, halfZ + 0.62)
     duck.scale.setScalar(1.05)
     const body = new Mesh(geo(new SphereGeometry(0.3, 16, 12)), mat('#ffd166', 0.75))
     body.scale.set(1.25, 0.92, 1)
@@ -194,6 +202,104 @@ export class Environment {
     this.duckHead = head
     scene.add(duck)
     this.guide = duck
+  }
+
+  private buildGarden(
+    scene: Scene,
+    mat: (c: string, rough?: number, metal?: number) => MeshStandardMaterial,
+    geo: <T extends { dispose: () => void }>(g: T) => T,
+  ): void {
+    const halfX = SAND_X / 2
+    const halfZ = SAND_Z / 2
+    const rng = makeRng(20250819)
+    const garden = new Group()
+    const GROUND = -0.355
+
+    // Soft patches of a slightly different green break up the flat lawn.
+    const patchGeo = geo(new CircleGeometry(1, 18))
+    const patchMats = [mat('#93c176', 1), mat('#a6cf87', 1), mat('#88b96d', 1)]
+    for (let i = 0; i < 16; i++) {
+      const x = (rng() - 0.5) * (SAND_X + 14)
+      const z = (rng() - 0.5) * (SAND_Z + 13)
+      if (Math.abs(x) < halfX + 1.2 && Math.abs(z) < halfZ + 1.2) continue
+      const p = new Mesh(patchGeo, patchMats[i % 3])
+      p.rotation.x = -Math.PI / 2
+      p.position.set(x, GROUND + 0.002 + i * 0.0004, z)
+      p.scale.set(1.6 + rng() * 2.6, 1.2 + rng() * 1.8, 1)
+      garden.add(p)
+    }
+
+    // Low rounded clumps hugging the outside of the rails.
+    const clumpGeo = geo(new SphereGeometry(0.3, 10, 7))
+    const clumpMats = [mat('#8cc06f', 0.98), mat('#9ecd80', 0.98), mat('#7cb463', 0.98)]
+    for (let i = 0; i < 34; i++) {
+      const alongRail = rng() < 0.62
+      let x: number
+      let z: number
+      if (alongRail) {
+        x = (rng() - 0.5) * (SAND_X + 2.4)
+        z = (halfZ + 0.95 + rng() * 1.5) * (rng() < 0.5 ? -1 : 1)
+      } else {
+        x = (halfX + 0.95 + rng() * 1.8) * (rng() < 0.5 ? -1 : 1)
+        z = (rng() - 0.5) * (SAND_Z + 4.5)
+      }
+      const c = new Mesh(clumpGeo, clumpMats[i % 3])
+      const sc = 0.55 + rng() * 0.7
+      c.position.set(x, GROUND + 0.06 * sc, z)
+      c.scale.set(sc * 1.3, sc * 0.72, sc * 1.15)
+      c.castShadow = true
+      c.receiveShadow = true
+      garden.add(c)
+    }
+
+    // A striped ball and a bucket: familiar sandbox company.
+    const ball = new Mesh(geo(new SphereGeometry(0.46, 18, 14)), mat('#ff9ec4', 0.5))
+    ball.position.set(halfX + 1.35, GROUND + 0.46, halfZ + 1.0)
+    ball.castShadow = true
+    garden.add(ball)
+    const ballBand = new Mesh(
+      geo(new SphereGeometry(0.466, 18, 8, 0, Math.PI * 2, 1.2, 0.45)),
+      mat('#fffdf5', 0.5),
+    )
+    ballBand.position.copy(ball.position)
+    garden.add(ballBand)
+
+    const bucket = new Group()
+    bucket.position.set(-halfX - 1.3, GROUND, -halfZ - 1.0)
+    bucket.rotation.y = 0.5
+    const bucketBody = new Mesh(geo(new CylinderGeometry(0.4, 0.31, 0.58, 16)), mat('#6fc7ea', 0.5))
+    bucketBody.position.y = 0.29
+    bucketBody.castShadow = true
+    bucket.add(bucketBody)
+    const bucketRim = new Mesh(geo(new TorusGeometry(0.4, 0.045, 8, 18)), mat('#3f9fca', 0.5))
+    bucketRim.rotation.x = Math.PI / 2
+    bucketRim.position.y = 0.58
+    bucket.add(bucketRim)
+    const bucketHandle = new Mesh(
+      geo(new TorusGeometry(0.38, 0.035, 6, 16, Math.PI)),
+      mat('#3f9fca', 0.5),
+    )
+    bucketHandle.position.y = 0.58
+    bucketHandle.rotation.y = Math.PI / 2
+    bucketHandle.castShadow = true
+    bucket.add(bucketHandle)
+    garden.add(bucket)
+
+    // A few pebbles so the lawn has some grain of its own.
+    const pebbleGeo = geo(new SphereGeometry(0.14, 8, 6))
+    const pebbleMat = mat('#c6bfae', 0.98)
+    for (let i = 0; i < 14; i++) {
+      const x = (rng() - 0.5) * (SAND_X + 9)
+      const z = (rng() - 0.5) * (SAND_Z + 9)
+      if (Math.abs(x) < halfX + 1 && Math.abs(z) < halfZ + 1) continue
+      const p = new Mesh(pebbleGeo, pebbleMat)
+      p.position.set(x, GROUND + 0.05, z)
+      p.scale.set(1 + rng() * 0.6, 0.55, 1 + rng() * 0.5)
+      p.castShadow = true
+      garden.add(p)
+    }
+
+    scene.add(garden)
   }
 
   /** Point the duck's head (and interest) at a world position. */

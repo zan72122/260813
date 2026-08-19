@@ -3,10 +3,12 @@ import {
   CASTLE_X,
   CASTLE_Z,
   CELL,
-  GRID_N,
+  GRID_NX,
+  GRID_NZ,
   MOAT_INNER,
   MOAT_OUTER,
-  SAND_SIZE,
+  SAND_X,
+  SAND_Z,
   SOURCE_X,
   SOURCE_Z,
 } from '../core/config'
@@ -17,10 +19,13 @@ export type TerrainPatternId = 'gentle' | 'sidepath' | 'ridge' | 'sandbox'
 
 export type Rect = { i0: number; j0: number; i1: number; j1: number }
 
-const N = GRID_N
-const W = N + 1 // vertices per side
+const NX = GRID_NX
+const NZ = GRID_NZ
+/** Vertices per row / column. `WX` is also the row stride of every array. */
+const WX = NX + 1
+const WZ = NZ + 1
 
-export const emptyRect = (): Rect => ({ i0: W, j0: W, i1: -1, j1: -1 })
+export const emptyRect = (): Rect => ({ i0: 1e9, j0: 1e9, i1: -1, j1: -1 })
 
 export function growRect(r: Rect, i: number, j: number): void {
   if (i < r.i0) r.i0 = i
@@ -57,20 +62,22 @@ export type StrokeFeedback = {
  * digging, mounding, wetting — is a change to one of these arrays.
  */
 export class Terrain {
-  readonly n = N
-  readonly w = W
-  readonly height = new Float32Array(W * W)
-  readonly baseHeight = new Float32Array(W * W)
+  /** Row stride (vertices across X). */
+  readonly w = WX
+  /** Rows (vertices across Z). */
+  readonly h = WZ
+  readonly height = new Float32Array(WX * WZ)
+  readonly baseHeight = new Float32Array(WX * WZ)
   /** 0 dry .. 1 soaked. Drives colour and roughness. */
-  readonly wetness = new Float32Array(W * W)
+  readonly wetness = new Float32Array(WX * WZ)
   /** 0 loose .. 1 patted down. Mounded sand starts loose and settles. */
-  readonly compaction = new Float32Array(W * W)
+  readonly compaction = new Float32Array(WX * WZ)
   /** Per-vertex speckle so the sand does not look like flat plastic. */
-  readonly grainTint = new Float32Array(W * W)
+  readonly grainTint = new Float32Array(WX * WZ)
   /** 1 where the moat ring is, used for the fill metric. */
-  readonly moatMask = new Uint8Array(W * W)
+  readonly moatMask = new Uint8Array(WX * WZ)
   /** 1 where the castle island sits — protected from digging. */
-  readonly castleMask = new Uint8Array(W * W)
+  readonly castleMask = new Uint8Array(WX * WZ)
 
   moatCellCount = 0
   dirty: Rect = emptyRect()
@@ -81,44 +88,45 @@ export class Terrain {
   }
 
   idx(i: number, j: number): number {
-    return j * W + i
+    return j * WX + i
   }
 
   /** World X of vertex column i. */
   wx(i: number): number {
-    return i * CELL - SAND_SIZE / 2
+    return i * CELL - SAND_X / 2
   }
 
   /** World Z of vertex row j. */
   wz(j: number): number {
-    return j * CELL - SAND_SIZE / 2
+    return j * CELL - SAND_Z / 2
   }
 
   /** Grid column (fractional) for a world X. */
   gi(x: number): number {
-    return (x + SAND_SIZE / 2) / CELL
+    return (x + SAND_X / 2) / CELL
   }
 
   gj(z: number): number {
-    return (z + SAND_SIZE / 2) / CELL
+    return (z + SAND_Z / 2) / CELL
   }
 
   markAllDirty(): void {
-    this.dirty = { i0: 0, j0: 0, i1: W - 1, j1: W - 1 }
+    this.dirty = { i0: 0, j0: 0, i1: WX - 1, j1: WZ - 1 }
   }
 
   /** Bilinear height sample in world space. */
   heightAt(x: number, z: number): number {
-    const fi = clamp(this.gi(x), 0, W - 1.001)
-    const fj = clamp(this.gj(z), 0, W - 1.001)
+    const fi = clamp(this.gi(x), 0, WX - 1.001)
+    const fj = clamp(this.gj(z), 0, WZ - 1.001)
     const i = Math.floor(fi)
     const j = Math.floor(fj)
     const tx = fi - i
     const tz = fj - j
-    const h00 = this.height[this.idx(i, j)]
-    const h10 = this.height[this.idx(i + 1, j)]
-    const h01 = this.height[this.idx(i, j + 1)]
-    const h11 = this.height[this.idx(i + 1, j + 1)]
+    const k = j * WX + i
+    const h00 = this.height[k]
+    const h10 = this.height[k + 1]
+    const h01 = this.height[k + WX]
+    const h11 = this.height[k + WX + 1]
     return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
   }
 
@@ -130,25 +138,24 @@ export class Terrain {
     const rng = makeRng(seed * 104729 + 7)
     const h = this.height
 
-    for (let j = 0; j < W; j++) {
+    for (let j = 0; j < WZ; j++) {
       const z = this.wz(j)
-      for (let i = 0; i < W; i++) {
+      for (let i = 0; i < WX; i++) {
         const x = this.wx(i)
-        const k = this.idx(i, j)
+        const k = j * WX + i
 
         // Base slope: high at the source end, low at the castle end.
-        let y = 0.98 - ((x + SAND_SIZE / 2) / SAND_SIZE) * 0.44
+        let y = 1.0 - ((x + SAND_X / 2) / SAND_X) * 0.46
 
         // Gentle natural undulation — never enough to trap water on its own.
-        y += (noise.fbm(x * 0.42 + 3.1, z * 0.42 - 2.4) - 0.5) * 0.075
+        y += (noise.fbm(x * 0.38 + 3.1, z * 0.38 - 2.4) - 0.5) * 0.045
 
         // Raised lip along the sandbox border so water does not just run off.
-        const edge =
-          Math.max(
-            0,
-            1 - Math.min(Math.min(i, W - 1 - i), Math.min(j, W - 1 - j)) / 5,
-          )
-        y += edge * edge * 0.34
+        const edge = Math.max(
+          0,
+          1 - Math.min(Math.min(i, WX - 1 - i), Math.min(j, WZ - 1 - j)) / 5,
+        )
+        y += edge * edge * 0.36
 
         h[k] = y
         this.grainTint[k] = rng()
@@ -159,12 +166,11 @@ export class Terrain {
       }
     }
 
-    this.carveSourceBasin()
-    this.carveMoat()
-    this.applyPattern(pattern, noise, rng)
+    this.applyPattern(pattern, noise)
+    // Settle the free-form terrain first, then cut the built features so the
+    // moat and the source basin keep crisp, readable edges.
     this.relaxSlopes(3, 0.62)
-
-    // Bank the outer moat rim back up after relaxation so it stays a basin.
+    this.carveSourceBasin()
     this.carveMoat()
 
     this.baseHeight.set(h)
@@ -175,20 +181,20 @@ export class Terrain {
 
   private carveSourceBasin(): void {
     const h = this.height
-    for (let j = 0; j < W; j++) {
+    for (let j = 0; j < WZ; j++) {
       const z = this.wz(j)
-      for (let i = 0; i < W; i++) {
+      for (let i = 0; i < WX; i++) {
         const x = this.wx(i)
         const d = Math.hypot(x - SOURCE_X, z - SOURCE_Z)
-        const k = this.idx(i, j)
+        const k = j * WX + i
         // A shallow bowl with a raised rim: a clear "the water starts here".
-        if (d < 1.15) {
-          const bowl = smoothstep(1.15, 0.25, d)
-          h[k] = h[k] * (1 - bowl) + 0.86 * bowl
+        if (d < 1.1) {
+          const bowl = smoothstep(1.1, 0.25, d)
+          h[k] = h[k] * (1 - bowl) + 0.88 * bowl
         }
-        if (d > 0.72 && d < 1.16) {
-          const rim = Math.sin(((d - 0.72) / 0.44) * Math.PI)
-          h[k] += rim * 0.1
+        if (d > 0.7 && d < 1.12) {
+          const rim = Math.sin(((d - 0.7) / 0.42) * Math.PI)
+          h[k] += rim * 0.09
         }
       }
     }
@@ -198,19 +204,19 @@ export class Terrain {
     const h = this.height
     const mid = (MOAT_INNER + MOAT_OUTER) / 2
     const halfW = (MOAT_OUTER - MOAT_INNER) / 2
-    for (let j = 0; j < W; j++) {
+    for (let j = 0; j < WZ; j++) {
       const z = this.wz(j)
-      for (let i = 0; i < W; i++) {
+      for (let i = 0; i < WX; i++) {
         const x = this.wx(i)
         const dx = x - CASTLE_X
         const dz = z - CASTLE_Z
         const d = Math.hypot(dx, dz)
-        const k = this.idx(i, j)
+        const k = j * WX + i
 
         if (d < MOAT_INNER + 0.16) {
           // Castle island — a firm, slightly raised platform.
           const t = smoothstep(MOAT_INNER + 0.16, MOAT_INNER - 0.35, d)
-          h[k] = h[k] * (1 - t) + 0.62 * t
+          h[k] = h[k] * (1 - t) + 0.6 * t
           this.compaction[k] = 1
           if (d < MOAT_INNER + 0.05) this.castleMask[k] = 1
         }
@@ -218,55 +224,47 @@ export class Terrain {
         if (d > MOAT_INNER - 0.05 && d < MOAT_OUTER + 0.05) {
           const t = 1 - Math.min(1, Math.abs(d - mid) / halfW)
           const dip = smoothstep(0, 1, t)
-          const floor = 0.3
-          h[k] = h[k] * (1 - dip) + floor * dip
-          if (t > 0.28) this.moatMask[k] = 1
+          h[k] = h[k] * (1 - dip) + 0.2 * dip
+          if (t > 0.25) this.moatMask[k] = 1
         }
 
         // Outer bank keeps the moat holding water, with a notch on the
         // source side: the gate the child's river has to reach.
-        if (d > MOAT_OUTER - 0.05 && d < MOAT_OUTER + 0.55) {
+        if (d > MOAT_OUTER - 0.05 && d < MOAT_OUTER + 0.6) {
           const ang = Math.atan2(dz, dx)
-          const gate = smoothstep(0.55, 0.16, Math.abs(ang - Math.PI))
-          const bank = Math.sin(((d - (MOAT_OUTER - 0.05)) / 0.6) * Math.PI)
-          h[k] += bank * 0.17 * (1 - gate)
+          const gate = smoothstep(0.5, 0.14, Math.abs(ang - Math.PI))
+          const bank = Math.sin(((d - (MOAT_OUTER - 0.05)) / 0.65) * Math.PI)
+          h[k] += bank * 0.24 * (1 - gate)
           if (gate > 0.2) {
-            // Carve a short inviting channel outward from the gate.
-            const t = gate * smoothstep(MOAT_OUTER + 0.6, MOAT_OUTER - 0.05, d)
-            h[k] = Math.min(h[k], 0.42 + t * 0)
+            // A short inviting channel leading outward from the gate.
+            const t = gate * smoothstep(MOAT_OUTER + 0.65, MOAT_OUTER - 0.05, d)
+            h[k] = h[k] * (1 - t * 0.85) + 0.34 * t * 0.85
           }
         }
       }
     }
   }
 
-  private applyPattern(p: TerrainPatternId, noise: ValueNoise2D, rng: () => number): void {
+  private applyPattern(p: TerrainPatternId, noise: ValueNoise2D): void {
     const h = this.height
     const bump = (cx: number, cz: number, r: number, amp: number) => {
-      for (let j = 0; j < W; j++) {
+      for (let j = 0; j < WZ; j++) {
         const z = this.wz(j)
         if (Math.abs(z - cz) > r) continue
-        for (let i = 0; i < W; i++) {
+        for (let i = 0; i < WX; i++) {
           const x = this.wx(i)
           const d = Math.hypot(x - cx, z - cz)
           if (d > r) continue
-          const k = this.idx(i, j)
+          const k = j * WX + i
           if (this.castleMask[k]) continue
           h[k] += amp * smoothstep(r, 0, d)
         }
       }
     }
-    const trough = (
-      x0: number,
-      z0: number,
-      x1: number,
-      z1: number,
-      r: number,
-      amp: number,
-    ) => {
-      for (let j = 0; j < W; j++) {
-        for (let i = 0; i < W; i++) {
-          const k = this.idx(i, j)
+    const trough = (x0: number, z0: number, x1: number, z1: number, r: number, amp: number) => {
+      for (let j = 0; j < WZ; j++) {
+        for (let i = 0; i < WX; i++) {
+          const k = j * WX + i
           if (this.castleMask[k] || this.moatMask[k]) continue
           const d = distToSegment(this.wx(i), this.wz(j), x0, z0, x1, z1)
           if (d > r) continue
@@ -277,38 +275,37 @@ export class Terrain {
 
     if (p === 'gentle') {
       // A single clean run. The first river should succeed easily.
-      trough(-3.2, 0, 1.6, 0, 0.55, 0.055)
-      bump(-0.4, 2.5, 1.5, 0.07)
-      bump(0.6, -2.6, 1.6, 0.06)
+      trough(-3.6, 0, 2.2, 0, 0.6, 0.05)
+      bump(-0.6, 2.2, 1.5, 0.07)
+      bump(0.8, -2.3, 1.6, 0.06)
     } else if (p === 'sidepath') {
       // A tempting low side route that steals the water away from the castle.
-      trough(-2.6, 0.2, 0.4, 2.9, 0.62, 0.11)
-      bump(1.2, 0.1, 1.25, 0.075)
-      bump(-1.4, -2.2, 1.7, 0.06)
+      trough(-3.0, 0.2, 0.2, 2.6, 0.66, 0.115)
+      bump(1.4, 0.1, 1.3, 0.08)
+      bump(-1.6, -2.0, 1.7, 0.06)
     } else if (p === 'ridge') {
       // A sand ridge across the middle: dig through it, or go around.
-      for (let j = 0; j < W; j++) {
+      for (let j = 0; j < WZ; j++) {
         const z = this.wz(j)
-        for (let i = 0; i < W; i++) {
+        for (let i = 0; i < WX; i++) {
           const x = this.wx(i)
-          const k = this.idx(i, j)
+          const k = j * WX + i
           if (this.castleMask[k] || this.moatMask[k]) continue
-          const band = Math.exp(-((x - 0.1) * (x - 0.1)) / 0.5)
-          const wobble = Math.sin(z * 0.8) * 0.16
-          h[k] += band * (0.14 + wobble * 0.2)
+          const band = Math.exp(-((x - 0.2) * (x - 0.2)) / 0.55)
+          const wobble = Math.sin(z * 0.9) * 0.16
+          h[k] += band * (0.15 + wobble * 0.2)
         }
       }
-      trough(-3.4, -0.4, -1.2, -0.2, 0.5, 0.05)
+      trough(-4.0, -0.4, -1.6, -0.2, 0.55, 0.05)
     } else {
       // Free sandbox: quiet, almost flat, nothing in the way.
-      for (let j = 0; j < W; j++) {
-        for (let i = 0; i < W; i++) {
-          const k = this.idx(i, j)
+      for (let j = 0; j < WZ; j++) {
+        for (let i = 0; i < WX; i++) {
+          const k = j * WX + i
           if (this.castleMask[k] || this.moatMask[k]) continue
           h[k] += (noise.fbm(this.wx(i) * 0.7, this.wz(j) * 0.7) - 0.5) * 0.03
         }
       }
-      void rng
     }
   }
 
@@ -331,19 +328,15 @@ export class Terrain {
     const outer = r * 1.85
     let moved = 0
 
-    const minX = Math.min(x0, x1) - outer
-    const maxX = Math.max(x0, x1) + outer
-    const minZ = Math.min(z0, z1) - outer
-    const maxZ = Math.max(z0, z1) + outer
-    const i0 = clamp(Math.floor(this.gi(minX)), 1, W - 2)
-    const i1 = clamp(Math.ceil(this.gi(maxX)), 1, W - 2)
-    const j0 = clamp(Math.floor(this.gj(minZ)), 1, W - 2)
-    const j1 = clamp(Math.ceil(this.gj(maxZ)), 1, W - 2)
+    const i0 = clamp(Math.floor(this.gi(Math.min(x0, x1) - outer)), 1, WX - 2)
+    const i1 = clamp(Math.ceil(this.gi(Math.max(x0, x1) + outer)), 1, WX - 2)
+    const j0 = clamp(Math.floor(this.gj(Math.min(z0, z1) - outer)), 1, WZ - 2)
+    const j1 = clamp(Math.ceil(this.gj(Math.max(z0, z1) + outer)), 1, WZ - 2)
 
     for (let j = j0; j <= j1; j++) {
       const z = this.wz(j)
       for (let i = i0; i <= i1; i++) {
-        const k = this.idx(i, j)
+        const k = j * WX + i
         if (this.castleMask[k]) continue
         const x = this.wx(i)
         const d = distToSegment(x, z, x0, z0, x1, z1)
@@ -353,9 +346,8 @@ export class Terrain {
           const fall = smoothstep(r, r * 0.15, d)
           const take = strength * fall * (1 - this.compaction[k] * 0.28)
           const target = Math.max(BEDROCK, h[k] - take)
-          const removed = h[k] - target
+          moved += h[k] - target
           h[k] = target
-          moved += removed
           this.compaction[k] = Math.min(1, this.compaction[k] + 0.1)
         } else {
           // Spoil heap either side of the groove.
@@ -374,15 +366,15 @@ export class Terrain {
   /** Drop a soft mound of sand — the dam-building tool. */
   mound(x: number, z: number, radius: number, amount: number): StrokeFeedback {
     const h = this.height
-    const i0 = clamp(Math.floor(this.gi(x - radius)), 1, W - 2)
-    const i1 = clamp(Math.ceil(this.gi(x + radius)), 1, W - 2)
-    const j0 = clamp(Math.floor(this.gj(z - radius)), 1, W - 2)
-    const j1 = clamp(Math.ceil(this.gj(z + radius)), 1, W - 2)
+    const i0 = clamp(Math.floor(this.gi(x - radius)), 1, WX - 2)
+    const i1 = clamp(Math.ceil(this.gi(x + radius)), 1, WX - 2)
+    const j0 = clamp(Math.floor(this.gj(z - radius)), 1, WZ - 2)
+    const j1 = clamp(Math.ceil(this.gj(z + radius)), 1, WZ - 2)
     let moved = 0
     for (let j = j0; j <= j1; j++) {
       const wz = this.wz(j)
       for (let i = i0; i <= i1; i++) {
-        const k = this.idx(i, j)
+        const k = j * WX + i
         if (this.castleMask[k]) continue
         const d = Math.hypot(this.wx(i) - x, wz - z)
         if (d > radius) continue
@@ -417,10 +409,10 @@ export class Terrain {
     const tmp: number[] = []
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
-        const k = this.idx(i, j)
+        const k = j * WX + i
         const avg =
-          (h[k - 1] + h[k + 1] + h[k - W] + h[k + W]) * 0.175 +
-          (h[k - W - 1] + h[k - W + 1] + h[k + W - 1] + h[k + W + 1]) * 0.075
+          (h[k - 1] + h[k + 1] + h[k - WX] + h[k + WX]) * 0.175 +
+          (h[k - WX - 1] + h[k - WX + 1] + h[k + WX - 1] + h[k + WX + 1]) * 0.075
         const d = distToSegment(this.wx(i), this.wz(j), x0, z0, x1, z1)
         const w = amount * smoothstep(reach, 0, d)
         tmp.push(h[k] * (1 - w) + avg * w)
@@ -429,7 +421,7 @@ export class Terrain {
     let p = 0
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
-        const k = this.idx(i, j)
+        const k = j * WX + i
         if (!this.castleMask[k]) h[k] = tmp[p]
         p++
       }
@@ -440,13 +432,17 @@ export class Terrain {
   relaxRegion(i0: number, j0: number, i1: number, j1: number, iterations: number): void {
     const h = this.height
     const maxSlope = CELL * 1.15
+    const ia = Math.max(1, i0)
+    const ib = Math.min(WX - 2, i1)
+    const ja = Math.max(1, j0)
+    const jb = Math.min(WZ - 2, j1)
     for (let it = 0; it < iterations; it++) {
-      for (let j = Math.max(1, j0); j <= Math.min(W - 2, j1); j++) {
-        for (let i = Math.max(1, i0); i <= Math.min(W - 2, i1); i++) {
-          const k = this.idx(i, j)
+      for (let j = ja; j <= jb; j++) {
+        for (let i = ia; i <= ib; i++) {
+          const k = j * WX + i
           if (this.castleMask[k]) continue
           for (let d = 0; d < 4; d++) {
-            const nk = d === 0 ? k - 1 : d === 1 ? k + 1 : d === 2 ? k - W : k + W
+            const nk = d === 0 ? k - 1 : d === 1 ? k + 1 : d === 2 ? k - WX : k + WX
             const diff = h[k] - h[nk]
             if (diff > maxSlope) {
               const move = (diff - maxSlope) * 0.32
@@ -462,11 +458,11 @@ export class Terrain {
   private relaxSlopes(iterations: number, strength: number): void {
     const h = this.height
     for (let it = 0; it < iterations; it++) {
-      for (let j = 1; j < W - 1; j++) {
-        for (let i = 1; i < W - 1; i++) {
-          const k = this.idx(i, j)
+      for (let j = 1; j < WZ - 1; j++) {
+        for (let i = 1; i < WX - 1; i++) {
+          const k = j * WX + i
           if (this.castleMask[k]) continue
-          const avg = (h[k - 1] + h[k + 1] + h[k - W] + h[k + W]) * 0.25
+          const avg = (h[k - 1] + h[k + 1] + h[k - WX] + h[k + WX]) * 0.25
           h[k] += (avg - h[k]) * strength * 0.25
         }
       }
@@ -480,7 +476,7 @@ export class Terrain {
     const rate = 0.028 * dt
     for (let j = rect.j0; j <= rect.j1; j++) {
       for (let i = rect.i0; i <= rect.i1; i++) {
-        const k = this.idx(i, j)
+        const k = j * WX + i
         if (wetn[k] > 0) wetn[k] = Math.max(0, wetn[k] - rate)
       }
     }

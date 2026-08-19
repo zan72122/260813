@@ -1,13 +1,17 @@
 /** Global tuning constants shared by simulation and rendering. */
 
-/** Side length of the playable sand area, in world units. */
-export const SAND_SIZE = 12
+/**
+ * The play area is deliberately 2:1 along the direction the river runs.
+ * That single choice is what lets one composition fill both a tall phone and
+ * a wide tablet without ever cropping the castle or the water source.
+ */
+export const SAND_X = 15.36
+export const SAND_Z = 6.4
 
-/** Simulation grid resolution (cells per side). One cell = SAND_SIZE / GRID_N. */
-export const GRID_N = 96
-
-/** World size of one simulation cell. */
-export const CELL = SAND_SIZE / GRID_N
+/** Simulation grid resolution. One cell is CELL world units square. */
+export const GRID_NX = 120
+export const GRID_NZ = 50
+export const CELL = SAND_X / GRID_NX
 
 /** Lowest height the shovel can reach — the "bottom of the sandbox". */
 export const BEDROCK = 0.06
@@ -16,15 +20,15 @@ export const BEDROCK = 0.06
 export const WATER_EPS = 0.0016
 
 /** Castle centre in world space. Water travels from -X toward +X. */
-export const CASTLE_X = 4.05
+export const CASTLE_X = 4.15
 export const CASTLE_Z = 0
 
 /** Moat geometry. */
-export const MOAT_INNER = 1.12
-export const MOAT_OUTER = 1.95
+export const MOAT_INNER = 1.3
+export const MOAT_OUTER = 2.15
 
 /** Water source basin centre. */
-export const SOURCE_X = -4.5
+export const SOURCE_X = -5.6
 export const SOURCE_Z = 0
 
 /** Water depth in the moat that counts as "full". */

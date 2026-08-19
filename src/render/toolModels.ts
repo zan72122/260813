@@ -111,44 +111,60 @@ export function createScoop(): ToolModel {
   const g = new Group()
   const grip = mat('#ffd166', 0.5)
   const gripDark = mat('#e8a83a', 0.5)
-  const cup = mat('#8fdcc0', 0.45)
-  const cupDark = mat('#54b795', 0.45)
+  const cup = mat('#7fd8b8', 0.45)
+  const cupDark = mat('#3fa682', 0.45)
 
-  const shaft = new Mesh(keep(new CylinderGeometry(0.06, 0.068, 0.74, 12)), grip)
-  shaft.position.y = 0.42
+  // Short, fat handle — the scoop's mass is in the bucket.
+  const shaft = new Mesh(keep(new CylinderGeometry(0.075, 0.085, 0.46, 12)), grip)
+  shaft.position.y = 0.5
+  shaft.rotation.z = -0.12
   shaft.castShadow = true
   g.add(shaft)
 
-  const knob = new Mesh(keep(new SphereGeometry(0.1, 12, 9)), gripDark)
-  knob.position.y = 0.82
-  knob.scale.y = 0.8
+  const knob = new Mesh(keep(new SphereGeometry(0.14, 14, 10)), gripDark)
+  knob.position.set(-0.05, 0.74, 0)
+  knob.scale.y = 0.82
   knob.castShadow = true
   g.add(knob)
 
-  // Half-sphere cup (open upward, tilted forward).
-  const cupMesh = new Mesh(keep(new SphereGeometry(0.27, 16, 10, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5)), cup)
-  cupMesh.position.set(0, -0.02, 0.12)
-  cupMesh.rotation.x = -0.35
-  cupMesh.scale.set(1.1, 0.9, 1.25)
+  // Wide open bucket, tipped toward the viewer.
+  const cupMesh = new Mesh(
+    keep(new SphereGeometry(0.38, 18, 12, 0, Math.PI * 2, Math.PI * 0.46, Math.PI * 0.54)),
+    cup,
+  )
+  cupMesh.position.set(0.02, 0.1, 0.06)
+  cupMesh.rotation.x = -0.42
+  cupMesh.scale.set(1.06, 1.15, 1.18)
   cupMesh.castShadow = true
   g.add(cupMesh)
 
-  const rim = new Mesh(keep(new TorusGeometry(0.29, 0.032, 8, 20)), cupDark)
-  rim.rotation.x = Math.PI / 2 - 0.35
-  rim.position.set(0, 0.0, 0.12)
-  rim.scale.set(1.1, 1.25, 1)
+  const rim = new Mesh(keep(new TorusGeometry(0.4, 0.045, 8, 22)), cupDark)
+  rim.rotation.x = Math.PI / 2 - 0.42
+  rim.position.set(0.02, 0.12, 0.06)
+  rim.scale.set(1.06, 1.18, 1)
   rim.castShadow = true
   g.add(rim)
 
-  // A little mound of sand sitting in the scoop — states the verb "pile".
-  const sandMat = mat('#e8cf9a', 0.98)
-  const sandBlob = new Mesh(keep(new SphereGeometry(0.2, 12, 8)), sandMat)
-  sandBlob.position.set(0, 0.02, 0.14)
-  sandBlob.scale.set(1.05, 0.5, 1.1)
+  // A heaped load of sand: the verb "pile", stated by the object itself.
+  const sandMat = mat('#ecd49c', 0.99)
+  const sandBlob = new Mesh(keep(new SphereGeometry(0.31, 14, 10)), sandMat)
+  sandBlob.position.set(0.02, 0.16, 0.08)
+  sandBlob.scale.set(1.12, 0.58, 1.2)
   g.add(sandBlob)
+  const grainMat = mat('#f6e6bd', 0.99)
+  for (const [gx, gz, gs] of [
+    [-0.13, 0.02, 0.9],
+    [0.12, 0.14, 0.75],
+    [0.0, -0.09, 0.8],
+  ] as Array<[number, number, number]>) {
+    const b = new Mesh(keep(new SphereGeometry(0.09, 8, 6)), grainMat)
+    b.position.set(0.02 + gx, 0.24, 0.08 + gz)
+    b.scale.setScalar(gs)
+    g.add(b)
+  }
 
   const tip = new Object3D()
-  tip.position.set(0, -0.12, 0.18)
+  tip.position.set(0, -0.16, 0.1)
   g.add(tip)
 
   return { id: 'mound', group: g, tip, dispose: () => bag.forEach((d) => d.dispose()) }

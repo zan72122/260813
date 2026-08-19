@@ -1,7 +1,7 @@
 import './style.css'
-import { ACESFilmicToneMapping, PCFSoftShadowMap, SRGBColorSpace, WebGLRenderer } from 'three'
+import { NoToneMapping, PCFSoftShadowMap, SRGBColorSpace, WebGLRenderer } from 'three'
 import { Game } from './game/game'
-import { isFastE2E } from './core/config'
+import { SOURCE_X, isFastE2E } from './core/config'
 import { clamp, now } from './core/util'
 
 const canvas = document.getElementById('gl') as HTMLCanvasElement
@@ -17,13 +17,13 @@ const renderer = new WebGLRenderer({
   stencil: false,
 })
 renderer.outputColorSpace = SRGBColorSpace
-renderer.toneMapping = ACESFilmicToneMapping
-renderer.toneMappingExposure = 1.02
+renderer.toneMapping = NoToneMapping
 renderer.shadowMap.enabled = !fast
 renderer.shadowMap.type = PCFSoftShadowMap
 renderer.setClearColor(0xbfe4f2, 1)
 
 const game = new Game(renderer, uiRoot)
+;(window as unknown as { __srcx: number }).__srcx = SOURCE_X
 
 // ---------------------------------------------------------------- viewport
 

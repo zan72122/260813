@@ -73,12 +73,7 @@ export class ToolTray {
       root.add(ring)
 
       const model = createTool(id)
-      // Models are authored Y-up; the overlay's Y grows downward.
-      model.group.scale.setScalar(1)
-      const holder = new Group()
-      holder.add(model.group)
-      holder.rotation.z = Math.PI // flip so tools stand upright in screen space
-      root.add(holder)
+      root.add(model.group)
 
       this.scene.add(root)
       this.slots.push({ id, root, model, disc, ring, x: 0, y: 0, radius: 40, hint: 0, press: 0 })
@@ -88,46 +83,37 @@ export class ToolTray {
   layout(w: number, h: number, safe: { top: number; right: number; bottom: number; left: number }): void {
     this.w = w
     this.h = h
+    // Keep a right-handed, Y-up frustum so face winding stays correct;
+    // pixel coordinates are converted on the way in.
     this.camera.left = 0
     this.camera.right = w
-    this.camera.top = 0
-    this.camera.bottom = h
+    this.camera.top = h
+    this.camera.bottom = 0
     this.camera.updateProjectionMatrix()
 
     const portrait = h >= w
+    // Targets stay at least ~88 px across on the smallest phone, and the
+    // landscape row is shallower so it eats less of a short screen.
     const radius = portrait
       ? Math.min(w * 0.135, h * 0.085, 62)
-      : Math.min(h * 0.135, w * 0.07, 58)
+      : Math.min(h * 0.118, w * 0.062, 54)
     const gap = radius * 2.42
     const n = this.slots.length
-
-    let cx: number
-    let cy: number
-    if (portrait) {
-      cx = w / 2 - gap
-      cy = h - safe.bottom - radius - Math.max(14, h * 0.022)
-    } else {
-      cx = safe.left + radius + 16
-      cy = h - safe.bottom - radius - 12
-    }
+    const cx = w / 2 - gap
+    const cy = h - safe.bottom - radius - Math.max(10, h * (portrait ? 0.022 : 0.018))
 
     for (let i = 0; i < n; i++) {
       const s = this.slots[i]
       s.radius = radius
-      if (portrait) {
-        s.x = cx + i * gap
-        s.y = cy
-      } else {
-        s.x = cx + i * gap
-        s.y = cy
-      }
-      s.root.position.set(s.x, s.y, 0)
+      s.x = cx + i * gap
+      s.y = cy
+      s.root.position.set(s.x, h - s.y, 0)
       s.disc.scale.setScalar(radius)
       s.ring.scale.setScalar(radius * 1.06)
       // Fit the ~1.2-unit-tall models inside the disc.
-      const inner = radius * 0.86
+      const inner = radius * 0.98
       s.model.group.scale.setScalar(inner)
-      s.model.group.position.set(0, inner * 0.34, 0)
+      s.model.group.position.set(0, -inner * 0.36, 0)
     }
   }
 
@@ -192,6 +178,24 @@ export class ToolTray {
   slotPos(id: ToolId): { x: number; y: number; r: number } | null {
     const s = this.slots.find((v) => v.id === id)
     return s ? { x: s.x, y: s.y, r: s.radius } : null
+  }
+
+  /** Screen fractions the tray occupies, for the camera to stay clear of. */
+  reserve(safe: { top: number; right: number; bottom: number; left: number }): {
+    top: number
+    right: number
+    bottom: number
+    left: number
+  } {
+    const portrait = this.h >= this.w
+    const s = this.slots[0]
+    const band = s ? s.radius * 2.4 : 100
+    return {
+      top: (safe.top + (portrait ? 74 : 12)) / this.h,
+      right: (safe.right + 10) / this.w,
+      bottom: (band + safe.bottom + 8) / this.h,
+      left: (safe.left + 10) / this.w,
+    }
   }
 
   get size(): { w: number; h: number } {
