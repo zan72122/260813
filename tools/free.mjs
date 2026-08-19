@@ -1,0 +1,28 @@
+import { launch, shot, drag, dbg } from './playtest.mjs'
+const { browser, page, errors } = await launch('phone', '?stage=free&build=1')
+await page.waitForTimeout(1800)
+await shot(page, 'F0-free-start')
+console.log('free', await dbg(page))
+// draw with rainbow
+const pots = await page.$$('.pot')
+console.log('pots in free', pots.length)
+await pots[4].click({ force: true })
+await drag(page, [{x:0.3,y:0.5},{x:0.5,y:0.34},{x:0.7,y:0.5}], 150, 8)
+await page.waitForTimeout(600)
+await shot(page, 'F1-rainbow-arc')
+console.log(await dbg(page))
+// vacuum
+await pots[5].click({ force: true })
+await page.waitForTimeout(200)
+console.log('tool', (await dbg(page)).tool)
+await drag(page, [{x:0.5,y:0.34},{x:0.62,y:0.42}], 200, 10)
+await page.waitForTimeout(700)
+await shot(page, 'F2-vacuumed')
+console.log('after vacuum', await dbg(page))
+// clear all
+await page.click('#clearbtn', { force: true })
+await page.waitForTimeout(900)
+await shot(page, 'F3-cleared')
+console.log('after clear', await dbg(page))
+console.log('ERR', errors.slice(0,15))
+await browser.close()
