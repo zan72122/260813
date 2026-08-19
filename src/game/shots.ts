@@ -31,7 +31,7 @@ export const SHOTS: Record<string, Shot> = {
   /** Scene 2: hands-on. The bed fills the frame; the basket sits within reach. */
   plant: biShot(
     { pos: [0, 1.05, 2.30], look: [0, 0.12, 0.26], fov: 62 },
-    { pos: [-0.16, 0.82, 1.86], look: [-0.14, 0.16, 0.22], fov: 52 },
+    { pos: [-0.06, 0.92, 2.28], look: [-0.05, 0.12, 0.22], fov: 47 },
     (s, life) => {
       // an almost imperceptible drift keeps the shot from feeling frozen
       s.pos.x += Math.sin(life * 0.22) * 0.03;
@@ -80,12 +80,13 @@ export const SHOTS: Record<string, Shot> = {
   /** Scene 7a: one flower, at a child's eye height, filling the frame. */
   firstBloom: biShot(
     { pos: [HERO.x - 0.40, 0.34, 1.14], look: [HERO.x, 0.30, HERO.z], fov: 50 },
-    { pos: [HERO.x - 0.56, 0.31, 0.82], look: [HERO.x, 0.29, HERO.z], fov: 36 },
-    (s, life) => {
+    { pos: [HERO.x - 0.80, 0.36, 1.08], look: [HERO.x, 0.32, HERO.z], fov: 38 },
+    (s, life, wide) => {
       const t = smootherstep(0, 5.0, life);
-      // ease in towards the bud as it swells, then hold
-      s.pos.z = lerp(s.pos.z, s.pos.z - 0.30, t);
-      s.pos.y = lerp(s.pos.y, s.pos.y + 0.05, t);
+      // ease in towards the bud as it swells, then hold. Landscape starts
+      // wider and moves less: its horizontal field is already generous.
+      s.pos.z -= t * lerp(0.30, 0.16, wide);
+      s.pos.y += t * 0.05;
     },
   ),
 

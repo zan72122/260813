@@ -18,7 +18,9 @@ await tapStart(page);
 await page.waitForTimeout(900);
 
 // let the intro play out
-await page.evaluate(() => window.__game.testAdvance(4.2));
+for (let i = 0; i < 30 && (await page.evaluate(() => window.__game.state)) !== 'plant'; i++) {
+  await page.evaluate(() => window.__game.testAdvance(0.5));
+}
 await page.waitForTimeout(300);
 note('state after intro: ' + await page.evaluate(() => window.__game.state));
 await page.screenshot({ path: `${OUT}/pt-${name}-1-plant.png` });

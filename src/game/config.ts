@@ -42,8 +42,15 @@ export const BULB = {
 };
 
 /** Where the basket sits, blended between portrait and landscape framings. */
+/*
+ * The basket, portrait and landscape.
+ *
+ * Landscape only shifts it sideways rather than out to the side of the bed:
+ * an iPad in landscape is 1.43:1, which is nothing like an iPhone's 2.16:1, and
+ * anything far off-axis simply falls outside the narrower frame.
+ */
 export const BASKET_P = new THREE.Vector3(0.0, 0, 1.06);
-export const BASKET_L = new THREE.Vector3(-1.34, 0, 0.54);
+export const BASKET_L = new THREE.Vector3(-0.66, 0, 1.06);
 export const BASKET_R = 0.21;
 
 /** Irrigation channel: runs left to right just beyond the planting row. */

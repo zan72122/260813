@@ -69,7 +69,9 @@ void main() {
   float ph = uTime * uWindSpeed + iParam.z + dot(iPos.xz, uWindDir) * 0.075;
   float w  = sin(ph) + 0.42 * sin(ph * 1.87 + 1.1);
   float h2 = aH * aH;
-  wp.xz += uWindDir * (w * uWindAmp * h2 * s * 6.0);
+  // ~0.1 m of sway at the flower head in the strongest breeze: a clear wave
+  // across the field without the plants folding over
+  wp.xz += uWindDir * (w * uWindAmp * h2 * s * 3.6);
   wp.y  -= abs(w) * uWindAmp * h2 * s * 0.9;
 
   vec4 world = modelMatrix * vec4(wp, 1.0);
@@ -142,7 +144,9 @@ void main() {
   vec3 wp = iPos
     + right * (q.x * iParam.x * mix(0.5, 1.0, grow))
     + vec3(0.0, 1.0, 0.0) * ((q.y + 0.5) * iParam.y * grow);
-  wp.xz += uWindDir * (sway * (q.y + 0.5) * iParam.y);
+  // a fixed lean, not proportional to the puff's size - distant clusters are
+  // metres wide and would shear apart if they swayed by their own height
+  wp.xz += uWindDir * (sway * (q.y + 0.5) * 0.55);
 
   vUv = uv;
   // stems and leaves below, flower colour above
